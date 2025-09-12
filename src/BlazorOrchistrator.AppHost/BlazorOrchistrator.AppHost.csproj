@@ -5,21 +5,36 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UserSecretsId>9b1b9863-e5e0-45c3-ae89-5602f79dbce3</UserSecretsId>
   </PropertyGroup>
 
   <Sdk Name="Aspire.AppHost.Sdk" Version="9.4.2" />
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" Version="9.4.2" />
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="9.4.2" />
     <PackageReference Include="Aspire.Hosting.SqlServer" Version="9.4.2" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="9.4.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj" />
     <ProjectReference Include="..\BlazorOrchistrator.Web\BlazorOrchistrator.Web.csproj" />
     <ProjectReference Include="..\BlazorOrchistrator.Scheduler\BlazorOrchistrator.Scheduler.csproj" />
+    <ProjectReference Include="..\BlazorOrchistrator.Agent\BlazorOrchistrator.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="!SQL\01.00.00.sql">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="DATABASE_FIX_README.md">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="!SQL\" />
   </ItemGroup>
 
 </Project>

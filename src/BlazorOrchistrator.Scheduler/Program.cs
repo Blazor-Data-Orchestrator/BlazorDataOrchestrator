@@ -8,10 +8,8 @@ builder.AddServiceDefaults();
 
 builder.Services.AddHostedService<Worker>();
 
-// Add Aspire integrations
-builder.AddSqlServerDbContext<SchedulerDbContext>("database");
-builder.AddAzureQueueServiceClient("queues");
-builder.AddAzureBlobServiceClient("blobs");
+// Add Aspire integrations - use the correct database name from AppHost
+builder.AddSqlServerDbContext<SchedulerDbContext>("blazororchestratordb");
 
 var host = builder.Build();
 

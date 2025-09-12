@@ -10,8 +10,8 @@ builder.AddServiceDefaults();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Add Aspire integrations
-builder.AddSqlServerDbContext<ApplicationDbContext>("database");
+// Add Aspire integrations - use the correct database name from AppHost
+builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
 
 var app = builder.Build();
 

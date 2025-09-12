@@ -8,8 +8,8 @@ builder.AddServiceDefaults();
 
 builder.Services.AddHostedService<Worker>();
 
-// Add Aspire integrations
-builder.AddSqlServerDbContext<AgentDbContext>("database");
+// Add Aspire integrations - use the correct database name from AppHost
+builder.AddSqlServerDbContext<AgentDbContext>("blazororchestratordb");
 builder.AddAzureQueueServiceClient("queues");
 builder.AddAzureBlobServiceClient("blobs");
 

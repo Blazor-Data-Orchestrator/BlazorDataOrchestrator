@@ -1,0 +1,16 @@
+{
+  "profiles": {
+    "BlazorOrchistrator.AppHost": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "https://localhost:15888;http://localhost:15889",
+        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "http://localhost:4317",
+        "ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL": "http://localhost:4318",
+        "ASPIRE_ALLOW_UNSECURED_TRANSPORT": "true"
+      },
+      "applicationUrl": "https://localhost:15888"
+    }
+  }
+}

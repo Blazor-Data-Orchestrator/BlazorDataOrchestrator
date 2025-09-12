@@ -1,36 +1,48 @@
 using Aspire.Hosting;
+using Aspire.Hosting.ApplicationModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// SQL Server database setup with local container
-var sqlPassword = builder.AddParameter("sqlPassword", secret: true);
-var sql = builder.AddSqlServer("sql", password: sqlPassword, port: 1433)
-    .WithDataVolume()
-    .AddDatabase("database");
+// Get the contents of: !SQL\01.00.00.sql
+// This script is used to create the database and tables for the LocalInternalAIChatBot application.
+// It is assumed that the script is located in the same directory as this Program.cs file.
+// If the script is located elsewhere, adjust the path accordingly.
+string scriptPath = Path.Combine(AppContext.BaseDirectory, "!SQL", "01.00.00.sql");
+string sqlScript = await File.ReadAllTextAsync(scriptPath);
 
-// Storage infrastructure
-var storage = builder.AddAzureStorage("storage");
+// Define a secret parameter for SA
+var saPassword = builder.AddParameter("sqlServer-password", secret: true);
+
+// Pass that parameter into AddSqlServer
+// Add a SQL Server container
+var sqlServer = builder.AddSqlServer("sqlServer", saPassword)
+    .WithEnvironment("ACCEPT_EULA", "Y")
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent);
+
+var db = sqlServer.AddDatabase("blazororchestratordb")
+    .WithCreationScript(sqlScript);
+
+// Add Azure Storage using the correct method for Aspire
+var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var queues = storage.AddQueues("queues");
 var blobs = storage.AddBlobs("blobs");
 
 // Blazor Server Web App
 var webApp = builder.AddProject<Projects.BlazorOrchistrator_Web>("webapp")
-    .WithReference(sql)
-    .WaitFor(sql);
+    .WithReference(db)
+    .WaitFor(db);
 
 // Scheduler service
 var scheduler = builder.AddProject<Projects.BlazorOrchistrator_Scheduler>("scheduler")
-    .WithReference(queues)
-    .WithReference(blobs)
-    .WithReference(sql)
-    .WaitFor(sql);
+    .WithReference(db)
+    .WaitFor(db);
 
-// Agent container with 2 replicas
-var agent = builder.AddContainer("agent", "ghcr.io/yourorg/BlazorOrchistrator-agent:latest")
+// Agent service - changed from container to project
+var agent = builder.AddProject<Projects.BlazorOrchistrator_Agent>("agent")
+    .WithReference(db)
     .WithReference(queues)
     .WithReference(blobs)
-    .WithReference(sql)
-    .WithEnvironment("REPLICAS", "2")
-    .WaitFor(sql);
+    .WaitFor(db);
 
 builder.Build().Run();

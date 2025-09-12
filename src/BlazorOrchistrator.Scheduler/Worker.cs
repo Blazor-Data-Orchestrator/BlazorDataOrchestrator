@@ -1,5 +1,3 @@
-using Azure.Storage.Blobs;
-using Azure.Storage.Queues;
 using BlazorOrchistrator.Scheduler.Data;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,17 +7,11 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly QueueServiceClient? _queueServiceClient;
-    private readonly BlobServiceClient? _blobServiceClient;
 
     public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        
-        // Optionally resolve Azure services if available
-        _queueServiceClient = serviceProvider.GetService<QueueServiceClient>();
-        _blobServiceClient = serviceProvider.GetService<BlobServiceClient>();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -30,20 +22,13 @@ public class Worker : BackgroundService
             {
                 _logger.LogInformation("Scheduler running at: {time}", DateTimeOffset.Now);
                 
-                if (_queueServiceClient != null)
-                    _logger.LogInformation("Queue service endpoint: {endpoint}", _queueServiceClient.Uri);
-                else
-                    _logger.LogInformation("Queue service: Not configured (development mode)");
-                    
-                if (_blobServiceClient != null)
-                    _logger.LogInformation("Blob service endpoint: {endpoint}", _blobServiceClient.Uri);
-                else
-                    _logger.LogInformation("Blob service: Not configured (development mode)");
-                
                 // Use scoped service for database operations
                 using var scope = _serviceProvider.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<SchedulerDbContext>();
                 _logger.LogInformation("Database context created successfully");
+                
+                // Add your scheduling logic here
+                // For example: check for pending tasks, execute them, etc.
             }
             await Task.Delay(10000, stoppingToken); // Run every 10 seconds
         }
