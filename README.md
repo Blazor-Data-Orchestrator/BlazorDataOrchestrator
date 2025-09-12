@@ -1,6 +1,6 @@
 # BlazorDataOrchestrator
 
-A Microsoft Aspire .NET 8 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
+A Microsoft Aspire .NET 9 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
 
 ## Architecture
 
