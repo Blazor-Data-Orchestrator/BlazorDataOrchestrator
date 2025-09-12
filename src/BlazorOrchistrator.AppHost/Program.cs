@@ -1,27 +1,36 @@
+using Aspire.Hosting;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// SQL Server database setup with local container
+var sqlPassword = builder.AddParameter("sqlPassword", secret: true);
+var sql = builder.AddSqlServer("sql", password: sqlPassword, port: 1433)
+    .WithDataVolume()
+    .AddDatabase("database");
 
 // Storage infrastructure
 var storage = builder.AddAzureStorage("storage");
 var queues = storage.AddQueues("queues");
 var blobs = storage.AddBlobs("blobs");
-var sql = builder.AddSqlServer("sql").AddDatabase("database");
 
 // Blazor Server Web App
-var webApp = builder.AddProject("webapp", "../BlazorOrchistrator.Web/BlazorOrchistrator.Web.csproj")
-    .WithReference(sql);
+var webApp = builder.AddProject<Projects.BlazorOrchistrator_Web>("webapp")
+    .WithReference(sql)
+    .WaitFor(sql);
 
 // Scheduler service
-var scheduler = builder.AddProject("scheduler", "../BlazorOrchistrator.Scheduler/BlazorOrchistrator.Scheduler.csproj")
+var scheduler = builder.AddProject<Projects.BlazorOrchistrator_Scheduler>("scheduler")
     .WithReference(queues)
     .WithReference(blobs)
-    .WithReference(sql);
+    .WithReference(sql)
+    .WaitFor(sql);
 
 // Agent container with 2 replicas
 var agent = builder.AddContainer("agent", "ghcr.io/yourorg/BlazorOrchistrator-agent:latest")
     .WithReference(queues)
     .WithReference(blobs)
     .WithReference(sql)
-    .WithEnvironment("REPLICAS", "2");
+    .WithEnvironment("REPLICAS", "2")
+    .WaitFor(sql);
 
-var app = builder.Build();
-app.Run();
+builder.Build().Run();

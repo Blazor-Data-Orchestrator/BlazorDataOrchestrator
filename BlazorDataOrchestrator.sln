@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.11010.61 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{70753FF1-06CD-4DC0-B227-C7757577C4D4}"
 EndProject
@@ -13,17 +13,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.Schedule
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.Agent", "src\BlazorOrchistrator.Agent\BlazorOrchistrator.Agent.csproj", "{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{4339EF0B-9517-4A7B-AA15-53AA71D38410}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.Tests", "tests\BlazorOrchistrator.Tests\BlazorOrchistrator.Tests.csproj", "{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.ServiceDefaults", "src\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj", "{CD4A1053-CC64-B007-6033-DB3F6F6539EE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{E2F64006-5246-49ED-8014-ABC9D120BE7A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -42,16 +37,21 @@ Global
 		{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81}.Release|Any CPU.Build.0 = Release|Any CPU
-		{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E2F64006-5246-49ED-8014-ABC9D120BE7A} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 		{4A075CED-36FD-4120-A8D5-6CA3123DEAEC} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 		{151EE721-F168-41D2-B3BA-6CEC6B698FAB} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 		{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
-		{AF862E2A-DBA5-4687-8CCE-D71FBBE35D66} = {4339EF0B-9517-4A7B-AA15-53AA71D38410}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {11A27BB6-A5A6-4A58-98F0-068BDC097557}
 	EndGlobalSection
 EndGlobal

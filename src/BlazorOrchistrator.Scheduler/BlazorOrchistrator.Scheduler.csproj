@@ -14,4 +14,9 @@
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="9.4.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.9" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj" />
+  </ItemGroup>
+
 </Project>
