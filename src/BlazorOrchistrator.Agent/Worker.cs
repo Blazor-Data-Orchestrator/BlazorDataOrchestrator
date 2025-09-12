@@ -12,13 +12,14 @@ public class Worker : BackgroundService
     private readonly QueueServiceClient _queueServiceClient;
     private readonly BlobServiceClient _blobServiceClient;
 
-    public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider,
-                  QueueServiceClient queueServiceClient, BlobServiceClient blobServiceClient)
+    public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _queueServiceClient = queueServiceClient;
-        _blobServiceClient = blobServiceClient;
+        
+        // Optionally resolve Azure services if available
+        _queueServiceClient = serviceProvider.GetService<QueueServiceClient>();
+        _blobServiceClient = serviceProvider.GetService<BlobServiceClient>();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -28,8 +29,16 @@ public class Worker : BackgroundService
             if (_logger.IsEnabled(LogLevel.Information))
             {
                 _logger.LogInformation("Agent running at: {time}", DateTimeOffset.Now);
-                _logger.LogInformation("Queue service endpoint: {endpoint}", _queueServiceClient?.Uri);
-                _logger.LogInformation("Blob service endpoint: {endpoint}", _blobServiceClient?.Uri);
+                
+                if (_queueServiceClient != null)
+                    _logger.LogInformation("Queue service endpoint: {endpoint}", _queueServiceClient.Uri);
+                else
+                    _logger.LogInformation("Queue service: Not configured (development mode)");
+                    
+                if (_blobServiceClient != null)
+                    _logger.LogInformation("Blob service endpoint: {endpoint}", _blobServiceClient.Uri);
+                else
+                    _logger.LogInformation("Blob service: Not configured (development mode)");
                 
                 // Use scoped service for database operations
                 using var scope = _serviceProvider.CreateScope();
