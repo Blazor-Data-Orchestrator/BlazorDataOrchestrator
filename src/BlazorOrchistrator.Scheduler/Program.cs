@@ -14,15 +14,15 @@ if (builder.Environment.IsDevelopment())
     
     // Note: Azure services would be configured when running with Aspire orchestration
     // builder.AddSqlServerDbContext<SchedulerDbContext>("database");
-    // builder.AddAzureQueueClient("queues");
-    // builder.AddAzureBlobClient("blobs");
+    // builder.AddAzureQueueServiceClient("queues");
+    // builder.AddAzureBlobServiceClient("blobs");
 }
 else
 {
     // Production or Aspire orchestration
     builder.AddSqlServerDbContext<SchedulerDbContext>("database");
-    builder.AddAzureQueueClient("queues");
-    builder.AddAzureBlobClient("blobs");
+    builder.AddAzureQueueServiceClient("queues");
+    builder.AddAzureBlobServiceClient("blobs");
 }
 
 var host = builder.Build();
