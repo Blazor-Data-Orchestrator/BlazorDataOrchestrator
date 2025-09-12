@@ -21,7 +21,7 @@ This solution implements the following components:
 
 ## Prerequisites
 
-- .NET 8.0 SDK
+- .NET 9.0 SDK
 - Docker Desktop (for container services)
 - Aspire workload: `dotnet workload install aspire`
 
