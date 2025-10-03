@@ -1,5 +1,17 @@
 {
   "profiles": {
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "https://localhost:17031;http://localhost:15164",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21225",
+        "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22153"
+      }
+    },
     "BlazorOrchistrator.AppHost": {
       "commandName": "Project",
       "launchBrowser": true,
