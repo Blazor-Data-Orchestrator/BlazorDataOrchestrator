@@ -5,6 +5,8 @@
 
 A Microsoft Aspire .NET 9 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
 
+<img width="972" height="393" alt="image" src="https://github.com/user-attachments/assets/12767a72-8928-463c-b278-962cfc2e3d2b" />
+
 ## Architecture
 
 This solution implements the following components:
