@@ -3,25 +3,17 @@ using Aspire.Hosting.ApplicationModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Get the contents of: !SQL\01.00.00.sql
-// This script is used to create the database and tables for the LocalInternalAIChatBot application.
-// It is assumed that the script is located in the same directory as this Program.cs file.
-// If the script is located elsewhere, adjust the path accordingly.
-string scriptPath = Path.Combine(AppContext.BaseDirectory, "!SQL", "01.00.00.sql");
-string sqlScript = await File.ReadAllTextAsync(scriptPath);
-
 // Define a secret parameter for SA
 var saPassword = builder.AddParameter("sqlServer-password", secret: true);
 
-// Pass that parameter into AddSqlServer
-// Add a SQL Server container
+// Add a SQL Server container (persistent)
 var sqlServer = builder.AddSqlServer("sqlServer", saPassword)
     .WithEnvironment("ACCEPT_EULA", "Y")
     .WithDataVolume()
     .WithLifetime(ContainerLifetime.Persistent);
 
-var db = sqlServer.AddDatabase("blazororchestratordb")
-    .WithCreationScript(sqlScript);
+// Create database without running schema script here (schema init moved to Web project)
+var db = sqlServer.AddDatabase("blazororchestratordb");
 
 // Add Azure Storage using the correct method for Aspire
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();

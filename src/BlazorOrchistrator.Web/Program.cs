@@ -1,5 +1,7 @@
 using BlazorOrchistrator.Web.Components;
 using BlazorOrchistrator.Web.Data;
+using Microsoft.Data.SqlClient;
+using System.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +14,13 @@ builder.Services.AddRazorComponents()
 
 // Add Aspire integrations - use the correct database name from AppHost
 builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
+
+// Register IDbConnection before building the app
+builder.Services.AddScoped<IDbConnection>(sp =>
+    new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Run the database initialization script at startup
+builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
 
 var app = builder.Build();
 
@@ -37,3 +46,24 @@ app.Run();
 
 // Make the Program class available for tests
 public partial class Program { }
+
+public class BackgroundInitializer : BackgroundService
+{
+    private readonly IServiceProvider _sp;
+    private readonly ILogger<BackgroundInitializer> _logger;
+    private readonly IConfiguration _configuration;
+
+    public BackgroundInitializer(IServiceProvider sp)
+    {
+        _sp = sp;
+        _logger = sp.GetRequiredService<ILogger<BackgroundInitializer>>();
+        _configuration = sp.GetRequiredService<IConfiguration>();
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
+        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+        await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+    }
+}

@@ -22,19 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="!SQL\01.00.00.sql">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="DATABASE_FIX_README.md">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="!SQL\" />
   </ItemGroup>
 
 </Project>
