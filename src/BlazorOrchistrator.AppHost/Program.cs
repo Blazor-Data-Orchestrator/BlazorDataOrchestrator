@@ -13,7 +13,7 @@ var sqlServer = builder.AddSqlServer("sqlServer", saPassword)
     .WithLifetime(ContainerLifetime.Persistent);
 
 var db = sqlServer.AddDatabase("blazororchestratordb")
-    .WithCreationScript(sqlScript);
+    ;
 
 // Add Azure Storage using the correct method for Aspire
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
