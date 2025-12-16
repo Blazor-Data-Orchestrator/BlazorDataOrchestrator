@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj" />
     <ProjectReference Include="..\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj" />
   </ItemGroup>
 
