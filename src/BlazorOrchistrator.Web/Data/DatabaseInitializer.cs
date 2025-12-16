@@ -8,10 +8,10 @@ public static class DatabaseInitializer
 {
     public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger)
     {
-        var connStr = configuration.GetConnectionString("DefaultConnection");
+        var connStr = configuration.GetConnectionString("blazororchestratordb");
         if (string.IsNullOrWhiteSpace(connStr))
         {
-            logger.LogWarning("No DefaultConnection string found; skipping database initialization.");
+            logger.LogWarning("No blazororchestratordb connection string found; skipping database initialization.");
             return;
         }
 

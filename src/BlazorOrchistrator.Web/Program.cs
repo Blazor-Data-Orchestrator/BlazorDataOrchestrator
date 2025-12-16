@@ -17,7 +17,7 @@ builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
 
 // Register IDbConnection before building the app
 builder.Services.AddScoped<IDbConnection>(sp =>
-    new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
+    new SqlConnection(builder.Configuration.GetConnectionString("blazororchestratordb")));
 
 // Run the database initialization script at startup
 builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
