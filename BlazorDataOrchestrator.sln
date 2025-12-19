@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.0.11010.61 d18.0
+VisualStudioVersion = 18.0.11010.61
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{70753FF1-06CD-4DC0-B227-C7757577C4D4}"
 EndProject
@@ -14,6 +14,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.Agent", "src\BlazorOrchistrator.Agent\BlazorOrchistrator.Agent.csproj", "{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchistrator.ServiceDefaults", "src\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj", "{CD4A1053-CC64-B007-6033-DB3F6F6539EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.Core", "BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj", "{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.JobCreatorTemplate", "BlazorDataOrchestrator.JobCreatorTemplate\BlazorDataOrchestrator.JobCreatorTemplate.csproj", "{220878BC-049D-428F-99FF-DD53B84C560D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -41,6 +45,14 @@ Global
 		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CD4A1053-CC64-B007-6033-DB3F6F6539EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{220878BC-049D-428F-99FF-DD53B84C560D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{220878BC-049D-428F-99FF-DD53B84C560D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{220878BC-049D-428F-99FF-DD53B84C560D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{220878BC-049D-428F-99FF-DD53B84C560D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -51,6 +63,8 @@ Global
 		{151EE721-F168-41D2-B3BA-6CEC6B698FAB} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 		{8DABB9FA-AEF5-4D1C-BCE7-EDEA7D267B81} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 		{CD4A1053-CC64-B007-6033-DB3F6F6539EE} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
+		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
+		{220878BC-049D-428F-99FF-DD53B84C560D} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {11A27BB6-A5A6-4A58-98F0-068BDC097557}

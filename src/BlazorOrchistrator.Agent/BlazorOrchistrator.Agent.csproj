@@ -9,13 +9,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
-    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.0.2" />
-    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.0.2" />
-    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.0.2" />
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
+    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.0" />
+    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.1" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj" />
     <ProjectReference Include="..\BlazorOrchistrator.ServiceDefaults\BlazorOrchistrator.ServiceDefaults.csproj" />
   </ItemGroup>
 

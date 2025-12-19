@@ -9,8 +9,8 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly QueueServiceClient _queueServiceClient;
-    private readonly BlobServiceClient _blobServiceClient;
+    private readonly QueueServiceClient? _queueServiceClient;
+    private readonly BlobServiceClient? _blobServiceClient;
 
     public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
     {
