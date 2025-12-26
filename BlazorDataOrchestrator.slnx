@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
+    <Project Path="BlazorDataOrchestrator.JobCreatorTemplate/BlazorDataOrchestrator.JobCreatorTemplate.csproj" />
+  </Folder>
+  <Project Path="src/BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" />
+  <Project Path="src/BlazorOrchestrator.AppHost/BlazorOrchestrator.AppHost.csproj" />
+  <Project Path="src/BlazorOrchestrator.Scheduler/BlazorOrchestrator.Scheduler.csproj" />
+  <Project Path="src/BlazorOrchestrator.ServiceDefaults/BlazorOrchestrator.ServiceDefaults.csproj" />
+  <Project Path="src/BlazorOrchestrator.Web/BlazorOrchestrator.Web.csproj" />
+</Solution>

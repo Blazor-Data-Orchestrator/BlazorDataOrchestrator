@@ -8,6 +8,11 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // Add Azure clients
+            builder.AddAzureBlobServiceClient("blobs");
+            builder.AddAzureTableServiceClient("tables");
+            builder.AddAzureQueueServiceClient("queues");
+
             // Add services to the container.
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
