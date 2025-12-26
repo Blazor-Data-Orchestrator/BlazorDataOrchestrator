@@ -17,12 +17,13 @@ builder.AddAzureQueueServiceClient("queues");
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+var connectionString = builder.Configuration.GetConnectionString("blazororchestratordb") ?? throw new InvalidOperationException("Connection string 'blazororchestratordb' not found.");
+
 // Add Aspire integrations - use the correct database name from AppHost
 builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
 
 // Register IDbConnection before building the app
-builder.Services.AddScoped<IDbConnection>(sp =>
-    new SqlConnection(builder.Configuration.GetConnectionString("blazororchestratordb")));
+builder.Services.AddScoped<IDbConnection>(sp => new SqlConnection(connectionString));
 
 // Run the database initialization script at startup
 builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));

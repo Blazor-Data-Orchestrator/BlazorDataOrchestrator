@@ -3,12 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.0.11010.61
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{70753FF1-06CD-4DC0-B227-C7757577C4D4}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.Core", "BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj", "{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.JobCreatorTemplate", "BlazorDataOrchestrator.JobCreatorTemplate\BlazorDataOrchestrator.JobCreatorTemplate.csproj", "{220878BC-049D-428F-99FF-DD53B84C560D}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchestrator.Agent", "src\BlazorOrchestrator.Agent\BlazorOrchestrator.Agent.csproj", "{610BCA7C-2276-79D6-8DC1-9F3A252E48CB}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchestrator.AppHost", "src\BlazorOrchestrator.AppHost\BlazorOrchestrator.AppHost.csproj", "{1BB3FF70-B4AA-8E98-E73B-DC3DA7B146DB}"
@@ -19,20 +13,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchestrator.ServiceD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorOrchestrator.Web", "src\BlazorOrchestrator.Web\BlazorOrchestrator.Web.csproj", "{34714689-ACEE-ACC6-BCF1-AA1715536CF2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.Core", "src\BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj", "{08630733-1B6D-7DC1-784A-9848CAC9A22A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorDataOrchestrator.JobCreatorTemplate", "src\BlazorDataOrchestrator.JobCreatorTemplate\BlazorDataOrchestrator.JobCreatorTemplate.csproj", "{D084D7D6-BA51-09B7-061A-839C9E8D9678}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{220878BC-049D-428F-99FF-DD53B84C560D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{220878BC-049D-428F-99FF-DD53B84C560D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{220878BC-049D-428F-99FF-DD53B84C560D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{220878BC-049D-428F-99FF-DD53B84C560D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{610BCA7C-2276-79D6-8DC1-9F3A252E48CB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{610BCA7C-2276-79D6-8DC1-9F3A252E48CB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{610BCA7C-2276-79D6-8DC1-9F3A252E48CB}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -53,13 +43,17 @@ Global
 		{34714689-ACEE-ACC6-BCF1-AA1715536CF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{34714689-ACEE-ACC6-BCF1-AA1715536CF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{34714689-ACEE-ACC6-BCF1-AA1715536CF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{08630733-1B6D-7DC1-784A-9848CAC9A22A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08630733-1B6D-7DC1-784A-9848CAC9A22A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08630733-1B6D-7DC1-784A-9848CAC9A22A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08630733-1B6D-7DC1-784A-9848CAC9A22A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D084D7D6-BA51-09B7-061A-839C9E8D9678}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D084D7D6-BA51-09B7-061A-839C9E8D9678}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D084D7D6-BA51-09B7-061A-839C9E8D9678}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D084D7D6-BA51-09B7-061A-839C9E8D9678}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{8262AE06-B1A1-47A1-A70C-42EAE8732D7F} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
-		{220878BC-049D-428F-99FF-DD53B84C560D} = {70753FF1-06CD-4DC0-B227-C7757577C4D4}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {11A27BB6-A5A6-4A58-98F0-068BDC097557}
