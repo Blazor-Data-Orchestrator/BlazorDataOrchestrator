@@ -1,4 +1,5 @@
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
+using BlazorOrchestrator.Web.Data.Data;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
@@ -12,6 +13,8 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.AddAzureBlobServiceClient("blobs");
             builder.AddAzureTableServiceClient("tables");
             builder.AddAzureQueueServiceClient("queues");
+
+            builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
 
             // Add services to the container.
             builder.Services.AddRazorComponents()
