@@ -7,6 +7,8 @@ A Microsoft Aspire .NET 9 solution that demonstrates a distributed application a
 
 <img width="972" height="393" alt="image" src="https://github.com/user-attachments/assets/12767a72-8928-463c-b278-962cfc2e3d2b" />
 
+<img width="957" height="790" alt="image" src="https://github.com/user-attachments/assets/be218ed3-a49b-4b61-aa35-89665958a698" />
+
 ## Architecture
 
 This solution implements the following components:
