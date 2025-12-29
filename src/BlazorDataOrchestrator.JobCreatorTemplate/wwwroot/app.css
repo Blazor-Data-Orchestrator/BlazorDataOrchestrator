@@ -1,5 +1,7 @@
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
 }
 
 a, .btn-link {
@@ -17,7 +19,12 @@ a, .btn-link {
 }
 
 .content {
-    padding-top: 1.1rem;
+    padding-top: 0;
+    padding: 0 !important;
+}
+
+.page {
+    padding: 0;
 }
 
 h1:focus {
@@ -57,4 +64,58 @@ h1:focus {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+/* Job Creator Styles */
+.rz-tabview-nav {
+    background: transparent !important;
+    border-bottom: none !important;
+}
+
+.rz-tabview-nav .rz-tabview-nav-link {
+    color: #888 !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 8px 16px !important;
+}
+
+.rz-tabview-nav .rz-tabview-nav-link.rz-state-active {
+    color: white !important;
+    background: #3c3c3c !important;
+    border-radius: 4px 4px 0 0 !important;
+}
+
+.rz-splitter {
+    border: none !important;
+}
+
+.rz-splitter-bar {
+    background: #404040 !important;
+}
+
+.rz-dropdown {
+    border-radius: 4px;
+}
+
+.rz-dropdown-label {
+    padding: 6px 12px;
+}
+
+/* Dark theme overrides for dropdowns */
+.rz-dropdown.rz-state-focused {
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.3) !important;
+}
+
+/* Monaco editor container styles */
+.monaco-editor-container {
+    border: none;
+}
+
+/* AI Chat customization */
+.rz-aichat {
+    height: 100%;
+}
+
+.rz-aichat-messages {
+    background: #252526;
 }

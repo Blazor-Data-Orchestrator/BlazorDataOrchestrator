@@ -1,7 +1,241 @@
 ﻿@page "/"
+@using Radzen
+@using Radzen.Blazor
+@using MonacoRazor
+@using SimpleBlazorMonaco
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Job Creator</PageTitle>
 
-<h1>Hello, world!</h1>
+<RadzenCard class="rz-shadow-4" Style="padding: 0; margin: 0; height: calc(100vh - 80px);">
+    <RadzenStack Gap="0" Style="height: 100%;">
+        @* Header with Tabs *@
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
+                     Style="background: #1e1e1e; padding: 8px 16px; border-bottom: 1px solid #333;">
+            <RadzenTabs TabPosition="TabPosition.Top" @bind-SelectedIndex="selectedTabIndex" 
+                        Style="flex-grow: 1;">
+                <Tabs>
+                    <RadzenTabsItem Text="Code" Icon="code" />
+                    <RadzenTabsItem Text="Logs" Icon="list_alt" />
+                </Tabs>
+            </RadzenTabs>
+        </RadzenStack>
 
-Welcome to your new app.
+        @* Main Content Area *@
+        <RadzenSplitter Orientation="Orientation.Horizontal" Style="flex-grow: 1; height: calc(100% - 120px);">
+            <RadzenSplitterPane Size="70%" Min="40%">
+                @* Editor Section *@
+                <RadzenStack Gap="0" Style="height: 100%; background: #1e1e1e;">
+                    @* Editor Toolbar *@
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
+                                 JustifyContent="JustifyContent.Start" Gap="12" 
+                                 Style="padding: 8px 16px; background: #2d2d2d; border-bottom: 1px solid #404040;">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
+                            <RadzenIcon Icon="menu" Style="color: #888;" />
+                            <RadzenDropDown @bind-Value="selectedFile" Data="@fileList" 
+                                            Style="background: #3c3c3c; color: white; border: 1px solid #555; min-width: 150px;"
+                                            AllowClear="false" />
+                        </RadzenStack>
+                        <RadzenDropDown @bind-Value="selectedLanguage" Data="@languageOptions" 
+                                        TextProperty="Name" ValueProperty="Value"
+                                        Style="background: #3c3c3c; color: white; border: 1px solid #555; min-width: 100px;"
+                                        Change="@OnLanguageChanged"
+                                        AllowClear="false" />
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="4" Style="margin-left: auto;">
+                            <RadzenButton Icon="home" ButtonStyle="ButtonStyle.Dark" Size="ButtonSize.Small" title="Home" />
+                            <RadzenButton Icon="star" ButtonStyle="ButtonStyle.Dark" Size="ButtonSize.Small" title="Favorites" />
+                        </RadzenStack>
+                    </RadzenStack>
+
+                    @* Code Editor *@
+                    <div style="flex-grow: 1; height: calc(100% - 50px); overflow: hidden;">
+                        @if (selectedTabIndex == 0)
+                        {
+                            <CodeEditor @ref="codeEditor"
+                                        Language="@GetMonacoLanguage()"
+                                        Code="@currentCode"
+                                        Height="100%"
+                                        Width="100%"
+                                        Border="0"
+                                        Margin="0" />
+                        }
+                        else
+                        {
+                            <RadzenCard Style="height: 100%; background: #1e1e1e; color: #d4d4d4; overflow: auto; padding: 16px; font-family: 'Consolas', monospace;">
+                                <pre style="margin: 0; white-space: pre-wrap;">@logOutput</pre>
+                            </RadzenCard>
+                        }
+                    </div>
+                </RadzenStack>
+            </RadzenSplitterPane>
+
+            <RadzenSplitterPane Size="30%" Min="20%">
+                @* Chat Section *@
+                <RadzenStack Gap="0" Style="height: 100%; background: #252526;">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
+                                 Style="padding: 12px 16px; background: #2d2d2d; border-bottom: 1px solid #404040;">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: white; margin: 0;">
+                            <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px;" />Chat
+                        </RadzenText>
+                    </RadzenStack>
+                    <div style="flex-grow: 1; overflow: hidden;">
+                        <RadzenAIChat @ref="aiChat" 
+                                      Style="height: 100%; --rz-aichat-background-color: #252526; --rz-text-color: #d4d4d4;"
+                                      ShowClearButton="true" />
+                    </div>
+                </RadzenStack>
+            </RadzenSplitterPane>
+        </RadzenSplitter>
+
+        @* Footer with Action Buttons *@
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
+                     JustifyContent="JustifyContent.Center" Gap="16" 
+                     Style="padding: 16px; background: #f5f5f5; border-top: 1px solid #ddd;">
+            <RadzenSplitButton Click="@OnRunCode" Text="Run Code [Development]" Icon="play_arrow"
+                               ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Medium">
+                <ChildContent>
+                    <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
+                    <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
+                </ChildContent>
+            </RadzenSplitButton>
+            <RadzenButton Text="Create NuGet Package" Icon="inventory_2" 
+                          ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Medium"
+                          Click="@OnCreatePackage" />
+        </RadzenStack>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    private CodeEditor? codeEditor;
+    private RadzenAIChat? aiChat;
+    private int selectedTabIndex = 0;
+    private string selectedFile = "program.cs";
+    private string selectedLanguage = "csharp";
+    private string currentCode = GetDefaultCSharpCode();
+    private string logOutput = "Ready to execute...";
+
+    private List<string> fileList = new List<string> { "program.cs", "helper.cs", "config.json" };
+
+    private List<LanguageOption> languageOptions = new List<LanguageOption>
+    {
+        new LanguageOption { Name = "C#", Value = "csharp" },
+        new LanguageOption { Name = "Python", Value = "python" }
+    };
+
+    public class LanguageOption
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+
+    private static string GetDefaultCSharpCode()
+    {
+        return @"using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace DataOrchestrator
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine(""Hello, Data Orchestrator!"");
+            
+            var processor = new DataProcessor();
+            processor.ProcessData();
+        }
+    }
+
+    public class DataProcessor
+    {
+        public void ProcessData()
+        {
+            var items = GetItems();
+            foreach (var item in items)
+            {
+                Console.WriteLine($""Processing: {item}"");
+            }
+        }
+
+        private IEnumerable<string> GetItems()
+        {
+            return new[] { ""Item1"", ""Item2"", ""Item3"" };
+        }
+    }
+}";
+    }
+
+    private static string GetDefaultPythonCode()
+    {
+        return @"import os
+import json
+from typing import List
+
+class DataProcessor:
+    def __init__(self):
+        self.items = []
+    
+    def process_data(self):
+        items = self.get_items()
+        for item in items:
+            print(f""Processing: {item}"")
+    
+    def get_items(self) -> List[str]:
+        return [""Item1"", ""Item2"", ""Item3""]
+
+if __name__ == ""__main__"":
+    print(""Hello, Data Orchestrator!"")
+    processor = DataProcessor()
+    processor.process_data()";
+    }
+
+    private string GetMonacoLanguage()
+    {
+        return selectedLanguage switch
+        {
+            "csharp" => "csharp",
+            "python" => "python",
+            _ => "csharp"
+        };
+    }
+
+    private async Task OnLanguageChanged(object value)
+    {
+        if (value is string lang)
+        {
+            selectedLanguage = lang;
+            currentCode = lang == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
+            selectedFile = lang == "python" ? "main.py" : "program.cs";
+            
+            if (codeEditor != null)
+            {
+                await codeEditor.UpdateCodeAsync(currentCode);
+                await codeEditor.UpdateLanguageAsync(GetMonacoLanguage());
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnRunCode(RadzenSplitButtonItem? item)
+    {
+        var environment = item?.Value?.ToString() ?? "Development";
+        logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
+        
+        if (codeEditor != null)
+        {
+            var currentCode = await codeEditor.GetCodeAsync();
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Code retrieved ({currentCode?.Length ?? 0} characters)\n";
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Compiling...\n";
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
+        }
+        
+        StateHasChanged();
+    }
+
+    private void OnCreatePackage()
+    {
+        logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created successfully!\n";
+        StateHasChanged();
+    }
+}

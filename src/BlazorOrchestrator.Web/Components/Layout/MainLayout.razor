@@ -2,7 +2,7 @@
 @using Dapper   
 @inherits LayoutComponentBase
 @inject IDbConnection Db // Or your actual DbContext/service
-
+<RadzenComponents @rendermode="InteractiveServer" />
 <div class="page">
     <div class="sidebar">
         <NavMenu />

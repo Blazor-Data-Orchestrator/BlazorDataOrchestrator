@@ -1,5 +1,7 @@
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
+using BlazorDataOrchestrator.JobCreatorTemplate.Services;
 using BlazorOrchestrator.Web.Data.Data;
+using Radzen;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
@@ -20,6 +22,11 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
+            builder.Services.AddRadzenComponents();
+            
+            // Register AI Chat Service for code assistance
+            builder.Services.AddScoped<IAIChatService, CodeAssistantChatService>();
+            
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.

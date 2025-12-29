@@ -17,6 +17,7 @@
     <ProjectReference Include="..\BlazorOrchestrator.Web\BlazorOrchestrator.Web.csproj" />
     <ProjectReference Include="..\BlazorOrchestrator.Scheduler\BlazorOrchestrator.Scheduler.csproj" />
     <ProjectReference Include="..\BlazorOrchestrator.Agent\BlazorOrchestrator.Agent.csproj" />
+    <ProjectReference Include="..\BlazorDataOrchestrator.JobCreatorTemplate\BlazorDataOrchestrator.JobCreatorTemplate.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json">

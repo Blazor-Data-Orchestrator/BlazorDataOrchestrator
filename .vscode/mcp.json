@@ -15,7 +15,12 @@
 				"-y",
 				"@playwright/mcp@latest"
 			]
-		}
+		},
+		"radzen.mcp": {
+      		"type": "stdio",
+      		"command": "radzen.mcp",
+      		"args": []
+    	}
 	},
 	"inputs": []
 }
