@@ -140,12 +140,27 @@
         if (fileList.Any())
         {
             selectedFile = fileList.First();
-            await LoadFileContent(selectedFile);
+            // Load the content into currentCode but don't try to update the editor yet
+            var path = Path.Combine(CodeFolderPath, selectedFile);
+            if (File.Exists(path))
+            {
+                currentCode = await File.ReadAllTextAsync(path);
+            }
         }
         else
         {
             // Fallback if no files found
             currentCode = selectedLanguage == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && codeEditor != null && !string.IsNullOrEmpty(currentCode))
+        {
+            await codeEditor.UpdateCodeAsync(currentCode);
+            var lang = selectedFile != null ? GetLanguageFromFile(selectedFile) : GetMonacoLanguage();
+            await codeEditor.UpdateLanguageAsync(lang);
         }
     }
 
