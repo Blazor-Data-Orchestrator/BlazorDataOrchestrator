@@ -3,93 +3,87 @@
 @using Radzen.Blazor
 @using MonacoRazor
 @using SimpleBlazorMonaco
+@using System.IO
+@using System.Text.Json
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Job Creator</PageTitle>
 
-<RadzenCard class="rz-shadow-4" Style="padding: 0; margin: 0; height: calc(100vh - 80px);">
+<RadzenCard class="rz-shadow-3" Style="padding: 0; margin: 16px; height: calc(100vh - 112px); border-radius: 16px; overflow: hidden; background: #ffffff;">
     <RadzenStack Gap="0" Style="height: 100%;">
         @* Header with Tabs *@
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
-                     Style="background: #1e1e1e; padding: 8px 16px; border-bottom: 1px solid #333;">
-            <RadzenTabs TabPosition="TabPosition.Top" @bind-SelectedIndex="selectedTabIndex" 
-                        Style="flex-grow: 1;">
-                <Tabs>
-                    <RadzenTabsItem Text="Code" Icon="code" />
-                    <RadzenTabsItem Text="Logs" Icon="list_alt" />
-                </Tabs>
-            </RadzenTabs>
-        </RadzenStack>
+        <RadzenTabs TabPosition="TabPosition.Top" @bind-SelectedIndex="selectedTabIndex"
+                    Style="flex-grow: 1; height: 100%;">
+            <Tabs>
+                <RadzenTabsItem Text="Code" Icon="code">
+                    @* Main Content Area *@
+                    <RadzenSplitter Orientation="Orientation.Horizontal" Style="height: calc(100vh - 180px);">
+                        <RadzenSplitterPane Size="70%" Min="40%">
+                            @* Editor Section *@
+                            <RadzenStack Gap="0" Style="height: 100%; background: #fafafa; border-radius: 12px;">
+                                @* Editor Toolbar *@
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             JustifyContent="JustifyContent.Start" Gap="12"
+                                             Style="padding: 12px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8; border-radius: 12px 12px 0 0;">
+                                    <RadzenDropDown @bind-Value="selectedLanguage" Data="@languageOptions"
+                                                    TextProperty="Name" ValueProperty="Value"
+                                                    Style="background: #ffffff; color: #333; border: 1px solid #ddd; border-radius: 8px; min-width: 100px;"
+                                                    Change="@OnLanguageChanged"
+                                                    AllowClear="false" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
+                                        <RadzenDropDown @bind-Value="selectedFile" Data="@fileList"
+                                                        Style="background: #ffffff; color: #333; border: 1px solid #ddd; border-radius: 8px; min-width: 150px;"
+                                                        Change="@OnFileChanged"
+                                                        AllowClear="false" />
+                                    </RadzenStack>
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="4" Style="margin-left: auto;">
+                                        <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" />
+                                    </RadzenStack>
+                                </RadzenStack>
 
-        @* Main Content Area *@
-        <RadzenSplitter Orientation="Orientation.Horizontal" Style="flex-grow: 1; height: calc(100% - 120px);">
-            <RadzenSplitterPane Size="70%" Min="40%">
-                @* Editor Section *@
-                <RadzenStack Gap="0" Style="height: 100%; background: #1e1e1e;">
-                    @* Editor Toolbar *@
-                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
-                                 JustifyContent="JustifyContent.Start" Gap="12" 
-                                 Style="padding: 8px 16px; background: #2d2d2d; border-bottom: 1px solid #404040;">
-                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
-                            <RadzenIcon Icon="menu" Style="color: #888;" />
-                            <RadzenDropDown @bind-Value="selectedFile" Data="@fileList" 
-                                            Style="background: #3c3c3c; color: white; border: 1px solid #555; min-width: 150px;"
-                                            AllowClear="false" />
-                        </RadzenStack>
-                        <RadzenDropDown @bind-Value="selectedLanguage" Data="@languageOptions" 
-                                        TextProperty="Name" ValueProperty="Value"
-                                        Style="background: #3c3c3c; color: white; border: 1px solid #555; min-width: 100px;"
-                                        Change="@OnLanguageChanged"
-                                        AllowClear="false" />
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="4" Style="margin-left: auto;">
-                            <RadzenButton Icon="home" ButtonStyle="ButtonStyle.Dark" Size="ButtonSize.Small" title="Home" />
-                            <RadzenButton Icon="star" ButtonStyle="ButtonStyle.Dark" Size="ButtonSize.Small" title="Favorites" />
-                        </RadzenStack>
-                    </RadzenStack>
+                                @* Code Editor *@
+                                <div style="flex-grow: 1; height: calc(100% - 50px); overflow: hidden; margin: 12px; border-radius: 8px; border: 1px solid #e8e8e8;">
+                                    <CodeEditor @ref="codeEditor"
+                                                Language="@GetMonacoLanguage()"
+                                                Code="@currentCode"
+                                                Height="100%"
+                                                Width="100%"
+                                                Border="0"
+                                                Margin="0" />
+                                </div>
+                            </RadzenStack>
+                        </RadzenSplitterPane>
 
-                    @* Code Editor *@
-                    <div style="flex-grow: 1; height: calc(100% - 50px); overflow: hidden;">
-                        @if (selectedTabIndex == 0)
-                        {
-                            <CodeEditor @ref="codeEditor"
-                                        Language="@GetMonacoLanguage()"
-                                        Code="@currentCode"
-                                        Height="100%"
-                                        Width="100%"
-                                        Border="0"
-                                        Margin="0" />
-                        }
-                        else
-                        {
-                            <RadzenCard Style="height: 100%; background: #1e1e1e; color: #d4d4d4; overflow: auto; padding: 16px; font-family: 'Consolas', monospace;">
-                                <pre style="margin: 0; white-space: pre-wrap;">@logOutput</pre>
-                            </RadzenCard>
-                        }
-                    </div>
-                </RadzenStack>
-            </RadzenSplitterPane>
-
-            <RadzenSplitterPane Size="30%" Min="20%">
-                @* Chat Section *@
-                <RadzenStack Gap="0" Style="height: 100%; background: #252526;">
-                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
-                                 Style="padding: 12px 16px; background: #2d2d2d; border-bottom: 1px solid #404040;">
-                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: white; margin: 0;">
-                            <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px;" />Chat
-                        </RadzenText>
-                    </RadzenStack>
-                    <div style="flex-grow: 1; overflow: hidden;">
-                        <RadzenAIChat @ref="aiChat" 
-                                      Style="height: 100%; --rz-aichat-background-color: #252526; --rz-text-color: #d4d4d4;"
-                                      ShowClearButton="true" />
-                    </div>
-                </RadzenStack>
-            </RadzenSplitterPane>
-        </RadzenSplitter>
+                        <RadzenSplitterPane Size="30%" Min="20%">
+                            @* Chat Section *@
+                            <RadzenStack Gap="0" Style="height: 100%; background: #f8f9fa; border-left: 1px solid #e8e8e8;">
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             Style="padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8;">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: #333; margin: 0; font-weight: 600;">
+                                        <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px; color: #5c6bc0;" />Chat
+                                    </RadzenText>
+                                </RadzenStack>
+                                <div style="flex-grow: 1; overflow: hidden; padding: 12px;">
+                                    <RadzenAIChat @ref="aiChat"
+                                                  Style="height: 100%; --rz-aichat-background-color: #ffffff; --rz-text-color: #333; border-radius: 12px;"
+                                                  ShowClearButton="true" />
+                                </div>
+                            </RadzenStack>
+                        </RadzenSplitterPane>
+                    </RadzenSplitter>
+                </RadzenTabsItem>
+                <RadzenTabsItem Text="Logs" Icon="list_alt">
+                    <RadzenCard Style="height: calc(100vh - 180px); background: #f8f9fa; color: #333; overflow: auto; padding: 20px; font-family: 'Consolas', 'Monaco', monospace; border-radius: 12px; margin: 12px;">
+                        <pre style="margin: 0; white-space: pre-wrap; background: #ffffff; padding: 16px; border-radius: 8px; border: 1px solid #e8e8e8;">@logOutput</pre>
+                    </RadzenCard>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
 
         @* Footer with Action Buttons *@
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
-                     JustifyContent="JustifyContent.Center" Gap="16" 
-                     Style="padding: 16px; background: #f5f5f5; border-top: 1px solid #ddd;">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     JustifyContent="JustifyContent.Center" Gap="16"
+                     Style="padding: 16px 24px; background: #ffffff; border-top: 1px solid #e8e8e8; border-radius: 0 0 16px 16px;">
             <RadzenSplitButton Click="@OnRunCode" Text="Run Code [Development]" Icon="play_arrow"
                                ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Medium">
                 <ChildContent>
@@ -97,7 +91,7 @@
                     <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
                 </ChildContent>
             </RadzenSplitButton>
-            <RadzenButton Text="Create NuGet Package" Icon="inventory_2" 
+            <RadzenButton Text="Create NuGet Package" Icon="inventory_2"
                           ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Medium"
                           Click="@OnCreatePackage" />
         </RadzenStack>
@@ -108,12 +102,12 @@
     private CodeEditor? codeEditor;
     private RadzenAIChat? aiChat;
     private int selectedTabIndex = 0;
-    private string selectedFile = "program.cs";
+    private string? selectedFile;
     private string selectedLanguage = "csharp";
-    private string currentCode = GetDefaultCSharpCode();
+    private string currentCode = "";
     private string logOutput = "Ready to execute...";
 
-    private List<string> fileList = new List<string> { "program.cs", "helper.cs", "config.json" };
+    private List<string> fileList = new List<string>();
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -127,66 +121,171 @@
         public string Value { get; set; } = "";
     }
 
-    private static string GetDefaultCSharpCode()
-    {
-        return @"using System;
-using System.Collections.Generic;
-using System.Linq;
+    private string CodeFolderPath => Path.Combine(Environment.ContentRootPath, "Code");
+    private string ConfigFilePath => Path.Combine(CodeFolderPath, "configuration.json");
 
-namespace DataOrchestrator
-{
-    public class Program
+    protected override async Task OnInitializedAsync()
     {
-        public static void Main(string[] args)
+        if (!Directory.Exists(CodeFolderPath))
         {
-            Console.WriteLine(""Hello, Data Orchestrator!"");
-            
-            var processor = new DataProcessor();
-            processor.ProcessData();
+            Directory.CreateDirectory(CodeFolderPath);
+        }
+
+        // Create default main files from templates if they don't exist
+        await CreateDefaultFilesIfNotExist();
+
+        LoadConfiguration();
+        LoadFiles();
+
+        if (fileList.Any())
+        {
+            selectedFile = fileList.First();
+            await LoadFileContent(selectedFile);
+        }
+        else
+        {
+            // Fallback if no files found
+            currentCode = selectedLanguage == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
         }
     }
 
-    public class DataProcessor
+    private async Task CreateDefaultFilesIfNotExist()
     {
-        public void ProcessData()
+        var mainCsPath = Path.Combine(CodeFolderPath, "main.cs");
+        var mainPyPath = Path.Combine(CodeFolderPath, "main.py");
+
+        if (!File.Exists(mainCsPath))
         {
-            var items = GetItems();
-            foreach (var item in items)
+            var csharpTemplate = GetDefaultCSharpCode();
+            await File.WriteAllTextAsync(mainCsPath, csharpTemplate);
+        }
+
+        if (!File.Exists(mainPyPath))
+        {
+            var pythonTemplate = GetDefaultPythonCode();
+            await File.WriteAllTextAsync(mainPyPath, pythonTemplate);
+        }
+    }
+
+    private void LoadConfiguration()
+    {
+        try
+        {
+            if (File.Exists(ConfigFilePath))
             {
-                Console.WriteLine($""Processing: {item}"");
+                var json = File.ReadAllText(ConfigFilePath);
+                var config = JsonSerializer.Deserialize<Configuration>(json);
+                if (config != null && !string.IsNullOrEmpty(config.SelectedLanguage))
+                {
+                    selectedLanguage = config.SelectedLanguage;
+                }
+            }
+            else
+            {
+                SaveConfiguration();
             }
         }
-
-        private IEnumerable<string> GetItems()
+        catch (Exception ex)
         {
-            return new[] { ""Item1"", ""Item2"", ""Item3"" };
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error loading config: {ex.Message}\n";
         }
     }
-}";
+
+    private void SaveConfiguration()
+    {
+        try
+        {
+            var config = new Configuration { SelectedLanguage = selectedLanguage };
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error saving config: {ex.Message}\n";
+        }
+    }
+
+    private void LoadFiles()
+    {
+        fileList.Clear();
+        if (!Directory.Exists(CodeFolderPath)) return;
+
+        var allFiles = Directory.GetFiles(CodeFolderPath);
+        foreach (var file in allFiles)
+        {
+            var fileName = Path.GetFileName(file);
+            if (fileName.Equals("configuration.json", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            bool include = false;
+
+            if (selectedLanguage == "csharp")
+            {
+                if (ext == ".cs" || ext == ".json") include = true;
+            }
+            else if (selectedLanguage == "python")
+            {
+                if (ext == ".py" || ext == ".txt" || ext == ".json") include = true;
+            }
+
+            if (include)
+            {
+                fileList.Add(fileName);
+            }
+        }
+    }
+
+    private async Task LoadFileContent(string fileName)
+    {
+        try
+        {
+            var path = Path.Combine(CodeFolderPath, fileName);
+            if (File.Exists(path))
+            {
+                currentCode = await File.ReadAllTextAsync(path);
+                var lang = GetLanguageFromFile(fileName);
+                if (codeEditor != null)
+                {
+                    await codeEditor.UpdateCodeAsync(currentCode);
+                    await codeEditor.UpdateLanguageAsync(lang);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error loading file '{fileName}': {ex.Message}\n";
+        }
+    }
+
+    private static string GetDefaultCSharpCode()
+    {
+        return LoadTemplateFromResource("DefaultCSharpTemplate.txt");
     }
 
     private static string GetDefaultPythonCode()
     {
-        return @"import os
-import json
-from typing import List
+        return LoadTemplateFromResource("DefaultPythonTemplate.txt");
+    }
 
-class DataProcessor:
-    def __init__(self):
-        self.items = []
-    
-    def process_data(self):
-        items = self.get_items()
-        for item in items:
-            print(f""Processing: {item}"")
-    
-    def get_items(self) -> List[str]:
-        return [""Item1"", ""Item2"", ""Item3""]
+    private static string LoadTemplateFromResource(string templateFileName)
+    {
+        var assembly = typeof(Home).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(templateFileName, StringComparison.OrdinalIgnoreCase));
 
-if __name__ == ""__main__"":
-    print(""Hello, Data Orchestrator!"")
-    processor = DataProcessor()
-    processor.process_data()";
+        if (resourceName == null)
+        {
+            return $"// Template '{templateFileName}' not found";
+        }
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+        {
+            return $"// Could not load template '{templateFileName}'";
+        }
+
+        using var reader = new System.IO.StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private string GetMonacoLanguage()
@@ -199,18 +298,52 @@ if __name__ == ""__main__"":
         };
     }
 
+    private string GetLanguageFromFile(string fileName)
+    {
+        var extension = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
+        {
+            ".cs" => "csharp",
+            ".py" => "python",
+            ".json" => "json",
+            ".js" => "javascript",
+            ".ts" => "typescript",
+            _ => "plaintext"
+        };
+    }
+
+    private async Task OnFileChanged(object value)
+    {
+        if (value is string fileName)
+        {
+            selectedFile = fileName;
+            await LoadFileContent(fileName);
+        }
+        StateHasChanged();
+    }
+
     private async Task OnLanguageChanged(object value)
     {
         if (value is string lang)
         {
             selectedLanguage = lang;
-            currentCode = lang == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
-            selectedFile = lang == "python" ? "main.py" : "program.cs";
-            
-            if (codeEditor != null)
+            SaveConfiguration();
+            LoadFiles();
+
+            if (fileList.Any())
             {
-                await codeEditor.UpdateCodeAsync(currentCode);
-                await codeEditor.UpdateLanguageAsync(GetMonacoLanguage());
+                selectedFile = fileList.First();
+                await LoadFileContent(selectedFile);
+            }
+            else
+            {
+                selectedFile = null;
+                currentCode = lang == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
+                if (codeEditor != null)
+                {
+                    await codeEditor.UpdateCodeAsync(currentCode);
+                    await codeEditor.UpdateLanguageAsync(GetMonacoLanguage());
+                }
             }
         }
         StateHasChanged();
@@ -220,7 +353,7 @@ if __name__ == ""__main__"":
     {
         var environment = item?.Value?.ToString() ?? "Development";
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
-        
+
         if (codeEditor != null)
         {
             var currentCode = await codeEditor.GetCodeAsync();
@@ -228,7 +361,7 @@ if __name__ == ""__main__"":
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Compiling...\n";
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
         }
-        
+
         StateHasChanged();
     }
 
@@ -237,5 +370,32 @@ if __name__ == ""__main__"":
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created successfully!\n";
         StateHasChanged();
+    }
+
+    private async Task OnSaveFile()
+    {
+        if (codeEditor != null)
+        {
+            var code = await codeEditor.GetCodeAsync();
+            if (!string.IsNullOrEmpty(selectedFile) && code != null)
+            {
+                try 
+                {
+                    var path = Path.Combine(CodeFolderPath, selectedFile);
+                    await File.WriteAllTextAsync(path, code);
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
+                }
+                catch (Exception ex)
+                {
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
+                }
+                StateHasChanged();
+            }
+        }
+    }
+
+    private class Configuration
+    {
+        public string SelectedLanguage { get; set; } = "csharp";
     }
 }

@@ -22,4 +22,12 @@
     <ProjectReference Include="..\BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\*.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Code\" />
+  </ItemGroup>
+
 </Project>
