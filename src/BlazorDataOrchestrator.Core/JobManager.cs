@@ -337,5 +337,87 @@ namespace BlazorDataOrchestrator.Core
                 }
             }
         }
+
+        /// <summary>
+        /// Logs progress for a job instance. This method is designed to be called from dynamically executed job scripts.
+        /// </summary>
+        /// <param name="dbContext">The database context</param>
+        /// <param name="jobInstanceId">The job instance ID</param>
+        /// <param name="message">The log message</param>
+        /// <param name="level">The log level (Info, Warning, Error, Debug)</param>
+        public static async Task LogProgress(ApplicationDbContext dbContext, int jobInstanceId, string message, string level)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [{level}] {message}");
+
+            if (dbContext != null && jobInstanceId > 0)
+            {
+                try
+                {
+                    var jobData = new JobDatum
+                    {
+                        JobId = (await dbContext.JobInstances
+                            .Include(i => i.JobSchedule)
+                            .FirstOrDefaultAsync(i => i.Id == jobInstanceId))?.JobSchedule?.JobId ?? 0,
+                        JobFieldDescription = $"Log_{level}_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                        JobStringValue = message,
+                        CreatedDate = DateTime.UtcNow,
+                        CreatedBy = "JobExecutor"
+                    };
+
+                    if (jobData.JobId > 0)
+                    {
+                        dbContext.JobData.Add(jobData);
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
+                catch { /* Fail silently if logging fails */ }
+            }
+        }
+
+        /// <summary>
+        /// Logs an error for a job instance. This method is designed to be called from dynamically executed job scripts.
+        /// </summary>
+        /// <param name="dbContext">The database context</param>
+        /// <param name="jobInstanceId">The job instance ID</param>
+        /// <param name="message">The error message</param>
+        /// <param name="stackTrace">The stack trace</param>
+        public static async Task LogError(ApplicationDbContext dbContext, int jobInstanceId, string message, string stackTrace)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [ERROR] {message}");
+
+            if (dbContext != null && jobInstanceId > 0)
+            {
+                try
+                {
+                    var instance = await dbContext.JobInstances
+                        .Include(i => i.JobSchedule)
+                        .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+
+                    if (instance != null)
+                    {
+                        instance.HasError = true;
+                        instance.UpdatedDate = DateTime.UtcNow;
+                        instance.UpdatedBy = "JobExecutor";
+
+                        var jobData = new JobDatum
+                        {
+                            JobId = instance.JobSchedule?.JobId ?? 0,
+                            JobFieldDescription = $"Error_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                            JobStringValue = $"{message}\n{stackTrace}",
+                            CreatedDate = DateTime.UtcNow,
+                            CreatedBy = "JobExecutor"
+                        };
+
+                        if (jobData.JobId > 0)
+                        {
+                            dbContext.JobData.Add(jobData);
+                        }
+
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
+                catch { /* Fail silently if logging fails */ }
+            }
+        }
     }
 }
