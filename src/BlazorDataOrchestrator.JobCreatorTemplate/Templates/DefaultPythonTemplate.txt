@@ -161,7 +161,7 @@ class JobLogger:
             self.connection.close()
 
 
-def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int):
+def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int) -> list[str]:
     """
     Execute the job with the given parameters.
     Logs are partitioned by '{JobId}-{JobInstanceId}' for efficient querying.
@@ -173,6 +173,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         job_instance_id: The ID of this specific job instance
         job_schedule_id: The ID of the job schedule
     """
+    logs = []
     # Parse connection strings from app_settings
     connection_string = ""
     table_connection_string = ""
@@ -192,11 +193,15 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     
     try:
         logger.log_progress("Job started")
+        logs.append("Job started")
         print(f"Executing Job ID: {job_id}, Instance: {job_instance_id}, Schedule: {job_schedule_id}, Agent: {job_agent_id}")
+        logs.append(f"Executing Job ID: {job_id}, Instance: {job_instance_id}, Schedule: {job_schedule_id}, Agent: {job_agent_id}")
         print(f"Log partition key: {job_id}-{job_instance_id}")
+        logs.append(f"Log partition key: {job_id}-{job_instance_id}")
         
         # Fetch weather data for Los Angeles, CA
         logger.log_progress("Fetching weather data for Los Angeles, CA")
+        logs.append("Fetching weather data for Los Angeles, CA")
         
         # Using wttr.in as a free weather API (weather.com requires API key)
         weather_url = "https://wttr.in/Los+Angeles,CA?format=j1"
@@ -219,23 +224,30 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 weather_info = f"Los Angeles, CA - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
                 print(weather_info)
                 logger.log_progress(weather_info)
+                logs.append(weather_info)
                 
         except urllib.error.URLError as e:
             error_msg = f"Failed to fetch weather data: {e.reason}"
             print(error_msg)
             logger.log_progress(error_msg, "Warning")
+            logs.append(error_msg)
         except Exception as e:
             error_msg = f"Error processing weather data: {str(e)}"
             print(error_msg)
             logger.log_progress(error_msg, "Warning")
+            logs.append(error_msg)
         
         logger.log_progress("Job completed successfully")
+        logs.append("Job completed successfully")
         
     except Exception as e:
         import traceback
         error_msg = f"Job execution error: {str(e)}"
         stack_trace = traceback.format_exc()
         logger.log_error(error_msg, stack_trace)
+        logs.append(error_msg)
         raise
     finally:
         logger.close()
+    
+    return logs

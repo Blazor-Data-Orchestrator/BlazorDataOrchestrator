@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -10,8 +11,10 @@ namespace DataOrchestrator
 {
     public class Program
     {
-        public static async Task ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
+        public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
         {
+            var logs = new List<string>();
+
             // Parse connection strings from appSettings JSON
             string connectionString = "";
             string tableConnectionString = "";
@@ -50,11 +53,15 @@ namespace DataOrchestrator
                 }
 
                 await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info", tableConnectionString);
+                logs.Add("Job started");
                 Console.WriteLine($"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}");
+                logs.Add($"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}");
                 Console.WriteLine($"Log partition key: {jobId}-{jobInstanceId}");
+                logs.Add($"Log partition key: {jobId}-{jobInstanceId}");
 
                 // Fetch weather data for Los Angeles, CA
                 await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
+                logs.Add("Fetching weather data for Los Angeles, CA");
                 
                 using var httpClient = new HttpClient();
                 httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
@@ -77,27 +84,33 @@ namespace DataOrchestrator
                     string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                     Console.WriteLine(weatherInfo);
                     await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
+                    logs.Add(weatherInfo);
                 }
                 catch (HttpRequestException ex)
                 {
                     string errorMsg = $"Failed to fetch weather data: {ex.Message}";
                     Console.WriteLine(errorMsg);
                     await JobManager.LogProgress(dbContext, jobInstanceId, errorMsg, "Warning", tableConnectionString);
+                    logs.Add(errorMsg);
                 }
 
                 await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully", "Info", tableConnectionString);
+                logs.Add("Job completed successfully");
             }
             catch (Exception ex)
             {
                 string errorMsg = $"Job execution error: {ex.Message}";
                 Console.WriteLine(errorMsg);
                 await JobManager.LogError(dbContext, jobInstanceId, errorMsg, ex.StackTrace, tableConnectionString);
+                logs.Add(errorMsg);
                 throw;
             }
             finally
             {
                 dbContext?.Dispose();
             }
+
+            return logs;
         }
     }
 }
