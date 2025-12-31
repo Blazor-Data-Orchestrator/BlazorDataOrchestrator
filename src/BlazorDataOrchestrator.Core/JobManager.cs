@@ -13,6 +13,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BlazorDataOrchestrator.Core
 {
+    /// <summary>
+    /// Represents a log entry from Azure Table Storage.
+    /// </summary>
+    public class JobLogEntry
+    {
+        public string PartitionKey { get; set; } = "";
+        public string RowKey { get; set; } = "";
+        public string Action { get; set; } = "";
+        public string Details { get; set; } = "";
+        public string Level { get; set; } = "Info";
+        public DateTime Timestamp { get; set; }
+        public int JobId { get; set; }
+        public int JobInstanceId { get; set; }
+    }
+
     public class JobManager
     {
         private readonly string _sqlConnectionString;
@@ -51,16 +66,25 @@ namespace BlazorDataOrchestrator.Core
             return new ApplicationDbContext(optionsBuilder.Options);
         }
 
-        private async Task LogAsync(string action, string details, string level = "Info")
+        private async Task LogAsync(string action, string details, string level = "Info", int? jobId = null, int? jobInstanceId = null)
         {
             try
             {
-                var entity = new TableEntity(DateTime.UtcNow.ToString("yyyyMMdd"), Guid.NewGuid().ToString())
+                // Partition key format: {JobId}-{JobInstanceId} if available, otherwise fallback to date-based partitioning
+                string partitionKey = jobId.HasValue && jobInstanceId.HasValue
+                    ? $"{jobId.Value}-{jobInstanceId.Value}"
+                    : jobId.HasValue
+                        ? $"{jobId.Value}-0"
+                        : DateTime.UtcNow.ToString("yyyyMMdd");
+
+                var entity = new TableEntity(partitionKey, Guid.NewGuid().ToString())
                 {
                     { "Action", action },
                     { "Details", details },
                     { "Level", level },
-                    { "Timestamp", DateTime.UtcNow }
+                    { "Timestamp", DateTime.UtcNow },
+                    { "JobId", jobId ?? 0 },
+                    { "JobInstanceId", jobInstanceId ?? 0 }
                 };
                 await _logTableClient.AddEntityAsync(entity);
             }
@@ -70,8 +94,80 @@ namespace BlazorDataOrchestrator.Core
             }
         }
 
+        /// <summary>
+        /// Gets the latest job instance ID for a given job ID.
+        /// </summary>
+        /// <param name="jobId">The job ID to look up</param>
+        /// <returns>The latest job instance ID, or null if not found</returns>
+        public async Task<int?> GetLatestJobInstanceIdAsync(int jobId)
+        {
+            using var context = CreateDbContext();
+            var latestInstance = await context.JobInstances
+                .Include(i => i.JobSchedule)
+                .Where(i => i.JobSchedule.JobId == jobId)
+                .OrderByDescending(i => i.CreatedDate)
+                .FirstOrDefaultAsync();
+
+            return latestInstance?.Id;
+        }
+
+        /// <summary>
+        /// Gets log entries for a specific job and job instance from Azure Table Storage.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="jobInstanceId">The job instance ID</param>
+        /// <param name="maxResults">Maximum number of results to return (default 100)</param>
+        /// <returns>List of log entries</returns>
+        public async Task<List<JobLogEntry>> GetLogsForJobInstanceAsync(int jobId, int jobInstanceId, int maxResults = 100)
+        {
+            var logs = new List<JobLogEntry>();
+            try
+            {
+                string partitionKey = $"{jobId}-{jobInstanceId}";
+                var queryResults = _logTableClient.QueryAsync<TableEntity>(
+                    filter: $"PartitionKey eq '{partitionKey}'",
+                    maxPerPage: maxResults);
+
+                await foreach (var entity in queryResults)
+                {
+                    logs.Add(new JobLogEntry
+                    {
+                        PartitionKey = entity.PartitionKey,
+                        RowKey = entity.RowKey,
+                        Action = entity.GetString("Action"),
+                        Details = entity.GetString("Details"),
+                        Level = entity.GetString("Level"),
+                        Timestamp = entity.GetDateTime("Timestamp") ?? DateTime.UtcNow,
+                        JobId = entity.GetInt32("JobId") ?? 0,
+                        JobInstanceId = entity.GetInt32("JobInstanceId") ?? 0
+                    });
+                }
+            }
+            catch
+            {
+                // Return empty list on error
+            }
+            return logs.OrderByDescending(l => l.Timestamp).Take(maxResults).ToList();
+        }
+
+        /// <summary>
+        /// Gets logs for the latest job instance of a given job.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="maxResults">Maximum number of results to return</param>
+        /// <returns>List of log entries for the latest job instance</returns>
+        public async Task<List<JobLogEntry>> GetLogsForLatestJobInstanceAsync(int jobId, int maxResults = 100)
+        {
+            var latestInstanceId = await GetLatestJobInstanceIdAsync(jobId);
+            if (!latestInstanceId.HasValue)
+            {
+                return new List<JobLogEntry>();
+            }
+            return await GetLogsForJobInstanceAsync(jobId, latestInstanceId.Value, maxResults);
+        }
+
         // #1 Create New Job
-        public async Task<int> CreateNewJobAsync(Job job, string jobGroupName = null, string jobOrganizationName = null)
+        public async Task<int> CreateNewJobAsync(Job job, string? jobGroupName = null, string? jobOrganizationName = null)
         {
             using var context = CreateDbContext();
             await LogAsync("CreateNewJob", $"Creating job {job.JobName}");
@@ -340,25 +436,32 @@ namespace BlazorDataOrchestrator.Core
 
         /// <summary>
         /// Logs progress for a job instance. This method is designed to be called from dynamically executed job scripts.
+        /// Logs to both the database (JobData table) and Azure Table Storage with partition key "{JobId}-{JobInstanceId}".
         /// </summary>
         /// <param name="dbContext">The database context</param>
         /// <param name="jobInstanceId">The job instance ID</param>
         /// <param name="message">The log message</param>
         /// <param name="level">The log level (Info, Warning, Error, Debug)</param>
-        public static async Task LogProgress(ApplicationDbContext dbContext, int jobInstanceId, string message, string level)
+        /// <param name="tableConnectionString">Optional Azure Table Storage connection string for additional logging</param>
+        public static async Task LogProgress(ApplicationDbContext? dbContext, int jobInstanceId, string message, string level, string? tableConnectionString = null)
         {
             Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [{level}] {message}");
 
+            int jobId = 0;
             if (dbContext != null && jobInstanceId > 0)
             {
                 try
                 {
+                    var instance = await dbContext.JobInstances
+                        .Include(i => i.JobSchedule)
+                        .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+
+                    jobId = instance?.JobSchedule?.JobId ?? 0;
+
                     var jobData = new JobDatum
                     {
-                        JobId = (await dbContext.JobInstances
-                            .Include(i => i.JobSchedule)
-                            .FirstOrDefaultAsync(i => i.Id == jobInstanceId))?.JobSchedule?.JobId ?? 0,
-                        JobFieldDescription = $"Log_{level}_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                        JobId = jobId,
+                        JobFieldDescription = $"Log_{level}_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}",
                         JobStringValue = message,
                         CreatedDate = DateTime.UtcNow,
                         CreatedBy = "JobExecutor"
@@ -372,19 +475,46 @@ namespace BlazorDataOrchestrator.Core
                 }
                 catch { /* Fail silently if logging fails */ }
             }
+
+            // Also log to Azure Table Storage with partition key "{JobId}-{JobInstanceId}"
+            if (!string.IsNullOrEmpty(tableConnectionString) && jobId > 0)
+            {
+                try
+                {
+                    var tableServiceClient = new TableServiceClient(tableConnectionString);
+                    var logTableClient = tableServiceClient.GetTableClient("JobLogs");
+                    await logTableClient.CreateIfNotExistsAsync();
+
+                    string partitionKey = $"{jobId}-{jobInstanceId}";
+                    var entity = new TableEntity(partitionKey, Guid.NewGuid().ToString())
+                    {
+                        { "Action", "JobProgress" },
+                        { "Details", message },
+                        { "Level", level },
+                        { "Timestamp", DateTime.UtcNow },
+                        { "JobId", jobId },
+                        { "JobInstanceId", jobInstanceId }
+                    };
+                    await logTableClient.AddEntityAsync(entity);
+                }
+                catch { /* Fail silently if table logging fails */ }
+            }
         }
 
         /// <summary>
         /// Logs an error for a job instance. This method is designed to be called from dynamically executed job scripts.
+        /// Logs to both the database (JobData table) and Azure Table Storage with partition key "{JobId}-{JobInstanceId}".
         /// </summary>
         /// <param name="dbContext">The database context</param>
         /// <param name="jobInstanceId">The job instance ID</param>
         /// <param name="message">The error message</param>
         /// <param name="stackTrace">The stack trace</param>
-        public static async Task LogError(ApplicationDbContext dbContext, int jobInstanceId, string message, string stackTrace)
+        /// <param name="tableConnectionString">Optional Azure Table Storage connection string for additional logging</param>
+        public static async Task LogError(ApplicationDbContext? dbContext, int jobInstanceId, string message, string? stackTrace, string? tableConnectionString = null)
         {
             Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [ERROR] {message}");
 
+            int jobId = 0;
             if (dbContext != null && jobInstanceId > 0)
             {
                 try
@@ -395,14 +525,15 @@ namespace BlazorDataOrchestrator.Core
 
                     if (instance != null)
                     {
+                        jobId = instance.JobSchedule?.JobId ?? 0;
                         instance.HasError = true;
                         instance.UpdatedDate = DateTime.UtcNow;
                         instance.UpdatedBy = "JobExecutor";
 
                         var jobData = new JobDatum
                         {
-                            JobId = instance.JobSchedule?.JobId ?? 0,
-                            JobFieldDescription = $"Error_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                            JobId = jobId,
+                            JobFieldDescription = $"Error_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}",
                             JobStringValue = $"{message}\n{stackTrace}",
                             CreatedDate = DateTime.UtcNow,
                             CreatedBy = "JobExecutor"
@@ -417,6 +548,55 @@ namespace BlazorDataOrchestrator.Core
                     }
                 }
                 catch { /* Fail silently if logging fails */ }
+            }
+
+            // Also log to Azure Table Storage with partition key "{JobId}-{JobInstanceId}"
+            if (!string.IsNullOrEmpty(tableConnectionString) && jobId > 0)
+            {
+                try
+                {
+                    var tableServiceClient = new TableServiceClient(tableConnectionString);
+                    var logTableClient = tableServiceClient.GetTableClient("JobLogs");
+                    await logTableClient.CreateIfNotExistsAsync();
+
+                    string partitionKey = $"{jobId}-{jobInstanceId}";
+                    var entity = new TableEntity(partitionKey, Guid.NewGuid().ToString())
+                    {
+                        { "Action", "JobError" },
+                        { "Details", $"{message}\n{stackTrace}" },
+                        { "Level", "Error" },
+                        { "Timestamp", DateTime.UtcNow },
+                        { "JobId", jobId },
+                        { "JobInstanceId", jobInstanceId }
+                    };
+                    await logTableClient.AddEntityAsync(entity);
+                }
+                catch { /* Fail silently if table logging fails */ }
+            }
+        }
+
+        /// <summary>
+        /// Gets the job ID from a job instance ID.
+        /// </summary>
+        /// <param name="dbContext">The database context</param>
+        /// <param name="jobInstanceId">The job instance ID</param>
+        /// <returns>The job ID, or 0 if not found</returns>
+        public static async Task<int> GetJobIdFromInstanceAsync(ApplicationDbContext dbContext, int jobInstanceId)
+        {
+            if (dbContext == null || jobInstanceId <= 0)
+                return 0;
+
+            try
+            {
+                var instance = await dbContext.JobInstances
+                    .Include(i => i.JobSchedule)
+                    .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+
+                return instance?.JobSchedule?.JobId ?? 0;
+            }
+            catch
+            {
+                return 0;
             }
         }
     }

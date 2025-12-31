@@ -5,7 +5,9 @@
 @using SimpleBlazorMonaco
 @using System.IO
 @using System.Text.Json
+@using BlazorDataOrchestrator.Core
 @inject IWebHostEnvironment Environment
+@inject IConfiguration Configuration
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -36,8 +38,18 @@
                                                         Change="@OnFileChanged"
                                                         AllowClear="false" />
                                     </RadzenStack>
-                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="4" Style="margin-left: auto;">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="8" Style="margin-left: auto;">
                                         <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" />
+                                        <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
+                                                           ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small">
+                                            <ChildContent>
+                                                <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
+                                                <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
+                                            </ChildContent>
+                                        </RadzenSplitButton>
+                                        <RadzenButton Text="Create NuGet" Icon="inventory_2"
+                                                      ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                                      Click="@OnCreatePackage" />
                                     </RadzenStack>
                                 </RadzenStack>
 
@@ -73,28 +85,43 @@
                     </RadzenSplitter>
                 </RadzenTabsItem>
                 <RadzenTabsItem Text="Logs" Icon="list_alt">
-                    <RadzenCard Style="height: calc(100vh - 180px); background: #f8f9fa; color: #333; overflow: auto; padding: 20px; font-family: 'Consolas', 'Monaco', monospace; border-radius: 12px; margin: 12px;">
-                        <pre style="margin: 0; white-space: pre-wrap; background: #ffffff; padding: 16px; border-radius: 8px; border: 1px solid #e8e8e8;">@logOutput</pre>
-                    </RadzenCard>
+                    <RadzenStack Gap="8" Style="height: calc(100vh - 180px); padding: 12px;">
+                        @* Log Controls *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="12" Style="padding: 8px 12px; background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8;">
+                            <RadzenText TextStyle="TextStyle.Body2" Style="color: #666;">
+                                Job ID: <strong>@currentJobId</strong> | Instance ID: <strong>@currentJobInstanceId</strong>
+                            </RadzenText>
+                            <RadzenButton Text="Refresh Logs" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@OnRefreshLogs" Style="margin-left: auto;" />
+                        </RadzenStack>
+                        @* Log Output *@
+                        <RadzenCard Style="flex-grow: 1; background: #f8f9fa; color: #333; overflow: auto; padding: 12px; font-family: 'Consolas', 'Monaco', monospace; border-radius: 8px;">
+                            @if (jobLogs.Any())
+                            {
+                                <RadzenDataList Data="@jobLogs" Style="background: transparent;">
+                                    <Template Context="log">
+                                        <div style="padding: 8px 12px; margin-bottom: 4px; background: #ffffff; border-radius: 6px; border-left: 4px solid @GetLogLevelColor(log.Level);">
+                                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="8">
+                                                <RadzenBadge BadgeStyle="@GetLogLevelBadgeStyle(log.Level)" Text="@log.Level" Style="min-width: 60px; text-align: center;" />
+                                                <RadzenStack Gap="2" Style="flex-grow: 1;">
+                                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #888;">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
+                                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #333; word-break: break-word;">@log.Details</RadzenText>
+                                                </RadzenStack>
+                                            </RadzenStack>
+                                        </div>
+                                    </Template>
+                                </RadzenDataList>
+                            }
+                            else
+                            {
+                                <pre style="margin: 0; white-space: pre-wrap; background: #ffffff; padding: 16px; border-radius: 8px; border: 1px solid #e8e8e8;">@logOutput</pre>
+                            }
+                        </RadzenCard>
+                    </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>
         </RadzenTabs>
 
-        @* Footer with Action Buttons *@
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-                     JustifyContent="JustifyContent.Center" Gap="16"
-                     Style="padding: 16px 24px; background: #ffffff; border-top: 1px solid #e8e8e8; border-radius: 0 0 16px 16px;">
-            <RadzenSplitButton Click="@OnRunCode" Text="Run Code [Development]" Icon="play_arrow"
-                               ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Medium">
-                <ChildContent>
-                    <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
-                    <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
-                </ChildContent>
-            </RadzenSplitButton>
-            <RadzenButton Text="Create NuGet Package" Icon="inventory_2"
-                          ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Medium"
-                          Click="@OnCreatePackage" />
-        </RadzenStack>
+
     </RadzenStack>
 </RadzenCard>
 
@@ -108,6 +135,10 @@
     private string logOutput = "Ready to execute...";
 
     private List<string> fileList = new List<string>();
+    private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
+    private int currentJobId = 0;
+    private int currentJobInstanceId = 0;
+    private JobManager? jobManager;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -131,6 +162,9 @@
             Directory.CreateDirectory(CodeFolderPath);
         }
 
+        // Initialize JobManager if connection strings are available
+        InitializeJobManager();
+
         // Create default main files from templates if they don't exist
         await CreateDefaultFilesIfNotExist();
 
@@ -151,6 +185,26 @@
         {
             // Fallback if no files found
             currentCode = selectedLanguage == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
+        }
+    }
+
+    private void InitializeJobManager()
+    {
+        try
+        {
+            var sqlConnectionString = Configuration.GetConnectionString("DefaultConnection") ?? "";
+            var blobConnectionString = Configuration.GetConnectionString("BlobStorage") ?? Configuration.GetConnectionString("TableStorage") ?? "";
+            var queueConnectionString = Configuration.GetConnectionString("QueueStorage") ?? Configuration.GetConnectionString("TableStorage") ?? "";
+            var tableConnectionString = Configuration.GetConnectionString("TableStorage") ?? "";
+
+            if (!string.IsNullOrEmpty(sqlConnectionString) && !string.IsNullOrEmpty(tableConnectionString))
+            {
+                jobManager = new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Could not initialize JobManager: {ex.Message}\n";
         }
     }
 
@@ -189,10 +243,15 @@
             if (File.Exists(ConfigFilePath))
             {
                 var json = File.ReadAllText(ConfigFilePath);
-                var config = JsonSerializer.Deserialize<Configuration>(json);
-                if (config != null && !string.IsNullOrEmpty(config.SelectedLanguage))
+                var config = JsonSerializer.Deserialize<DesignerConfiguration>(json);
+                if (config != null)
                 {
-                    selectedLanguage = config.SelectedLanguage;
+                    if (!string.IsNullOrEmpty(config.SelectedLanguage))
+                    {
+                        selectedLanguage = config.SelectedLanguage;
+                    }
+                    currentJobId = config.LastJobId;
+                    currentJobInstanceId = config.LastJobInstanceId;
                 }
             }
             else
@@ -210,7 +269,12 @@
     {
         try
         {
-            var config = new Configuration { SelectedLanguage = selectedLanguage };
+            var config = new DesignerConfiguration 
+            { 
+                SelectedLanguage = selectedLanguage,
+                LastJobId = currentJobId,
+                LastJobInstanceId = currentJobInstanceId
+            };
             var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ConfigFilePath, json);
         }
@@ -409,8 +473,78 @@
         }
     }
 
-    private class Configuration
+    private async Task OnRefreshLogs()
+    {
+        if (jobManager == null)
+        {
+            logOutput = $"[{DateTime.Now:HH:mm:ss}] JobManager not initialized. Check connection strings.\n";
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            if (currentJobId > 0)
+            {
+                // Get logs for the latest job instance of the current job
+                if (currentJobInstanceId == 0)
+                {
+                    var latestInstanceId = await jobManager.GetLatestJobInstanceIdAsync(currentJobId);
+                    if (latestInstanceId.HasValue)
+                    {
+                        currentJobInstanceId = latestInstanceId.Value;
+                    }
+                }
+
+                if (currentJobInstanceId > 0)
+                {
+                    jobLogs = await jobManager.GetLogsForJobInstanceAsync(currentJobId, currentJobInstanceId);
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Loaded {jobLogs.Count} log entries for Job {currentJobId}, Instance {currentJobInstanceId}\n";
+                }
+                else
+                {
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] No job instances found for Job {currentJobId}\n";
+                }
+            }
+            else
+            {
+                logOutput = $"[{DateTime.Now:HH:mm:ss}] No job selected. Run a job first to see logs.\n";
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput = $"[{DateTime.Now:HH:mm:ss}] Error loading logs: {ex.Message}\n";
+        }
+
+        StateHasChanged();
+    }
+
+    private static string GetLogLevelColor(string level)
+    {
+        return level?.ToLower() switch
+        {
+            "error" => "#dc3545",
+            "warning" => "#ffc107",
+            "debug" => "#6c757d",
+            _ => "#28a745" // Info
+        };
+    }
+
+    private static BadgeStyle GetLogLevelBadgeStyle(string level)
+    {
+        return level?.ToLower() switch
+        {
+            "error" => BadgeStyle.Danger,
+            "warning" => BadgeStyle.Warning,
+            "debug" => BadgeStyle.Secondary,
+            _ => BadgeStyle.Success // Info
+        };
+    }
+
+    private class DesignerConfiguration
     {
         public string SelectedLanguage { get; set; } = "csharp";
+        public int LastJobId { get; set; }
+        public int LastJobInstanceId { get; set; }
     }
 }

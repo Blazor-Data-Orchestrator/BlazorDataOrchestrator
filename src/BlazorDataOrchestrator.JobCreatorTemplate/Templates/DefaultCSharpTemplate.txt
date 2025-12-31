@@ -12,15 +12,22 @@ namespace DataOrchestrator
     {
         public static async Task ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
         {
-            // Parse connection string from appSettings JSON
+            // Parse connection strings from appSettings JSON
             string connectionString = "";
+            string tableConnectionString = "";
             try
             {
                 var settings = JsonSerializer.Deserialize<JsonElement>(appSettings);
-                if (settings.TryGetProperty("ConnectionStrings", out var connStrings) &&
-                    connStrings.TryGetProperty("DefaultConnection", out var defaultConn))
+                if (settings.TryGetProperty("ConnectionStrings", out var connStrings))
                 {
-                    connectionString = defaultConn.GetString();
+                    if (connStrings.TryGetProperty("DefaultConnection", out var defaultConn))
+                    {
+                        connectionString = defaultConn.GetString();
+                    }
+                    if (connStrings.TryGetProperty("TableStorage", out var tableConn))
+                    {
+                        tableConnectionString = tableConn.GetString();
+                    }
                 }
             }
             catch { }
@@ -36,11 +43,18 @@ namespace DataOrchestrator
 
             try
             {
-                await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info");
+                // Get the jobId from the jobInstanceId if not provided (validates the relationship)
+                if (jobId == 0 && jobInstanceId > 0 && dbContext != null)
+                {
+                    jobId = await JobManager.GetJobIdFromInstanceAsync(dbContext, jobInstanceId);
+                }
+
+                await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info", tableConnectionString);
                 Console.WriteLine($"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}");
+                Console.WriteLine($"Log partition key: {jobId}-{jobInstanceId}");
 
                 // Fetch weather data for Los Angeles, CA
-                await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info");
+                await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
                 
                 using var httpClient = new HttpClient();
                 httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
@@ -62,22 +76,22 @@ namespace DataOrchestrator
 
                     string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                     Console.WriteLine(weatherInfo);
-                    await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info");
+                    await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
                 }
                 catch (HttpRequestException ex)
                 {
                     string errorMsg = $"Failed to fetch weather data: {ex.Message}";
                     Console.WriteLine(errorMsg);
-                    await JobManager.LogProgress(dbContext, jobInstanceId, errorMsg, "Warning");
+                    await JobManager.LogProgress(dbContext, jobInstanceId, errorMsg, "Warning", tableConnectionString);
                 }
 
-                await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully", "Info");
+                await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully", "Info", tableConnectionString);
             }
             catch (Exception ex)
             {
                 string errorMsg = $"Job execution error: {ex.Message}";
                 Console.WriteLine(errorMsg);
-                await JobManager.LogError(dbContext, jobInstanceId, errorMsg, ex.StackTrace);
+                await JobManager.LogError(dbContext, jobInstanceId, errorMsg, ex.StackTrace, tableConnectionString);
                 throw;
             }
             finally
