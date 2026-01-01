@@ -599,5 +599,79 @@ namespace BlazorDataOrchestrator.Core
                 return 0;
             }
         }
+
+        // #6 Create Designer Job Instance
+        public async Task<int> CreateDesignerJobInstanceAsync(string jobName)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("CreateDesignerJobInstance", $"Creating designer instance for Job {jobName}");
+
+            // 1. Create Job if needed
+            var job = await context.Jobs.FirstOrDefaultAsync(j => j.JobName == jobName);
+            if (job == null)
+            {
+                // Ensure Organization exists
+                var org = await context.JobOrganizations.FirstOrDefaultAsync(o => o.OrganizationName == "Designer");
+                if (org == null)
+                {
+                    org = new JobOrganization
+                    {
+                        OrganizationName = "Designer",
+                        CreatedDate = DateTime.UtcNow,
+                        CreatedBy = "System"
+                    };
+                    context.JobOrganizations.Add(org);
+                    await context.SaveChangesAsync();
+                }
+
+                job = new Job
+                {
+                    JobName = jobName,
+                    JobCodeFile = "Designer.cs", // Placeholder
+                    JobEnvironment = "Designer",
+                    JobOrganizationId = org.Id,
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "Designer"
+                };
+                context.Jobs.Add(job);
+                await context.SaveChangesAsync();
+                await LogAsync("CreateDesignerJobInstance", $"Created Job {jobName}");
+            }
+
+            // 2. Ensure Schedule exists
+            var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "Designer");
+            if (schedule == null)
+            {
+                schedule = new JobSchedule
+                {
+                    JobId = job.Id,
+                    ScheduleName = "Designer",
+                    Enabled = true,
+                    InProcess = false,
+                    HadError = false,
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "Designer"
+                };
+                context.JobSchedules.Add(schedule);
+                await context.SaveChangesAsync();
+                await LogAsync("CreateDesignerJobInstance", $"Created Schedule for Job {jobName}");
+            }
+
+            // 3. Create JobInstance
+            var instance = new JobInstance
+            {
+                JobScheduleId = schedule.Id,
+                AgentId = "-1",
+                InProcess = true,
+                HasError = false,
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "Designer"
+            };
+            context.JobInstances.Add(instance);
+            await context.SaveChangesAsync();
+
+            await LogAsync("CreateDesignerJobInstance", $"Created Instance {instance.Id} with ScheduleId {schedule.Id}");
+            return instance.Id;
+        }
     }
 }
