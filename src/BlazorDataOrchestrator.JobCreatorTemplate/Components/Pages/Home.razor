@@ -41,7 +41,7 @@
                                                         AllowClear="false" />
                                     </RadzenStack>
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="8" Style="margin-left: auto;">
-                                        <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" />
+                                        <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" IsBusy="@isSaving" />
                                         <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
                                                            ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small">
                                             <ChildContent>
@@ -135,6 +135,7 @@
     private string selectedLanguage = "csharp";
     private string currentCode = "";
     private string logOutput = "Ready to execute...";
+    private bool isSaving = false;
 
     private List<string> fileList = new List<string>();
     private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
@@ -581,52 +582,63 @@
 
     private async Task<bool> OnSaveFile()
     {
-        if (codeEditor != null)
-        {
-            var code = await codeEditor.GetCodeAsync();
-            if (!string.IsNullOrEmpty(selectedFile) && code != null)
-            {
-                if (selectedLanguage == "csharp")
-                {
-                    try
-                    {
-                        var evaluator = CSScript.Evaluator;
-                        evaluator.ReferenceAssembly(typeof(System.Text.Json.JsonSerializer).Assembly);
-                        evaluator.ReferenceAssembly(typeof(BlazorDataOrchestrator.Core.JobManager).Assembly);
-                        evaluator.ReferenceAssembly(typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly);
+        isSaving = true;
+        StateHasChanged();
 
-                        dynamic script = evaluator.LoadCode(code);
-                        Type type = script.GetType();
-                        
-                        var method = type.GetMethod("ExecuteJob");
-                        if (method == null) throw new Exception("Method 'ExecuteJob' not found.");
-                        
-                        executeJobMethod = method;
+        try
+        {
+            if (codeEditor != null)
+            {
+                var code = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(selectedFile) && code != null)
+                {
+                    if (selectedLanguage == "csharp")
+                    {
+                        try
+                        {
+                            var evaluator = CSScript.Evaluator;
+                            evaluator.ReferenceAssembly(typeof(System.Text.Json.JsonSerializer).Assembly);
+                            evaluator.ReferenceAssembly(typeof(BlazorDataOrchestrator.Core.JobManager).Assembly);
+                            evaluator.ReferenceAssembly(typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly);
+
+                            dynamic script = evaluator.LoadCode(code);
+                            Type type = script.GetType();
+                            
+                            var method = type.GetMethod("ExecuteJob");
+                            if (method == null) throw new Exception("Method 'ExecuteJob' not found.");
+                            
+                            executeJobMethod = method;
+                        }
+                        catch (Exception ex)
+                        {
+                            await DialogService.Alert($"Compilation Error: {ex.Message}", "Error");
+                            return false;
+                        }
+                    }
+
+                    try 
+                    {
+                        var path = Path.Combine(CodeFolderPath, selectedFile);
+                        await File.WriteAllTextAsync(path, code);
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
+                        StateHasChanged();
+                        return true;
                     }
                     catch (Exception ex)
                     {
-                        await DialogService.Alert($"Compilation Error: {ex.Message}", "Error");
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
+                        StateHasChanged();
                         return false;
                     }
                 }
-
-                try 
-                {
-                    var path = Path.Combine(CodeFolderPath, selectedFile);
-                    await File.WriteAllTextAsync(path, code);
-                    logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
-                    StateHasChanged();
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
-                    StateHasChanged();
-                    return false;
-                }
             }
+            return false;
         }
-        return false;
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
     }
 
     private async Task OnRefreshLogs()
