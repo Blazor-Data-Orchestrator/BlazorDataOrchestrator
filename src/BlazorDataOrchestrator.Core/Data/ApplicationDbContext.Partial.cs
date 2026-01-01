@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace BlazorOrchestrator.Web.Data.Data;
+namespace BlazorDataOrchestrator.Core.Data;
 
 public partial class ApplicationDbContext
 {

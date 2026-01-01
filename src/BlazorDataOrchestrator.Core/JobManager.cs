@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
-using BlazorOrchestrator.Web.Data.Data;
+using BlazorDataOrchestrator.Core.Data;
 using CSScriptLib;
 using Microsoft.EntityFrameworkCore;
 
@@ -63,7 +63,8 @@ namespace BlazorDataOrchestrator.Core
         {
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
             optionsBuilder.UseSqlServer(_sqlConnectionString);
-            return new ApplicationDbContext(optionsBuilder.Options);
+            var context = new ApplicationDbContext(optionsBuilder.Options);
+            return context;
         }
 
         private async Task LogAsync(string action, string details, string level = "Info", int? jobId = null, int? jobInstanceId = null)
@@ -605,6 +606,8 @@ namespace BlazorDataOrchestrator.Core
         {
             using var context = CreateDbContext();
             await LogAsync("CreateDesignerJobInstance", $"Creating designer instance for Job {jobName}");
+
+            var result = context.Database.CanConnect();
 
             // 1. Create Job if needed
             var job = await context.Jobs.FirstOrDefaultAsync(j => j.JobName == jobName);

@@ -4,8 +4,8 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using BlazorOrchestrator.Web.Data.Data;
 using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Data;
 
 public class BlazorDataOrchestratorJob
 {

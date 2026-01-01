@@ -3,7 +3,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace BlazorOrchestrator.Web.Data.Data;
+namespace BlazorDataOrchestrator.Core.Data;
 
 public partial class AspNetUser
 {
