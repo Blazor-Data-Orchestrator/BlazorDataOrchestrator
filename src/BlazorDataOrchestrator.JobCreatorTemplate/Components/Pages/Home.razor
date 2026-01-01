@@ -6,6 +6,8 @@
 @using System.IO
 @using System.Text.Json
 @using BlazorDataOrchestrator.Core
+@using Microsoft.CodeAnalysis
+@using Microsoft.CodeAnalysis.CSharp
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
@@ -366,6 +368,13 @@
 
     private async Task OnRunCode(RadzenSplitButtonItem? item)
     {
+        // Save before running
+        if (!await OnSaveFile())
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Save failed. Aborting run.\n";
+            return;
+        }
+
         var environment = item?.Value?.ToString() ?? "Development";
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
 
@@ -470,6 +479,33 @@
                 var code = await codeEditor.GetCodeAsync();
                 if (!string.IsNullOrEmpty(selectedFile) && code != null)
                 {
+                    // Compilation check for main.cs
+                    if (selectedFile.Equals("main.cs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var syntaxTree = CSharpSyntaxTree.ParseText(code);
+                            var diagnostics = syntaxTree.GetDiagnostics();
+                            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+
+                            if (errors.Any())
+                            {
+                                var errorMsg = string.Join("\n", errors.Select(e => $"Line {e.Location.GetLineSpan().StartLinePosition.Line + 1}: {e.GetMessage()}"));
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
+                                
+                                await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Save Error");
+                                StateHasChanged();
+                                return false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
+                             StateHasChanged();
+                             return false;
+                        }
+                    }
+
                     try 
                     {
                         var path = Path.Combine(CodeFolderPath, selectedFile);

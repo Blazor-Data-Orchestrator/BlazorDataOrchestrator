@@ -14,7 +14,9 @@
     <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
 	<PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
-	<PackageReference Include="Radzen.Blazor" Version="*" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.0.0" />
+    <PackageReference Include="Radzen.Blazor" Version="*" />
 	<PackageReference Include="SimpleBlazorMonaco" Version="*" />  
   </ItemGroup>
 
