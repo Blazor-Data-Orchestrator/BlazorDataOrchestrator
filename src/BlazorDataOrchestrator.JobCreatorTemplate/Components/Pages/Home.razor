@@ -502,19 +502,19 @@
                             {
                                 args[i] = appSettingsContent;
                             }
-                            else if (p.Name.Equals("jobScheduleId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 1))
+                            else if (string.Equals(p.Name, "jobScheduleId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 1))
                             {
                                 args[i] = -1;
                             }
-                            else if (p.Name.Equals("jobAgentId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 2))
+                            else if (string.Equals(p.Name, "jobAgentId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 2))
                             {
                                 args[i] = -1;
                             }
-                            else if (p.Name.Equals("jobId", StringComparison.OrdinalIgnoreCase))
+                            else if (string.Equals(p.Name, "jobId", StringComparison.OrdinalIgnoreCase))
                             {
                                 args[i] = -1;
                             }
-                             else if (p.Name.Equals("jobInstanceId", StringComparison.OrdinalIgnoreCase))
+                             else if (string.Equals(p.Name, "jobInstanceId", StringComparison.OrdinalIgnoreCase))
                             {
                                 args[i] = currentJobInstanceId;
                             }

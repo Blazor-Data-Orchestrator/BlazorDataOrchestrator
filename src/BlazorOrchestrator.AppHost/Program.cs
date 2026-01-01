@@ -58,12 +58,4 @@ var agent = builder.AddProject<Projects.BlazorOrchestrator_Agent>("agent")
     .WithReference(queues)
     .WaitFor(db);
 
-// Job Creator Template - Designer Web App
-var jobCreator = builder.AddProject<Projects.BlazorDataOrchestrator_JobCreatorTemplate>("jobcreator")
-    .WithReference(db)
-    .WithReference(blobs)
-    .WithReference(tables)
-    .WithReference(queues)
-    .WaitFor(db);
-
 builder.Build().Run();

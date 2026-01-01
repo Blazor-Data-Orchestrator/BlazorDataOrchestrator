@@ -23,18 +23,18 @@ public class BlazorDataOrchestratorJob
             {
                 if (connStrings.TryGetProperty("DefaultConnection", out var defaultConn))
                 {
-                    connectionString = defaultConn.GetString();
+                    connectionString = defaultConn.GetString() ?? "";
                 }
                 if (connStrings.TryGetProperty("TableStorage", out var tableConn))
                 {
-                    tableConnectionString = tableConn.GetString();
+                    tableConnectionString = tableConn.GetString() ?? "";
                 }
             }
         }
         catch { }
 
         // Initialize database context for logging
-        ApplicationDbContext dbContext = null;
+        ApplicationDbContext? dbContext = null;
         if (!string.IsNullOrEmpty(connectionString))
         {
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
@@ -52,10 +52,16 @@ public class BlazorDataOrchestratorJob
 
             await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info", tableConnectionString);
             logs.Add("Job started");
-            Console.WriteLine($"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}");
-            logs.Add($"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}");
-            Console.WriteLine($"Log partition key: {jobId}-{jobInstanceId}");
-            logs.Add($"Log partition key: {jobId}-{jobInstanceId}");
+            
+            string execInfo = $"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}";
+            Console.WriteLine(execInfo);
+            await JobManager.LogProgress(dbContext, jobInstanceId, execInfo, "Info", tableConnectionString);
+            logs.Add(execInfo);
+
+            string partitionKeyInfo = $"Log partition key: {jobId}-{jobInstanceId}";
+            Console.WriteLine(partitionKeyInfo);
+            await JobManager.LogProgress(dbContext, jobInstanceId, partitionKeyInfo, "Info", tableConnectionString);
+            logs.Add(partitionKeyInfo);
 
             // Fetch weather data for Los Angeles, CA
             await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
@@ -74,10 +80,10 @@ public class BlazorDataOrchestratorJob
                     
                 // Extract current weather information
                 var currentCondition = weatherData.GetProperty("current_condition")[0];
-                string tempC = currentCondition.GetProperty("temp_C").GetString();
-                string tempF = currentCondition.GetProperty("temp_F").GetString();
-                string humidity = currentCondition.GetProperty("humidity").GetString();
-                string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString();
+                string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
+                string tempF = currentCondition.GetProperty("temp_F").GetString() ?? "";
+                string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
+                string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
 
                 string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                 Console.WriteLine(weatherInfo);
