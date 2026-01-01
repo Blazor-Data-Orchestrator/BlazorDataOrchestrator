@@ -6,7 +6,6 @@
 @using System.IO
 @using System.Text.Json
 @using BlazorDataOrchestrator.Core
-@using CSScriptLib
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
@@ -142,7 +141,6 @@
     private int currentJobId = 0;
     private int currentJobInstanceId = 0;
     private JobManager? jobManager;
-    private System.Reflection.MethodInfo? executeJobMethod;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -169,9 +167,7 @@
         // Initialize JobManager if connection strings are available
         InitializeJobManager();
 
-        // Create default main files from templates if they don't exist
-        await CreateDefaultFilesIfNotExist();
-
+        // Load configuration and files
         LoadConfiguration();
         LoadFiles();
 
@@ -184,11 +180,6 @@
             {
                 currentCode = await File.ReadAllTextAsync(path);
             }
-        }
-        else
-        {
-            // Fallback if no files found
-            currentCode = selectedLanguage == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
         }
     }
 
@@ -219,24 +210,6 @@
             await codeEditor.UpdateCodeAsync(currentCode);
             var lang = selectedFile != null ? GetLanguageFromFile(selectedFile) : GetMonacoLanguage();
             await codeEditor.UpdateLanguageAsync(lang);
-        }
-    }
-
-    private async Task CreateDefaultFilesIfNotExist()
-    {
-        var mainCsPath = Path.Combine(CodeFolderPath, "main.cs");
-        var mainPyPath = Path.Combine(CodeFolderPath, "main.py");
-
-        if (!File.Exists(mainCsPath))
-        {
-            var csharpTemplate = GetDefaultCSharpCode();
-            await File.WriteAllTextAsync(mainCsPath, csharpTemplate);
-        }
-
-        if (!File.Exists(mainPyPath))
-        {
-            var pythonTemplate = GetDefaultPythonCode();
-            await File.WriteAllTextAsync(mainPyPath, pythonTemplate);
         }
     }
 
@@ -338,38 +311,7 @@
         {
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Error loading file '{fileName}': {ex.Message}\n";
         }
-    }
-
-    private static string GetDefaultCSharpCode()
-    {
-        return LoadTemplateFromResource("DefaultCSharpTemplate.txt");
-    }
-
-    private static string GetDefaultPythonCode()
-    {
-        return LoadTemplateFromResource("DefaultPythonTemplate.txt");
-    }
-
-    private static string LoadTemplateFromResource(string templateFileName)
-    {
-        var assembly = typeof(Home).Assembly;
-        var resourceName = assembly.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith(templateFileName, StringComparison.OrdinalIgnoreCase));
-
-        if (resourceName == null)
-        {
-            return $"// Template '{templateFileName}' not found";
-        }
-
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream == null)
-        {
-            return $"// Could not load template '{templateFileName}'";
-        }
-
-        using var reader = new System.IO.StreamReader(stream);
-        return reader.ReadToEnd();
-    }
+    }    
 
     private string GetMonacoLanguage()
     {
@@ -417,25 +359,13 @@
             {
                 selectedFile = fileList.First();
                 await LoadFileContent(selectedFile);
-            }
-            else
-            {
-                selectedFile = null;
-                currentCode = lang == "python" ? GetDefaultPythonCode() : GetDefaultCSharpCode();
-                if (codeEditor != null)
-                {
-                    await codeEditor.UpdateCodeAsync(currentCode);
-                    await codeEditor.UpdateLanguageAsync(GetMonacoLanguage());
-                }
-            }
+            }            
         }
         StateHasChanged();
     }
 
     private async Task OnRunCode(RadzenSplitButtonItem? item)
     {
-        if (!await OnSaveFile()) return;
-
         var environment = item?.Value?.ToString() ?? "Development";
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
 
@@ -487,60 +417,8 @@
             {
                 if (selectedLanguage == "csharp")
                 {
-                    if (executeJobMethod != null)
-                    {
-                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
-                        
-                        // Prepare arguments
-                        var parameters = executeJobMethod.GetParameters();
-                        object[] args = new object[parameters.Length];
-                        
-                        for (int i = 0; i < parameters.Length; i++)
-                        {
-                            var p = parameters[i];
-                            if (p.ParameterType == typeof(string) && i == 0) 
-                            {
-                                args[i] = appSettingsContent;
-                            }
-                            else if (string.Equals(p.Name, "jobScheduleId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 1))
-                            {
-                                args[i] = -1;
-                            }
-                            else if (string.Equals(p.Name, "jobAgentId", StringComparison.OrdinalIgnoreCase) || (p.ParameterType == typeof(int) && i == 2))
-                            {
-                                args[i] = -1;
-                            }
-                            else if (string.Equals(p.Name, "jobId", StringComparison.OrdinalIgnoreCase))
-                            {
-                                args[i] = -1;
-                            }
-                             else if (string.Equals(p.Name, "jobInstanceId", StringComparison.OrdinalIgnoreCase))
-                            {
-                                args[i] = currentJobInstanceId;
-                            }
-                        }
-
-                        object? instance = null;
-                        if (!executeJobMethod.IsStatic)
-                        {
-                            instance = Activator.CreateInstance(executeJobMethod.DeclaringType!);
-                        }
-
-                        var result = executeJobMethod.Invoke(instance, args);
-                        
-                        if (result is Task<List<string>> task)
-                        {
-                            results = await task;
-                        }
-                        else if (result is List<string> list)
-                        {
-                            results = list;
-                        }
-                    }
-                    else
-                    {
-                         logOutput += $"[{DateTime.Now:HH:mm:ss}] Error: Method 'ExecuteJob' not found (compilation failed?).\n";
-                    }
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
+                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1);
                 }
                 else if (selectedLanguage == "python")
                 {
@@ -592,30 +470,6 @@
                 var code = await codeEditor.GetCodeAsync();
                 if (!string.IsNullOrEmpty(selectedFile) && code != null)
                 {
-                    if (selectedLanguage == "csharp")
-                    {
-                        try
-                        {
-                            var evaluator = CSScript.Evaluator;
-                            evaluator.ReferenceAssembly(typeof(System.Text.Json.JsonSerializer).Assembly);
-                            evaluator.ReferenceAssembly(typeof(BlazorDataOrchestrator.Core.JobManager).Assembly);
-                            evaluator.ReferenceAssembly(typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly);
-
-                            dynamic script = evaluator.LoadCode(code);
-                            Type type = script.GetType();
-                            
-                            var method = type.GetMethod("ExecuteJob");
-                            if (method == null) throw new Exception("Method 'ExecuteJob' not found.");
-                            
-                            executeJobMethod = method;
-                        }
-                        catch (Exception ex)
-                        {
-                            await DialogService.Alert($"Compilation Error: {ex.Message}", "Error");
-                            return false;
-                        }
-                    }
-
                     try 
                     {
                         var path = Path.Combine(CodeFolderPath, selectedFile);
@@ -652,6 +506,16 @@
 
         try
         {
+            // Try to resolve JobId from InstanceId if missing
+            if (currentJobId == 0 && currentJobInstanceId > 0)
+            {
+                var jobId = await jobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
+                if (jobId.HasValue)
+                {
+                    currentJobId = jobId.Value;
+                }
+            }
+
             if (currentJobId > 0)
             {
                 // Get logs for the latest job instance of the current job

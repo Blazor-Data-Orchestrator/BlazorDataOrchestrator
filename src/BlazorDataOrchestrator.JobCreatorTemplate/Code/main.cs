@@ -10,7 +10,7 @@ using BlazorDataOrchestrator.Core.Data;
 public class BlazorDataOrchestratorJob
 {
     public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
-    {
+    { 
         var logs = new List<string>();
 
         // Parse connection strings from appSettings JSON
@@ -21,11 +21,11 @@ public class BlazorDataOrchestratorJob
             var settings = JsonSerializer.Deserialize<JsonElement>(appSettings);
             if (settings.TryGetProperty("ConnectionStrings", out var connStrings))
             {
-                if (connStrings.TryGetProperty("DefaultConnection", out var defaultConn))
+                if (connStrings.TryGetProperty("blazororchestratordb", out var defaultConn))
                 {
                     connectionString = defaultConn.GetString() ?? "";
                 }
-                if (connStrings.TryGetProperty("TableStorage", out var tableConn))
+                if (connStrings.TryGetProperty("tables", out var tableConn))
                 {
                     tableConnectionString = tableConn.GetString() ?? "";
                 }

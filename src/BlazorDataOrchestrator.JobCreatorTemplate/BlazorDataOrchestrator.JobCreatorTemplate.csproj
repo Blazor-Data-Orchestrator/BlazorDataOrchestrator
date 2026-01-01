@@ -23,10 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Templates\*.txt" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Folder Include="Code\" />
   </ItemGroup>
 

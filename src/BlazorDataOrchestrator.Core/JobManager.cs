@@ -96,6 +96,21 @@ namespace BlazorDataOrchestrator.Core
         }
 
         /// <summary>
+        /// Gets the Job ID for a given Job Instance ID.
+        /// </summary>
+        /// <param name="jobInstanceId">The job instance ID</param>
+        /// <returns>The Job ID, or null if not found</returns>
+        public async Task<int?> GetJobIdFromInstanceIdAsync(int jobInstanceId)
+        {
+            using var context = CreateDbContext();
+            var instance = await context.JobInstances
+                .Include(i => i.JobSchedule)
+                .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+
+            return instance?.JobSchedule?.JobId;
+        }
+
+        /// <summary>
         /// Gets the latest job instance ID for a given job ID.
         /// </summary>
         /// <param name="jobId">The job ID to look up</param>
@@ -457,27 +472,12 @@ namespace BlazorDataOrchestrator.Core
                         .Include(i => i.JobSchedule)
                         .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
 
-                    jobId = instance?.JobSchedule?.JobId ?? 0;
-
-                    var jobData = new JobDatum
-                    {
-                        JobId = jobId,
-                        JobFieldDescription = $"Log_{level}_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}",
-                        JobStringValue = message,
-                        CreatedDate = DateTime.UtcNow,
-                        CreatedBy = "JobExecutor"
-                    };
-
-                    if (jobData.JobId > 0)
-                    {
-                        dbContext.JobData.Add(jobData);
-                        await dbContext.SaveChangesAsync();
-                    }
+                    jobId = instance?.JobSchedule?.JobId ?? 0;                   
                 }
                 catch { /* Fail silently if logging fails */ }
             }
 
-            // Also log to Azure Table Storage with partition key "{JobId}-{JobInstanceId}"
+            // Log to Azure Table Storage with partition key "{JobId}-{JobInstanceId}"
             if (!string.IsNullOrEmpty(tableConnectionString) && jobId > 0)
             {
                 try
