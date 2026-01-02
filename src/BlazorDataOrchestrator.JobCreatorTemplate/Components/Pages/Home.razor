@@ -156,14 +156,29 @@
         public string Value { get; set; } = "";
     }
 
-    private string CodeFolderPath => Path.Combine(Environment.ContentRootPath, "Code");
-    private string ConfigFilePath => Path.Combine(CodeFolderPath, "configuration.json");
+    private string BaseCodeFolderPath => Path.Combine(Environment.ContentRootPath, "Code");
+    private string GetCodeFolderPath(string language)
+    {
+        if (language == "csharp") return Path.Combine(BaseCodeFolderPath, "CodeCSharp");
+        if (language == "python") return Path.Combine(BaseCodeFolderPath, "CodePython");
+        return BaseCodeFolderPath;
+    }
+    private string CurrentCodeFolderPath => GetCodeFolderPath(selectedLanguage);
+    private string ConfigFilePath => Path.Combine(BaseCodeFolderPath, "configuration.json");
 
     protected override async Task OnInitializedAsync()
     {
-        if (!Directory.Exists(CodeFolderPath))
+        if (!Directory.Exists(BaseCodeFolderPath))
         {
-            Directory.CreateDirectory(CodeFolderPath);
+            Directory.CreateDirectory(BaseCodeFolderPath);
+        }
+        if (!Directory.Exists(GetCodeFolderPath("csharp")))
+        {
+            Directory.CreateDirectory(GetCodeFolderPath("csharp"));
+        }
+        if (!Directory.Exists(GetCodeFolderPath("python")))
+        {
+            Directory.CreateDirectory(GetCodeFolderPath("python"));
         }
 
         // Initialize JobManager if connection strings are available
@@ -177,7 +192,7 @@
         {
             selectedFile = fileList.First();
             // Load the content into currentCode but don't try to update the editor yet
-            var path = Path.Combine(CodeFolderPath, selectedFile);
+            var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
             if (File.Exists(path))
             {
                 currentCode = await File.ReadAllTextAsync(path);
@@ -266,9 +281,9 @@
     private void LoadFiles()
     {
         fileList.Clear();
-        if (!Directory.Exists(CodeFolderPath)) return;
+        if (!Directory.Exists(CurrentCodeFolderPath)) return;
 
-        var allFiles = Directory.GetFiles(CodeFolderPath);
+        var allFiles = Directory.GetFiles(CurrentCodeFolderPath);
         foreach (var file in allFiles)
         {
             var fileName = Path.GetFileName(file);
@@ -297,7 +312,7 @@
     {
         try
         {
-            var path = Path.Combine(CodeFolderPath, fileName);
+            var path = Path.Combine(CurrentCodeFolderPath, fileName);
             if (File.Exists(path))
             {
                 currentCode = await File.ReadAllTextAsync(path);
@@ -431,7 +446,77 @@
                 }
                 else if (selectedLanguage == "python")
                 {
-                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Python execution not fully implemented in Designer yet.\n";
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing Python job...\n";
+
+                    var runnerScript = @"
+import sys
+import main
+import traceback
+
+if len(sys.argv) < 3:
+    print('Usage: runner.py <app_settings_path> <job_instance_id>')
+    sys.exit(1)
+
+app_settings_path = sys.argv[1]
+job_instance_id = int(sys.argv[2])
+
+try:
+    with open(app_settings_path, 'r') as f:
+        app_settings = f.read()
+        
+    main.execute_job(app_settings, -1, -1, job_instance_id, -1)
+except Exception as e:
+    print(f'Error executing job: {e}')
+    traceback.print_exc()
+";
+                    var pythonCodePath = GetCodeFolderPath("python");
+                    var runnerPath = Path.Combine(pythonCodePath, "runner.py");
+                    await File.WriteAllTextAsync(runnerPath, runnerScript);
+
+                    try
+                    {
+                        var startInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "python",
+                            Arguments = $"\"{runnerPath}\" \"{appSettingsFile}\" {currentJobInstanceId}",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            WorkingDirectory = pythonCodePath
+                        };
+
+                        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                        process.Start();
+
+                        var output = await process.StandardOutput.ReadToEndAsync();
+                        var error = await process.StandardError.ReadToEndAsync();
+
+                        await process.WaitForExitAsync();
+
+                        if (!string.IsNullOrEmpty(output))
+                        {
+                            results.Add(output);
+                            logOutput += output + "\n";
+                        }
+
+                        if (!string.IsNullOrEmpty(error))
+                        {
+                            results.Add("ERROR:\n" + error);
+                            logOutput += "ERROR:\n" + error + "\n";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Error launching python: {ex.Message}\n";
+                    }
+                    finally
+                    {
+                        if (File.Exists(runnerPath))
+                        {
+                            File.Delete(runnerPath);
+                        }
+                    }
                 }
 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
@@ -508,7 +593,7 @@
 
                     try 
                     {
-                        var path = Path.Combine(CodeFolderPath, selectedFile);
+                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
                         await File.WriteAllTextAsync(path, code);
                         logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
                         StateHasChanged();

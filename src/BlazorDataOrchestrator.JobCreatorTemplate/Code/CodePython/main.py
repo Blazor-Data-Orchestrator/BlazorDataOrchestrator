@@ -15,6 +15,7 @@ except ImportError:
     HAS_PYODBC = False
 
 # Azure Table Storage (requires azure-data-tables)
+# Ensure you have installed the dependencies listed in requirements.txt
 try:
     from azure.data.tables import TableServiceClient, TableEntity
     HAS_AZURE_TABLES = True
@@ -36,6 +37,20 @@ class JobLogger:
         
         if HAS_PYODBC and connection_string:
             try:
+                # Fix for ODBC requiring 'yes'/'no' instead of 'true'/'false'
+                connection_string = connection_string.replace("TrustServerCertificate=true", "TrustServerCertificate=yes")
+                connection_string = connection_string.replace("TrustServerCertificate=false", "TrustServerCertificate=no")
+
+                # Ensure driver is specified in connection string
+                if "Driver={" not in connection_string:
+                    drivers = pyodbc.drivers()
+                    if "ODBC Driver 17 for SQL Server" in drivers:
+                        connection_string += ";Driver={ODBC Driver 17 for SQL Server};"
+                    elif "ODBC Driver 18 for SQL Server" in drivers:
+                        connection_string += ";Driver={ODBC Driver 18 for SQL Server};TrustServerCertificate=yes;"
+                    elif "SQL Server" in drivers:
+                        connection_string += ";Driver={SQL Server};"
+
                 self.connection = pyodbc.connect(connection_string)
                 # Get job_id from job_instance_id
                 self.job_id = self._get_job_id_from_instance()
@@ -43,13 +58,16 @@ class JobLogger:
                 print(f"Warning: Could not connect to database: {e}")
         
         # Initialize Azure Table Storage client
-        if HAS_AZURE_TABLES and table_connection_string:
+        if not HAS_AZURE_TABLES:
+             print("[ERROR!] azure-data-tables package is not installed. Cannot log to Azure Table Storage.")
+        elif not table_connection_string:
+             print("[ERROR!] Table connection string is missing. Cannot log to Azure Table Storage.")
+        else:
             try:
                 table_service = TableServiceClient.from_connection_string(table_connection_string)
-                self.table_client = table_service.get_table_client("JobLogs")
-                self.table_client.create_table_if_not_exists()
+                self.table_client = table_service.create_table_if_not_exists("JobLogs")
             except Exception as e:
-                print(f"Warning: Could not connect to Azure Table Storage: {e}")
+                print(f"[ERROR!] Could not connect to Azure Table Storage: {e}")
     
     def _get_job_id_from_instance(self) -> int:
         """Get the job_id from the job_instance_id."""
@@ -100,13 +118,13 @@ class JobLogger:
                     "Action": "JobProgress",
                     "Details": message,
                     "Level": level,
-                    "Timestamp": datetime.utcnow().isoformat(),
+                    "Timestamp": datetime.utcnow(),
                     "JobId": self.job_id,
                     "JobInstanceId": self.job_instance_id
                 }
                 self.table_client.create_entity(entity)
             except Exception as e:
-                print(f"Warning: Failed to log to Azure Table Storage: {e}")
+                print(f"[ERROR!] Failed to log to Azure Table Storage: {e}")
     
     def log_error(self, message: str, stack_trace: str = ""):
         """Log error to console, database, and Azure Table Storage, update job instance status."""
@@ -147,13 +165,13 @@ class JobLogger:
                     "Action": "JobError",
                     "Details": error_message,
                     "Level": "Error",
-                    "Timestamp": datetime.utcnow().isoformat(),
+                    "Timestamp": datetime.utcnow(),
                     "JobId": self.job_id,
                     "JobInstanceId": self.job_instance_id
                 }
                 self.table_client.create_entity(entity)
             except Exception as e:
-                print(f"Warning: Failed to log error to Azure Table Storage: {e}")
+                print(f"[ERROR!] Failed to log error to Azure Table Storage: {e}")
     
     def close(self):
         """Close database connection."""
