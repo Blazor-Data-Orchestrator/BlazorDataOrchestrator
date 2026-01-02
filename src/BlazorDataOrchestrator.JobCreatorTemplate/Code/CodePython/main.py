@@ -107,20 +107,7 @@ class JobLogger:
         """Log progress message to console, database, and Azure Table Storage."""
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] [{level}] {message}")
-        
-        # Log to SQL Server database
-        if self.connection and self.job_id > 0:
-            try:
-                cursor = self.connection.cursor()
-                field_desc = f"Log_{level}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
-                cursor.execute("""
-                    INSERT INTO JobData (JobId, JobFieldDescription, JobStringValue, CreatedDate, CreatedBy)
-                    VALUES (?, ?, ?, GETUTCDATE(), 'JobExecutor')
-                """, self.job_id, field_desc, message)
-                self.connection.commit()
-            except Exception as e:
-                print(f"Warning: Failed to log to database: {e}")
-        
+               
         # Log to Azure Table Storage with partition key "{JobId}-{JobInstanceId}"
         if self.table_client and self.job_id > 0:
             try:

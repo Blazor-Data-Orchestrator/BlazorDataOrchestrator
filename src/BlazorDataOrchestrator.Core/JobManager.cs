@@ -649,7 +649,7 @@ namespace BlazorDataOrchestrator.Core
                 {
                     JobId = job.Id,
                     ScheduleName = "Designer",
-                    Enabled = true,
+                    Enabled = false,
                     InProcess = false,
                     HadError = false,
                     CreatedDate = DateTime.UtcNow,
