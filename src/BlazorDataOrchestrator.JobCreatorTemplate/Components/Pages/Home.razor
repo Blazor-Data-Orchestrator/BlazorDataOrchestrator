@@ -42,6 +42,7 @@
                                                         AllowClear="false" />
                                     </RadzenStack>
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="8" Style="margin-left: auto;">
+                                        <RadzenButton Icon="refresh" Text="Refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Reload file from disk" Click="@OnRefreshFile" />
                                         <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" IsBusy="@isSaving" />
                                         <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
                                                            ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small">
@@ -622,6 +623,15 @@ except Exception as e:
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created successfully!\n";
         StateHasChanged();
+    }
+
+    private async Task OnRefreshFile()
+    {
+        if (!string.IsNullOrEmpty(selectedFile))
+        {
+            await LoadFileContent(selectedFile);
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Reloaded {selectedFile} from disk.\n";
+        }
     }
 
     private async Task<bool> OnSaveFile()
