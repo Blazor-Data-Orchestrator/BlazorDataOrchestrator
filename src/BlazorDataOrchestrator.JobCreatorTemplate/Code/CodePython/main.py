@@ -205,7 +205,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     logger = JobLogger(connection_string, job_instance_id, table_connection_string)
     
     # Get job_id from job_instance_id if not provided
-    if job_id == 0 and logger.job_id > 0:
+    if job_id <= 0 and logger.job_id > 0:
         job_id = logger.job_id
     
     try:
@@ -221,6 +221,29 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         print(partition_key_info)
         logger.log_progress(partition_key_info)
         logs.append(partition_key_info)
+        
+        # Check for previous run time
+        if logger.connection and job_id > 0:
+            try:
+                cursor = logger.connection.cursor()
+                cursor.execute("""
+                    SELECT JobDateValue 
+                    FROM JobData 
+                    WHERE JobId = ? AND JobFieldDescription = 'Last Job Run Time'
+                """, job_id)
+                row = cursor.fetchone()
+                if row and row[0]:
+                    prev_run_time = row[0]
+                    # Convert to local time (assuming prev_run_time is UTC)
+                    local_time = prev_run_time + (datetime.now() - datetime.utcnow())
+                    # Format: 00/00/0000 00:00(am/pm) -> %m/%d/%Y %I:%M%p
+                    formatted_time = local_time.strftime("%m/%d/%Y %I:%M") + local_time.strftime("%p").lower()
+                    prev_run_msg = f"Previous time the job was run: {formatted_time}"
+                    print(prev_run_msg)
+                    logger.log_progress(prev_run_msg)
+                    logs.append(prev_run_msg)
+            except Exception as e:
+                print(f"Warning: Failed to read Last Job Run Time: {e}")
         
         # Fetch weather data for Los Angeles, CA
         logger.log_progress("Fetching weather data for Los Angeles, CA")
@@ -271,6 +294,33 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         logs.append(error_msg)
         raise
     finally:
+        # Update Last Job Run Time
+        if logger.connection and job_id > 0:
+            try:
+                cursor = logger.connection.cursor()
+                cursor.execute("""
+                    SELECT Id FROM JobData 
+                    WHERE JobId = ? AND JobFieldDescription = 'Last Job Run Time'
+                """, job_id)
+                row = cursor.fetchone()
+                
+                current_time = datetime.utcnow()
+                
+                if row:
+                    cursor.execute("""
+                        UPDATE JobData 
+                        SET JobDateValue = ?, UpdatedDate = GETUTCDATE(), UpdatedBy = 'JobExecutor'
+                        WHERE Id = ?
+                    """, current_time, row[0])
+                else:
+                    cursor.execute("""
+                        INSERT INTO JobData (JobId, JobFieldDescription, JobDateValue, CreatedDate, CreatedBy)
+                        VALUES (?, 'Last Job Run Time', ?, GETUTCDATE(), 'JobExecutor')
+                    """, job_id, current_time)
+                logger.connection.commit()
+            except Exception as e:
+                print(f"Warning: Failed to update Last Job Run Time: {e}")
+
         logger.close()
     
     return logs

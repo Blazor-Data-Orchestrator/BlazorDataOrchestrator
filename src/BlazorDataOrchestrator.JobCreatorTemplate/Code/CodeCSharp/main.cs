@@ -45,7 +45,7 @@ public class BlazorDataOrchestratorJob
         try
         {
             // Get the jobId from the jobInstanceId if not provided (validates the relationship)
-            if (jobId == 0 && jobInstanceId > 0 && dbContext != null)
+            if (jobId <= 0 && jobInstanceId > 0 && dbContext != null)
             {
                 jobId = await JobManager.GetJobIdFromInstanceAsync(dbContext, jobInstanceId);
             }
@@ -62,6 +62,23 @@ public class BlazorDataOrchestratorJob
             Console.WriteLine(partitionKeyInfo);
             await JobManager.LogProgress(dbContext, jobInstanceId, partitionKeyInfo, "Info", tableConnectionString);
             logs.Add(partitionKeyInfo);
+
+            // Check for previous run time
+            JobDatum? lastRunDatum = null;
+            if (dbContext != null && jobId > 0)
+            {
+                lastRunDatum = await dbContext.JobData
+                    .FirstOrDefaultAsync(d => d.JobId == jobId && d.JobFieldDescription == "Last Job Run Time");
+
+                if (lastRunDatum != null && lastRunDatum.JobDateValue.HasValue)
+                {
+                    var localTime = lastRunDatum.JobDateValue.Value.ToLocalTime();
+                    string prevRunMsg = $"Previous time the job was run: {localTime:MM/dd/yyyy hh:mm}{localTime.ToString("tt").ToLower()}";
+                    Console.WriteLine(prevRunMsg);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, prevRunMsg, "Info", tableConnectionString);
+                    logs.Add(prevRunMsg);
+                }
+            }
 
             // Fetch weather data for Los Angeles, CA
             await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
@@ -111,6 +128,35 @@ public class BlazorDataOrchestratorJob
         }
         finally
         {
+            // Update Last Job Run Time
+            try
+            {
+                if (dbContext != null && jobId > 0)
+                {
+                    var runDatum = await dbContext.JobData
+                        .FirstOrDefaultAsync(d => d.JobId == jobId && d.JobFieldDescription == "Last Job Run Time");
+
+                    if (runDatum == null)
+                    {
+                        runDatum = new JobDatum
+                        {
+                            JobId = jobId,
+                            JobFieldDescription = "Last Job Run Time",
+                            CreatedBy = "System",
+                            CreatedDate = DateTime.UtcNow
+                        };
+                        dbContext.JobData.Add(runDatum);
+                    }
+                    
+                    runDatum.JobDateValue = DateTime.UtcNow;
+                    runDatum.UpdatedBy = "System";
+                    runDatum.UpdatedDate = DateTime.UtcNow;
+                    
+                    await dbContext.SaveChangesAsync();
+                }
+            }
+            catch { }
+
             dbContext?.Dispose();
         }
 
