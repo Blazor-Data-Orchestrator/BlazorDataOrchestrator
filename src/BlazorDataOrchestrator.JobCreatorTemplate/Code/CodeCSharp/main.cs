@@ -10,23 +10,33 @@ using BlazorDataOrchestrator.Core.Data;
 public class BlazorDataOrchestratorJob
 {
     public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
-    { 
+    {
+        // List to collect log messages
         var logs = new List<string>();
 
-        // Parse connection strings from appSettings JSON
+        // Initialize Connection strings
         string connectionString = "";
         string tableConnectionString = "";
+
         try
         {
+            // Deserialize appSettings to extract connection strings
             var settings = JsonSerializer.Deserialize<JsonElement>(appSettings);
+
+            // Extract connection strings
             if (settings.TryGetProperty("ConnectionStrings", out var connStrings))
             {
+                // Get specific connection strings
                 if (connStrings.TryGetProperty("blazororchestratordb", out var defaultConn))
                 {
+                    // Primary database connection string
                     connectionString = defaultConn.GetString() ?? "";
                 }
+
+                // Table storage connection string
                 if (connStrings.TryGetProperty("tables", out var tableConn))
                 {
+                    // Table storage connection string
                     tableConnectionString = tableConn.GetString() ?? "";
                 }
             }
@@ -35,10 +45,17 @@ public class BlazorDataOrchestratorJob
 
         // Initialize database context for logging
         ApplicationDbContext? dbContext = null;
+
+        // Create DbContext if connection string is available
         if (!string.IsNullOrEmpty(connectionString))
         {
+            // Set up DbContext options
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
+
+            // Use SQL Server provider
             optionsBuilder.UseSqlServer(connectionString);
+
+            // Instantiate the DbContext
             dbContext = new ApplicationDbContext(optionsBuilder.Options);
         }
 
@@ -47,17 +64,21 @@ public class BlazorDataOrchestratorJob
             // Get the jobId from the jobInstanceId if not provided (validates the relationship)
             if (jobId <= 0 && jobInstanceId > 0 && dbContext != null)
             {
+                // Fetch jobId using JobManager utility
                 jobId = await JobManager.GetJobIdFromInstanceAsync(dbContext, jobInstanceId);
             }
 
+            // Log job start
             await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info", tableConnectionString);
             logs.Add("Job started");
-            
+
+            // Log execution details
             string execInfo = $"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}";
             Console.WriteLine(execInfo);
             await JobManager.LogProgress(dbContext, jobInstanceId, execInfo, "Info", tableConnectionString);
             logs.Add(execInfo);
 
+            // Log partition key info
             string partitionKeyInfo = $"Log partition key: {jobId}-{jobInstanceId}";
             Console.WriteLine(partitionKeyInfo);
             await JobManager.LogProgress(dbContext, jobInstanceId, partitionKeyInfo, "Info", tableConnectionString);
@@ -67,12 +88,17 @@ public class BlazorDataOrchestratorJob
             JobDatum? lastRunDatum = null;
             if (dbContext != null && jobId > 0)
             {
+                // Retrieve the last run time from JobData
                 lastRunDatum = await dbContext.JobData
                     .FirstOrDefaultAsync(d => d.JobId == jobId && d.JobFieldDescription == "Last Job Run Time");
 
+                // Log previous run time if available
                 if (lastRunDatum != null && lastRunDatum.JobDateValue.HasValue)
                 {
+                    // Convert to local time for logging
                     var localTime = lastRunDatum.JobDateValue.Value.ToLocalTime();
+
+                    // Log previous run time
                     string prevRunMsg = $"Previous time the job was run: {localTime:MM/dd/yyyy hh:mm}{localTime.ToString("tt").ToLower()}";
                     Console.WriteLine(prevRunMsg);
                     await JobManager.LogProgress(dbContext, jobInstanceId, prevRunMsg, "Info", tableConnectionString);
@@ -83,7 +109,8 @@ public class BlazorDataOrchestratorJob
             // Fetch weather data for Los Angeles, CA
             await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
             logs.Add("Fetching weather data for Los Angeles, CA");
-                
+
+            // Set up HTTP client                
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
                 
@@ -92,7 +119,10 @@ public class BlazorDataOrchestratorJob
                 
             try
             {
+                // Make the HTTP GET request
                 var response = await httpClient.GetStringAsync(weatherUrl);
+
+                // Parse the JSON response
                 var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
                     
                 // Extract current weather information
@@ -102,6 +132,7 @@ public class BlazorDataOrchestratorJob
                 string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
                 string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
 
+                // Log the weather information
                 string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                 Console.WriteLine(weatherInfo);
                 await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
@@ -115,8 +146,9 @@ public class BlazorDataOrchestratorJob
                 logs.Add(errorMsg);
             }
 
-            await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully", "Info", tableConnectionString);
-            logs.Add("Job completed successfully");
+            // Job completed successfully
+            await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully!", "Info", tableConnectionString);
+            logs.Add("Job completed successfully!");
         }
         catch (Exception ex)
         {
@@ -131,13 +163,17 @@ public class BlazorDataOrchestratorJob
             // Update Last Job Run Time
             try
             {
+                // Update the last run time in JobData
                 if (dbContext != null && jobId > 0)
                 {
+                    // Retrieve existing datum
                     var runDatum = await dbContext.JobData
                         .FirstOrDefaultAsync(d => d.JobId == jobId && d.JobFieldDescription == "Last Job Run Time");
 
+                    // Create new datum if it doesn't exist
                     if (runDatum == null)
                     {
+                        // Create new JobDatum
                         runDatum = new JobDatum
                         {
                             JobId = jobId,
@@ -145,13 +181,17 @@ public class BlazorDataOrchestratorJob
                             CreatedBy = "System",
                             CreatedDate = DateTime.UtcNow
                         };
+
+                        // Add to DbContext
                         dbContext.JobData.Add(runDatum);
                     }
-                    
+
+                    // Update the date value
                     runDatum.JobDateValue = DateTime.UtcNow;
                     runDatum.UpdatedBy = "System";
                     runDatum.UpdatedDate = DateTime.UtcNow;
-                    
+
+                    // Save changes to the database
                     await dbContext.SaveChangesAsync();
                 }
             }
@@ -160,6 +200,7 @@ public class BlazorDataOrchestratorJob
             dbContext?.Dispose();
         }
 
+        // Return the collected logs
         return logs;
     }
 }

@@ -283,8 +283,8 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             logger.log_progress(error_msg, "Warning")
             logs.append(error_msg)
         
-        logger.log_progress("Job completed successfully")
-        logs.append("Job completed successfully")
+        logger.log_progress("Job completed successfully!")
+        logs.append("Job completed successfully!")
         
     except Exception as e:
         import traceback
