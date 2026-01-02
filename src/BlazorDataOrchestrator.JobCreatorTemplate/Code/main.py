@@ -180,8 +180,8 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     try:
         settings = json.loads(app_settings) if app_settings else {}
         connection_strings = settings.get("ConnectionStrings", {})
-        connection_string = connection_strings.get("DefaultConnection", "")
-        table_connection_string = connection_strings.get("TableStorage", "")
+        connection_string = connection_strings.get("blazororchestratordb", "")
+        table_connection_string = connection_strings.get("tables", "")
     except json.JSONDecodeError:
         pass
     
@@ -194,10 +194,16 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     try:
         logger.log_progress("Job started")
         logs.append("Job started")
-        print(f"Executing Job ID: {job_id}, Instance: {job_instance_id}, Schedule: {job_schedule_id}, Agent: {job_agent_id}")
-        logs.append(f"Executing Job ID: {job_id}, Instance: {job_instance_id}, Schedule: {job_schedule_id}, Agent: {job_agent_id}")
-        print(f"Log partition key: {job_id}-{job_instance_id}")
-        logs.append(f"Log partition key: {job_id}-{job_instance_id}")
+        
+        exec_info = f"Executing Job ID: {job_id}, Instance: {job_instance_id}, Schedule: {job_schedule_id}, Agent: {job_agent_id}"
+        print(exec_info)
+        logger.log_progress(exec_info)
+        logs.append(exec_info)
+        
+        partition_key_info = f"Log partition key: {job_id}-{job_instance_id}"
+        print(partition_key_info)
+        logger.log_progress(partition_key_info)
+        logs.append(partition_key_info)
         
         # Fetch weather data for Los Angeles, CA
         logger.log_progress("Fetching weather data for Los Angeles, CA")
