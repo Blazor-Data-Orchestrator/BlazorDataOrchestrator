@@ -489,6 +489,7 @@
 
             // 3. Execute Code
             List<string> results = new List<string>();
+            bool hasError = false;
             try
             {
                 if (selectedLanguage == "csharp")
@@ -573,6 +574,11 @@ except Exception as e:
 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
 
+                if (jobManager != null && currentJobInstanceId > 0)
+                {
+                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, false);
+                }
+
                 // Hide the executing overlay before showing results
                 isExecuting = false;
                 StateHasChanged();
@@ -590,10 +596,16 @@ except Exception as e:
             }
             catch (Exception ex)
             {
+                hasError = true;
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Error executing code: {ex.Message}\n";
                 if (ex.InnerException != null)
                 {
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Inner Error: {ex.InnerException.Message}\n";
+                }
+
+                if (jobManager != null && currentJobInstanceId > 0)
+                {
+                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, true);
                 }
             }
             finally

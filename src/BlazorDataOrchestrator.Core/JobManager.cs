@@ -676,5 +676,27 @@ namespace BlazorDataOrchestrator.Core
             await LogAsync("CreateDesignerJobInstance", $"Created Instance {instance.Id} with ScheduleId {schedule.Id}");
             return instance.Id;
         }
+
+        // #7 Complete Job Instance
+        public async Task CompleteJobInstanceAsync(int jobInstanceId, bool hasError = false)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("CompleteJobInstance", $"Completing Instance {jobInstanceId} (Error: {hasError})");
+
+            var instance = await context.JobInstances.FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+            if (instance != null)
+            {
+                instance.InProcess = false;
+                instance.HasError = hasError;
+                instance.UpdatedDate = DateTime.UtcNow;
+                instance.UpdatedBy = "Designer";
+                await context.SaveChangesAsync();
+                await LogAsync("CompleteJobInstance", $"Instance {jobInstanceId} completed");
+            }
+            else
+            {
+                await LogAsync("CompleteJobInstance", $"Instance {jobInstanceId} not found", "Warning");
+            }
+        }
     }
 }
