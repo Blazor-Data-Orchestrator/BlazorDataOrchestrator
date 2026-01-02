@@ -39,7 +39,19 @@ class JobLogger:
             try:
                 # Fix for ODBC requiring 'yes'/'no' instead of 'true'/'false'
                 connection_string = connection_string.replace("TrustServerCertificate=true", "TrustServerCertificate=yes")
+                connection_string = connection_string.replace("TrustServerCertificate=True", "TrustServerCertificate=yes")
                 connection_string = connection_string.replace("TrustServerCertificate=false", "TrustServerCertificate=no")
+                connection_string = connection_string.replace("TrustServerCertificate=False", "TrustServerCertificate=no")
+                
+                connection_string = connection_string.replace("Encrypt=true", "Encrypt=yes")
+                connection_string = connection_string.replace("Encrypt=True", "Encrypt=yes")
+                connection_string = connection_string.replace("Encrypt=false", "Encrypt=no")
+                connection_string = connection_string.replace("Encrypt=False", "Encrypt=no")
+
+                # Fix for ODBC using UID/PWD instead of User ID/Password
+                connection_string = connection_string.replace("User ID=", "UID=")
+                connection_string = connection_string.replace("User Id=", "UID=")
+                connection_string = connection_string.replace("Password=", "PWD=")
 
                 # Ensure driver is specified in connection string
                 if "Driver={" not in connection_string:
@@ -77,8 +89,8 @@ class JobLogger:
             cursor = self.connection.cursor()
             cursor.execute("""
                 SELECT js.JobId 
-                FROM JobInstances ji 
-                JOIN JobSchedules js ON ji.JobScheduleId = js.Id 
+                FROM JobInstance ji 
+                JOIN JobSchedule js ON ji.JobScheduleId = js.Id 
                 WHERE ji.Id = ?
             """, self.job_instance_id)
             row = cursor.fetchone()

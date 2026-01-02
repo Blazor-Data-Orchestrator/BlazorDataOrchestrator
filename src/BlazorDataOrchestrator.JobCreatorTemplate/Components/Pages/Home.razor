@@ -410,7 +410,40 @@
             }
             else
             {
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {appSettingsFileName} not found.\n";
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {appSettingsFileName} not found. Using defaults.\n";
+            }
+
+            // Patch connection strings from Configuration (Aspire environment variables)
+            try
+            {
+                var jsonNode = System.Text.Json.Nodes.JsonNode.Parse(appSettingsContent) ?? new System.Text.Json.Nodes.JsonObject();
+                
+                var connString = Configuration.GetConnectionString("blazororchestratordb");
+                if (!string.IsNullOrEmpty(connString))
+                {
+                    if (jsonNode["ConnectionStrings"] == null)
+                    {
+                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
+                    }
+                    jsonNode["ConnectionStrings"]!["blazororchestratordb"] = connString;
+                }
+
+                var tableConnString = Configuration.GetConnectionString("tables");
+                if (!string.IsNullOrEmpty(tableConnString))
+                {
+                    if (jsonNode["ConnectionStrings"] == null)
+                    {
+                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
+                    }
+                    jsonNode["ConnectionStrings"]!["tables"] = tableConnString;
+                }
+                
+                appSettingsContent = jsonNode.ToJsonString();
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Patched connection strings from environment\n";
+            }
+            catch (Exception ex)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to patch connection strings: {ex.Message}\n";
             }
 
             // 2. Create Job Instance
