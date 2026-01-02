@@ -624,6 +624,47 @@ except Exception as e:
                         }
                     }
 
+                    // Compilation check for main.py
+                    if (selectedFile.Equals("main.py", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var startInfo = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "python",
+                                Arguments = "-c \"import sys; compile(sys.stdin.read(), 'main.py', 'exec')\"",
+                                RedirectStandardInput = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+
+                            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                            process.Start();
+                            
+                            await process.StandardInput.WriteAsync(code);
+                            process.StandardInput.Close();
+
+                            var error = await process.StandardError.ReadToEndAsync();
+                            await process.WaitForExitAsync();
+
+                            if (process.ExitCode != 0)
+                            {
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
+                                await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
+                                StateHasChanged();
+                                return false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
+                             StateHasChanged();
+                             return false;
+                        }
+                    }
+
                     try 
                     {
                         var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
