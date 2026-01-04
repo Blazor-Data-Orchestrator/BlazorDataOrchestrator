@@ -1,0 +1,207 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorDataOrchestrator.JobCreatorTemplate.Services
+@inject AISettingsService SettingsService
+@inject NotificationService NotificationService
+@inject IJSRuntime JSRuntime
+
+<RadzenStack Gap="16" Style="padding: 8px;">
+    <RadzenFormField Text="OpenAI Service Type:" Variant="Variant.Outlined">
+        <RadzenDropDown Data="@serviceTypes" @bind-Value="@aiServiceType"
+                        Style="width: 100%;" Change="@OnServiceTypeChanged" />
+    </RadzenFormField>
+
+    <RadzenFormField Text="API Key:" Variant="Variant.Outlined">
+        <RadzenTextBox @bind-Value="@apiKey" Style="width: 100%;" 
+                       @oninput="@OnApiKeyInput" />
+    </RadzenFormField>
+
+    @if (aiServiceType == "OpenAI")
+    {
+        <RadzenFormField Text="Default AI Model:" Variant="Variant.Outlined">
+            <RadzenDropDown Data="@openAIModels" @bind-Value="@aiModel"
+                            Style="width: 100%;" />
+        </RadzenFormField>
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #666;">
+            Note: GPT 3.5 is faster and costs less than GPT 4, but does not perform as well.
+        </RadzenText>
+    }
+    else if (aiServiceType == "Azure OpenAI")
+    {
+        <RadzenFormField Text="Azure OpenAI Model Deployment Name:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" />
+        </RadzenFormField>
+
+        <RadzenFormField Text="Azure OpenAI Embedding Model Deployment Name:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@embeddingModel" Style="width: 100%;" />
+        </RadzenFormField>
+
+        <RadzenFormField Text="Azure OpenAI Endpoint:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@endpoint" Style="width: 100%;" 
+                           Placeholder="https://your-resource.openai.azure.com/" />
+        </RadzenFormField>
+
+        <RadzenFormField Text="Azure OpenAI API Version:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@apiVersion" Style="width: 100%;" 
+                           Placeholder="2024-02-15-preview" />
+        </RadzenFormField>
+    }
+
+    @if (!isSettingsEntered)
+    {
+        @if (aiServiceType == "OpenAI")
+        {
+            <RadzenButton Text="An OpenAI API Key is required (Click here to get one)" 
+                          ButtonStyle="ButtonStyle.Secondary"
+                          Click="@GetOpenAIApiKey"
+                          Style="width: 100%;" />
+        }
+        else if (aiServiceType == "Azure OpenAI")
+        {
+            <RadzenButton Text="An Azure OpenAI API Key is required (Click here to get one)" 
+                          ButtonStyle="ButtonStyle.Secondary"
+                          Click="@GetAzureOpenAIApiKey"
+                          Style="width: 100%;" />
+        }
+    }
+    else
+    {
+        <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary"
+                      Click="@OnSave" Style="width: 100%;" />
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public EventCallback OnSettingsSaved { get; set; }
+
+    private string aiServiceType = "OpenAI";
+    private string apiKey = "";
+    private string aiModel = "gpt-4-turbo-preview";
+    private string endpoint = "";
+    private string apiVersion = "";
+    private string embeddingModel = "";
+    private bool isSettingsEntered = false;
+
+    private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI" };
+    private List<string> openAIModels = new() { "gpt-4o", "gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await SettingsService.GetSettingsAsync();
+            aiServiceType = settings.AIServiceType;
+            apiKey = settings.ApiKey;
+            aiModel = settings.AIModel;
+            endpoint = settings.Endpoint;
+            apiVersion = settings.ApiVersion;
+            embeddingModel = settings.EmbeddingModel;
+
+            isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error",
+                Detail = $"Failed to load settings: {ex.Message}",
+                Duration = 4000
+            });
+        }
+    }
+
+    private void OnServiceTypeChanged(object value)
+    {
+        if (value is string serviceType)
+        {
+            if (serviceType == "OpenAI")
+            {
+                aiModel = "gpt-4-turbo-preview";
+            }
+        }
+    }
+
+    private void OnApiKeyInput(ChangeEventArgs args)
+    {
+        apiKey = args.Value?.ToString() ?? "";
+        isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
+    }
+
+    private async Task GetOpenAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://platform.openai.com/account/api-keys");
+    }
+
+    private async Task GetAzureOpenAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal");
+    }
+
+    private async Task OnSave()
+    {
+        try
+        {
+            // Validate API key format
+            if (aiServiceType == "OpenAI" && !apiKey.StartsWith("sk-"))
+            {
+                NotificationService.Notify(new NotificationMessage
+                {
+                    Severity = NotificationSeverity.Error,
+                    Summary = "Error",
+                    Detail = "Invalid API Key - must start with: sk-",
+                    Duration = 4000
+                });
+                return;
+            }
+
+            // Validate Azure OpenAI settings
+            if (aiServiceType == "Azure OpenAI")
+            {
+                if (string.IsNullOrWhiteSpace(endpoint))
+                {
+                    NotificationService.Notify(new NotificationMessage
+                    {
+                        Severity = NotificationSeverity.Error,
+                        Summary = "Error",
+                        Detail = "Azure OpenAI Endpoint is required",
+                        Duration = 4000
+                    });
+                    return;
+                }
+            }
+
+            var settings = new AISettings
+            {
+                AIServiceType = aiServiceType,
+                ApiKey = apiKey,
+                AIModel = aiModel,
+                Endpoint = endpoint,
+                ApiVersion = apiVersion,
+                EmbeddingModel = embeddingModel
+            };
+
+            await SettingsService.SaveSettingsAsync(settings);
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Success",
+                Detail = "AI settings saved successfully",
+                Duration = 4000
+            });
+
+            await OnSettingsSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error",
+                Detail = $"Failed to save settings: {ex.Message}",
+                Duration = 4000
+            });
+        }
+    }
+}

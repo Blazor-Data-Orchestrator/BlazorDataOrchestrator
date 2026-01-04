@@ -6,11 +6,13 @@
 @using System.IO
 @using System.Text.Json
 @using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
 @using Microsoft.CodeAnalysis.CSharp
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
+@inject CodeAssistantChatService ChatService
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -74,10 +76,14 @@
                             @* Chat Section *@
                             <RadzenStack Gap="0" Style="height: 100%; background: #f8f9fa; border-left: 1px solid #e8e8e8;">
                                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             JustifyContent="JustifyContent.SpaceBetween"
                                              Style="padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8;">
                                     <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: #333; margin: 0; font-weight: 600;">
                                         <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px; color: #5c6bc0;" />Chat
                                     </RadzenText>
+                                    <RadzenButton Icon="settings" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                                                  title="Configure AI Service" Click="@OpenAISettingsDialog"
+                                                  Style="padding: 4px 8px; min-width: auto;" />
                                 </RadzenStack>
                                 <div style="flex-grow: 1; overflow: hidden; padding: 12px;">
                                     <RadzenAIChat @ref="aiChat"
@@ -622,6 +628,31 @@ except Exception as e:
     {
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created successfully!\n";
+        StateHasChanged();
+    }
+
+    private async Task OpenAISettingsDialog()
+    {
+        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
+            new Dictionary<string, object>
+            {
+                { "OnSettingsSaved", EventCallback.Factory.Create(this, OnAISettingsSaved) }
+            },
+            new DialogOptions
+            {
+                Width = "500px",
+                Height = "auto",
+                CloseDialogOnOverlayClick = true,
+                ShowClose = true
+            });
+    }
+
+    private void OnAISettingsSaved()
+    {
+        // Refresh the chat client to use new settings
+        ChatService.RefreshClient();
+        DialogService.Close();
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] AI settings updated.\n";
         StateHasChanged();
     }
 

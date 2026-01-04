@@ -24,8 +24,12 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
 
             builder.Services.AddRadzenComponents();
             
+            // Register AI Settings Service
+            builder.Services.AddScoped<AISettingsService>();
+            
             // Register AI Chat Service for code assistance
-            builder.Services.AddScoped<IAIChatService, CodeAssistantChatService>();
+            builder.Services.AddScoped<CodeAssistantChatService>();
+            builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CodeAssistantChatService>());
             
             var app = builder.Build();
 

@@ -1,27 +1,84 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.ClientModel;
+using Microsoft.Extensions.AI;
+using OpenAI;
+using Azure.AI.OpenAI;
 using Radzen;
 using Radzen.Blazor;
+using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
+using RadzenChatMessage = Radzen.Blazor.ChatMessage;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
 /// <summary>
-/// A simple AI Chat service for code assistance.
-/// This can be extended to integrate with actual AI services like OpenAI, Azure OpenAI, etc.
+/// AI Chat service for code assistance using Microsoft.Extensions.AI.
+/// Supports OpenAI and Azure OpenAI services.
 /// </summary>
 public class CodeAssistantChatService : IAIChatService
 {
     private readonly ConcurrentDictionary<string, ConversationSession> _sessions = new();
+    private readonly AISettingsService _settingsService;
+    private AISettings? _cachedSettings;
+    private IChatClient? _chatClient;
     
-    private readonly Dictionary<string, string> _codeHelpers = new()
+    private const string DefaultSystemPrompt = @"You are a helpful code assistant specializing in Python and C# development. 
+You help developers with:
+- Writing and debugging code
+- Explaining programming concepts
+- Best practices and code optimization
+- Understanding libraries and frameworks
+Keep responses concise and focused on the code task at hand.";
+
+    public CodeAssistantChatService(AISettingsService settingsService)
     {
-        { "python", "I can help you with Python code! Ask me about syntax, libraries, or best practices." },
-        { "csharp", "I can help you with C# code! Ask me about syntax, .NET libraries, or best practices." },
-        { "c#", "I can help you with C# code! Ask me about syntax, .NET libraries, or best practices." },
-        { "help", "I'm your code assistant! I can help with:\n• Python programming\n• C# and .NET development\n• Code debugging\n• Best practices" },
-        { "hello", "Hello! I'm your code assistant. How can I help you today?" },
-        { "hi", "Hi there! I'm ready to help you with your code. What would you like to know?" }
-    };
+        _settingsService = settingsService;
+    }
+
+    private async Task<IChatClient?> GetOrCreateChatClientAsync()
+    {
+        var settings = await _settingsService.GetSettingsAsync();
+        
+        // Check if settings changed
+        if (_cachedSettings != null && 
+            _cachedSettings.AIServiceType == settings.AIServiceType &&
+            _cachedSettings.ApiKey == settings.ApiKey &&
+            _cachedSettings.AIModel == settings.AIModel &&
+            _cachedSettings.Endpoint == settings.Endpoint)
+        {
+            return _chatClient;
+        }
+
+        _cachedSettings = settings;
+
+        if (!settings.IsConfigured)
+        {
+            _chatClient = null;
+            return null;
+        }
+
+        try
+        {
+            if (settings.AIServiceType == "Azure OpenAI")
+            {
+                var azureClient = new AzureOpenAIClient(
+                    new Uri(settings.Endpoint),
+                    new ApiKeyCredential(settings.ApiKey));
+                _chatClient = azureClient.GetChatClient(settings.AIModel).AsIChatClient();
+            }
+            else // OpenAI
+            {
+                var openAIClient = new OpenAIClient(new ApiKeyCredential(settings.ApiKey));
+                _chatClient = openAIClient.GetChatClient(settings.AIModel).AsIChatClient();
+            }
+        }
+        catch (Exception)
+        {
+            _chatClient = null;
+        }
+
+        return _chatClient;
+    }
 
     public async IAsyncEnumerable<string> GetCompletionsAsync(
         string userInput, 
@@ -36,50 +93,83 @@ public class CodeAssistantChatService : IAIChatService
         string? apiKey = null, 
         string? apiKeyHeader = null)
     {
-        // Get or create the session
         var session = GetOrCreateSession(sessionId);
+        session.Messages.Add(new RadzenChatMessage { IsUser = true, Content = userInput });
+
+        var chatClient = await GetOrCreateChatClientAsync();
         
-        // Add user message to history
-        session.Messages.Add(new ChatMessage { IsUser = true, Content = userInput });
+        if (chatClient == null)
+        {
+            var fallbackResponse = "⚠️ AI service is not configured. Please click the gear icon (⚙️) to configure your OpenAI or Azure OpenAI settings.";
+            session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = fallbackResponse });
+            yield return fallbackResponse;
+            yield break;
+        }
+
+        // Process the AI request and collect results
+        var result = await ProcessAIRequestAsync(session, systemPrompt, temperature, maxTokens, cancellationToken);
         
-        // Simulate typing delay for more natural feel
-        await Task.Delay(100, cancellationToken);
-
-        var lowerMessage = userInput.ToLowerInvariant();
-        string response;
-
-        // Check for matching keywords
-        var matchedKey = _codeHelpers.Keys.FirstOrDefault(k => lowerMessage.Contains(k));
-        
-        if (matchedKey != null)
+        foreach (var chunk in result)
         {
-            response = _codeHelpers[matchedKey];
-        }
-        else if (lowerMessage.Contains("error") || lowerMessage.Contains("bug") || lowerMessage.Contains("fix"))
-        {
-            response = "I'd be happy to help debug your code! Please share the error message or describe the issue you're experiencing.";
-        }
-        else if (lowerMessage.Contains("function") || lowerMessage.Contains("method") || lowerMessage.Contains("class"))
-        {
-            response = "I can help you understand or write functions/classes. What specific functionality are you trying to implement?";
-        }
-        else
-        {
-            response = $"I received your message: \"{userInput}\"\n\nI'm a code assistant that can help with Python and C# development. Try asking about specific programming concepts!";
-        }
-
-        // Add assistant response to history
-        session.Messages.Add(new ChatMessage { IsUser = false, Content = response });
-
-        // Stream the response character by character for a typing effect
-        foreach (var chunk in SplitIntoChunks(response, 5))
-        {
-            if (cancellationToken.IsCancellationRequested)
-                yield break;
-                
             yield return chunk;
-            await Task.Delay(20, cancellationToken);
         }
+    }
+
+    private async Task<List<string>> ProcessAIRequestAsync(
+        ConversationSession session,
+        string? systemPrompt,
+        double? temperature,
+        int? maxTokens,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<string>();
+        
+        try
+        {
+            // Build conversation history for context
+            var messages = new List<AIChatMessage>
+            {
+                new(ChatRole.System, systemPrompt ?? DefaultSystemPrompt)
+            };
+
+            // Add conversation history (limit to last 10 messages for context window)
+            var recentMessages = session.Messages.TakeLast(10);
+            foreach (var msg in recentMessages)
+            {
+                messages.Add(new AIChatMessage(
+                    msg.IsUser ? ChatRole.User : ChatRole.Assistant,
+                    msg.Content));
+            }
+
+            var options = new ChatOptions
+            {
+                Temperature = (float?)temperature ?? 0.7f,
+                MaxOutputTokens = maxTokens ?? 2048
+            };
+
+            var responseBuilder = new System.Text.StringBuilder();
+            
+            await foreach (var update in _chatClient!.GetStreamingResponseAsync(messages, options, cancellationToken))
+            {
+                if (update.Text != null)
+                {
+                    responseBuilder.Append(update.Text);
+                    results.Add(update.Text);
+                }
+            }
+
+            // Store complete response in session
+            session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = responseBuilder.ToString() });
+        }
+        catch (Exception ex)
+        {
+            var errorMessage = $"❌ Error communicating with AI service: {ex.Message}";
+            session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = errorMessage });
+            results.Clear();
+            results.Add(errorMessage);
+        }
+
+        return results;
     }
 
     public ConversationSession GetOrCreateSession(string? sessionId = null)
@@ -90,7 +180,7 @@ public class CodeAssistantChatService : IAIChatService
         {
             Id = id,
             CreatedAt = DateTime.UtcNow,
-            Messages = new List<ChatMessage>()
+            Messages = new List<RadzenChatMessage>()
         });
     }
 
@@ -118,11 +208,12 @@ public class CodeAssistantChatService : IAIChatService
         }
     }
 
-    private static IEnumerable<string> SplitIntoChunks(string text, int chunkSize)
+    /// <summary>
+    /// Refreshes the chat client when settings are updated.
+    /// </summary>
+    public void RefreshClient()
     {
-        for (int i = 0; i < text.Length; i += chunkSize)
-        {
-            yield return text.Substring(i, Math.Min(chunkSize, text.Length - i));
-        }
+        _cachedSettings = null;
+        _chatClient = null;
     }
 }
