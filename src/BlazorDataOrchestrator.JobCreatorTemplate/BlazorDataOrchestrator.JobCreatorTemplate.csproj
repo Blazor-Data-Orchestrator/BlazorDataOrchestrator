@@ -20,7 +20,7 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.6.0-preview.1.25310.2" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.1" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
-	<PackageReference Include="SimpleBlazorMonaco" Version="*" />  
+	<PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />  
   </ItemGroup>
 
   <ItemGroup>
