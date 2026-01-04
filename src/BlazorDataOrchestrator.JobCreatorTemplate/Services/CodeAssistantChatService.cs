@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.ClientModel;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using Azure.AI.OpenAI;
 using Radzen;
 using Radzen.Blazor;
+using Microsoft.AspNetCore.Hosting;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using RadzenChatMessage = Radzen.Blazor.ChatMessage;
 
@@ -19,10 +21,16 @@ public class CodeAssistantChatService : IAIChatService
 {
     private readonly ConcurrentDictionary<string, ConversationSession> _sessions = new();
     private readonly AISettingsService _settingsService;
+    private readonly IWebHostEnvironment _environment;
     private AISettings? _cachedSettings;
     private IChatClient? _chatClient;
+    private string? _cachedInstructions;
+    private string? _cachedInstructionsLanguage;
     
-    private const string DefaultSystemPrompt = @"You are a helpful code assistant specializing in Python and C# development. 
+    // Property to hold the current code from the editor
+    private string _currentEditorCode = "";
+    
+    private const string BaseSystemPrompt = @"You are a helpful code assistant specializing in Python and C# development. 
 You help developers with:
 - Writing and debugging code
 - Explaining programming concepts
@@ -30,9 +38,104 @@ You help developers with:
 - Understanding libraries and frameworks
 Keep responses concise and focused on the code task at hand.";
 
-    public CodeAssistantChatService(AISettingsService settingsService)
+    public CodeAssistantChatService(AISettingsService settingsService, IWebHostEnvironment environment)
     {
         _settingsService = settingsService;
+        _environment = environment;
+    }
+    
+    /// <summary>
+    /// Sets the current code from the editor to be included in AI requests.
+    /// </summary>
+    public void SetCurrentEditorCode(string code)
+    {
+        _currentEditorCode = code ?? "";
+    }
+    
+    /// <summary>
+    /// Gets the selected language from the configuration file.
+    /// </summary>
+    private string GetSelectedLanguage()
+    {
+        try
+        {
+            var configPath = Path.Combine(_environment.ContentRootPath, "Code", "configuration.json");
+            if (File.Exists(configPath))
+            {
+                var configJson = File.ReadAllText(configPath);
+                using var doc = JsonDocument.Parse(configJson);
+                if (doc.RootElement.TryGetProperty("SelectedLanguage", out var langElement))
+                {
+                    return langElement.GetString()?.ToLowerInvariant() ?? "csharp";
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to default
+        }
+        return "csharp";
+    }
+    
+    /// <summary>
+    /// Loads the custom instructions for the selected language.
+    /// </summary>
+    private async Task<string> GetLanguageInstructionsAsync()
+    {
+        var selectedLanguage = GetSelectedLanguage();
+        
+        // Return cached instructions if already loaded for this language
+        if (_cachedInstructions != null && _cachedInstructionsLanguage == selectedLanguage)
+        {
+            return _cachedInstructions;
+        }
+        
+        string instructionsFile = selectedLanguage switch
+        {
+            "python" => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "instructions", "python.instructions.md"),
+            _ => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "instructions", "csharp.instructions.md")
+        };
+        
+        try
+        {
+            if (File.Exists(instructionsFile))
+            {
+                _cachedInstructions = await File.ReadAllTextAsync(instructionsFile);
+                _cachedInstructionsLanguage = selectedLanguage;
+                return _cachedInstructions;
+            }
+        }
+        catch
+        {
+            // Fall back to empty instructions
+        }
+        
+        _cachedInstructions = "";
+        _cachedInstructionsLanguage = selectedLanguage;
+        return _cachedInstructions;
+    }
+    
+    /// <summary>
+    /// Builds the dynamic system prompt with language-specific instructions.
+    /// </summary>
+    private async Task<string> BuildSystemPromptAsync(bool isNewSession)
+    {
+        var promptBuilder = new System.Text.StringBuilder();
+        promptBuilder.AppendLine(BaseSystemPrompt);
+        
+        // Add language-specific instructions for new sessions
+        if (isNewSession)
+        {
+            var instructions = await GetLanguageInstructionsAsync();
+            if (!string.IsNullOrWhiteSpace(instructions))
+            {
+                promptBuilder.AppendLine();
+                promptBuilder.AppendLine("## Custom Instructions for Code Generation");
+                promptBuilder.AppendLine(instructions);
+            }
+        }
+        
+        return promptBuilder.ToString();
     }
 
     private async Task<IChatClient?> GetOrCreateChatClientAsync()
@@ -126,24 +229,54 @@ Keep responses concise and focused on the code task at hand.";
         
         try
         {
+            // Determine if this is a new session (no previous AI responses)
+            bool isNewSession = !session.Messages.Any(m => !m.IsUser);
+            
             // Build conversation history for context
+            var dynamicSystemPrompt = systemPrompt ?? await BuildSystemPromptAsync(isNewSession);
             var messages = new List<AIChatMessage>
             {
-                new(ChatRole.System, systemPrompt ?? DefaultSystemPrompt)
+                new(ChatRole.System, dynamicSystemPrompt)
             };
 
             // Add conversation history (limit to last 10 messages for context window)
-            var recentMessages = session.Messages.TakeLast(10);
-            foreach (var msg in recentMessages)
+            var recentMessages = session.Messages.TakeLast(10).ToList();
+            
+            for (int i = 0; i < recentMessages.Count; i++)
             {
-                messages.Add(new AIChatMessage(
-                    msg.IsUser ? ChatRole.User : ChatRole.Assistant,
-                    msg.Content));
+                var msg = recentMessages[i];
+                
+                // For the most recent user message, prepend the current editor code as context
+                if (msg.IsUser && i == recentMessages.Count - 1 && !string.IsNullOrWhiteSpace(_currentEditorCode))
+                {
+                    var contentWithCode = $@"## Current Code in Editor:
+```
+{_currentEditorCode}
+```
+
+## User Request:
+{msg.Content}";
+                    messages.Add(new AIChatMessage(ChatRole.User, contentWithCode));
+                }
+                else
+                {
+                    messages.Add(new AIChatMessage(
+                        msg.IsUser ? ChatRole.User : ChatRole.Assistant,
+                        msg.Content));
+                }
             }
 
+            // GPT-5 and o1 models only support temperature=1, so don't set it for those models
+            var modelName = _cachedSettings?.AIModel?.ToLowerInvariant() ?? "";
+            var isRestrictedModel = modelName.Contains("gpt-5") || 
+                                    modelName.Contains("gpt5") || 
+                                    modelName.StartsWith("o1") ||
+                                    modelName.Contains("o1-preview") ||
+                                    modelName.Contains("o1-mini");
+            
             var options = new ChatOptions
             {
-                Temperature = (float?)temperature ?? 0.7f,
+                Temperature = isRestrictedModel ? null : (float?)temperature ?? 0.7f,
                 MaxOutputTokens = maxTokens ?? 2048
             };
 

@@ -88,10 +88,13 @@
                                                   title="Configure AI Service" Click="@OpenAISettingsDialog"
                                                   Style="padding: 4px 8px; min-width: auto;" />
                                 </RadzenStack>
-                                <div style="flex-grow: 1; overflow: hidden; padding: 12px;">
-                                    <RadzenAIChat @ref="aiChat"
-                                                  Style="height: 100%; --rz-aichat-background-color: #ffffff; --rz-text-color: #333; border-radius: 12px;"
-                                                  ShowClearButton="true" />
+                                <div class="chat-container" style="flex-grow: 1; overflow: hidden; padding: 12px; position: relative;">
+                                    <div style="position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; overflow: hidden;">
+                                        <RadzenAIChat @ref="aiChat"
+                                                      Style="height: 100%; max-height: 100%; --rz-aichat-background-color: #ffffff; --rz-text-color: #333; border-radius: 12px; overflow: hidden;"
+                                                      ShowClearButton="true"
+                                                      MessageSent="@OnChatMessageSent" />
+                                    </div>
                                 </div>
                             </RadzenStack>
                         </RadzenSplitterPane>
@@ -686,6 +689,20 @@ except Exception as e:
         DialogService.Close();
         logOutput += $"[{DateTime.Now:HH:mm:ss}] AI settings updated.\n";
         if (!_disposed) StateHasChanged();
+    }
+
+    private async Task OnChatMessageSent(string message)
+    {
+        // Update the ChatService with the current code from the editor before the AI processes the request
+        if (codeEditor != null)
+        {
+            var code = await codeEditor.GetCodeAsync();
+            ChatService.SetCurrentEditorCode(code ?? "");
+        }
+        else
+        {
+            ChatService.SetCurrentEditorCode(currentCode);
+        }
     }
 
     private System.Timers.Timer? _pollingTimer;
