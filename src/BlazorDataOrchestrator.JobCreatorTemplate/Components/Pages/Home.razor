@@ -1,4 +1,5 @@
 ﻿@page "/"
+@implements IDisposable
 @using Radzen
 @using Radzen.Blazor
 @using MonacoRazor
@@ -44,6 +45,8 @@
                                                         AllowClear="false" />
                                     </RadzenStack>
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="8" Style="margin-left: auto;">
+                                        <RadzenButton Icon="undo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Undo" Click="@OnUndo" Disabled="@(!CanUndo)" />
+                                        <RadzenButton Icon="redo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Redo" Click="@OnRedo" Disabled="@(!CanRedo)" />
                                         <RadzenButton Icon="refresh" Text="Refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Reload file from disk" Click="@OnRefreshFile" />
                                         <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" IsBusy="@isSaving" />
                                         <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
@@ -159,12 +162,19 @@
     private string logOutput = "Ready to execute...";
     private bool isSaving = false;
     private bool isExecuting = false;
+    private bool _disposed = false;
 
     private List<string> fileList = new List<string>();
     private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
     private int currentJobId = 0;
     private int currentJobInstanceId = 0;
     private JobManager? jobManager;
+
+    // Undo/Redo stacks
+    private Stack<string> undoStack = new();
+    private Stack<string> redoStack = new();
+    private bool CanUndo => undoStack.Count > 0;
+    private bool CanRedo => redoStack.Count > 0;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -220,6 +230,12 @@
                 currentCode = await File.ReadAllTextAsync(path);
             }
         }
+
+        // Start polling for changes
+        _pollingTimer = new System.Timers.Timer(2000);
+        _pollingTimer.Elapsed += async (s, e) => await CheckForChanges();
+        _pollingTimer.AutoReset = true;
+        _pollingTimer.Start();
     }
 
     private void InitializeJobManager()
@@ -330,7 +346,7 @@
         }
     }
 
-    private async Task LoadFileContent(string fileName)
+    private async Task LoadFileContent(string fileName, bool clearStack = true)
     {
         try
         {
@@ -338,11 +354,19 @@
             if (File.Exists(path))
             {
                 currentCode = await File.ReadAllTextAsync(path);
+                if (_disposed) return;
                 var lang = GetLanguageFromFile(fileName);
                 if (codeEditor != null)
                 {
                     await codeEditor.UpdateCodeAsync(currentCode);
                     await codeEditor.UpdateLanguageAsync(lang);
+                }
+                
+                if (clearStack)
+                {
+                    // Clear undo/redo stacks when loading a new file
+                    undoStack.Clear();
+                    redoStack.Clear();
                 }
             }
         }
@@ -383,7 +407,7 @@
             selectedFile = fileName;
             await LoadFileContent(fileName);
         }
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
     }
 
     private async Task OnLanguageChanged(object value)
@@ -400,11 +424,13 @@
                 await LoadFileContent(selectedFile);
             }            
         }
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
     }
 
     private async Task OnRunCode(RadzenSplitButtonItem? item)
     {
+        if (_disposed) return;
+
         // Save before running
         if (!await OnSaveFile())
         {
@@ -412,12 +438,16 @@
             return;
         }
 
+        if (_disposed) return;
+
         var environment = item?.Value?.ToString() ?? "Development";
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
         
         isExecuting = true;
         StateHasChanged();
         await Task.Delay(1); // Allow UI to update
+
+        if (_disposed) return;
 
         if (codeEditor != null)
         {
@@ -496,13 +526,13 @@
 
             // 3. Execute Code
             List<string> results = new List<string>();
-            bool hasError = false;
             try
             {
                 if (selectedLanguage == "csharp")
                 {
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
                     results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1);
+                    if (_disposed) return;
                 }
                 else if (selectedLanguage == "python")
                 {
@@ -553,6 +583,7 @@ except Exception as e:
                         var error = await process.StandardError.ReadToEndAsync();
 
                         await process.WaitForExitAsync();
+                        if (_disposed) return;
 
                         if (!string.IsNullOrEmpty(output))
                         {
@@ -586,6 +617,8 @@ except Exception as e:
                     await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, false);
                 }
 
+                if (_disposed) return;
+
                 // Hide the executing overlay before showing results
                 isExecuting = false;
                 StateHasChanged();
@@ -603,7 +636,6 @@ except Exception as e:
             }
             catch (Exception ex)
             {
-                hasError = true;
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Error executing code: {ex.Message}\n";
                 if (ex.InnerException != null)
                 {
@@ -621,14 +653,14 @@ except Exception as e:
             }
         }
 
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
     }
 
     private void OnCreatePackage()
     {
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created successfully!\n";
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
     }
 
     private async Task OpenAISettingsDialog()
@@ -653,14 +685,87 @@ except Exception as e:
         ChatService.RefreshClient();
         DialogService.Close();
         logOutput += $"[{DateTime.Now:HH:mm:ss}] AI settings updated.\n";
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
+    }
+
+    private System.Timers.Timer? _pollingTimer;
+
+    private async Task CheckForChanges()
+    {
+        if (_disposed) return;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                if (codeEditor != null)
+                {
+                    var code = await codeEditor.GetCodeAsync();
+                    if (!string.IsNullOrEmpty(code) && code != currentCode)
+                    {
+                        undoStack.Push(currentCode);
+                        currentCode = code;
+                        redoStack.Clear();
+                        StateHasChanged();
+                    }
+                }
+            });
+        }
+        catch (ObjectDisposedException) { }
+        catch (Exception) { }
+    }
+
+    private async Task OnUndo()
+    {
+        if (CanUndo && codeEditor != null)
+        {
+            // Get the current code and push to redo stack
+            var current = await codeEditor.GetCodeAsync();
+            if (!string.IsNullOrEmpty(current))
+            {
+                redoStack.Push(current);
+            }
+
+            // Pop from undo stack and update editor
+            currentCode = undoStack.Pop();
+            await codeEditor.UpdateCodeAsync(currentCode);
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private async Task OnRedo()
+    {
+        if (CanRedo && codeEditor != null)
+        {
+            // Get the current code and push to undo stack
+            var current = await codeEditor.GetCodeAsync();
+            if (!string.IsNullOrEmpty(current))
+            {
+                undoStack.Push(current);
+            }
+
+            // Pop from redo stack and update editor
+            currentCode = redoStack.Pop();
+            await codeEditor.UpdateCodeAsync(currentCode);
+            if (!_disposed) StateHasChanged();
+        }
     }
 
     private async Task OnRefreshFile()
     {
         if (!string.IsNullOrEmpty(selectedFile))
         {
-            await LoadFileContent(selectedFile);
+            // Save current state to undo stack before refreshing
+            if (codeEditor != null)
+            {
+                var current = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(current))
+                {
+                    undoStack.Push(current);
+                    redoStack.Clear();
+                }
+            }
+            await LoadFileContent(selectedFile, false);
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Reloaded {selectedFile} from disk.\n";
         }
     }
@@ -668,7 +773,7 @@ except Exception as e:
     private async Task<bool> OnSaveFile()
     {
         isSaving = true;
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
 
         try
         {
@@ -692,14 +797,14 @@ except Exception as e:
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
                                 
                                 await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Save Error");
-                                StateHasChanged();
+                                if (!_disposed) StateHasChanged();
                                 return false;
                             }
                         }
                         catch (Exception ex)
                         {
                              logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
-                             StateHasChanged();
+                             if (!_disposed) StateHasChanged();
                              return false;
                         }
                     }
@@ -733,14 +838,14 @@ except Exception as e:
                             {
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
                                 await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
-                                StateHasChanged();
+                                if (!_disposed) StateHasChanged();
                                 return false;
                             }
                         }
                         catch (Exception ex)
                         {
                              logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
-                             StateHasChanged();
+                             if (!_disposed) StateHasChanged();
                              return false;
                         }
                     }
@@ -749,14 +854,19 @@ except Exception as e:
                     {
                         var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
                         await File.WriteAllTextAsync(path, code);
+                        
+                        // Update the undo stack after successful save
+                        undoStack.Push(code);
+                        redoStack.Clear();
+                        
                         logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
-                        StateHasChanged();
+                        if (!_disposed) StateHasChanged();
                         return true;
                     }
                     catch (Exception ex)
                     {
                         logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
-                        StateHasChanged();
+                        if (!_disposed) StateHasChanged();
                         return false;
                     }
                 }
@@ -766,16 +876,18 @@ except Exception as e:
         finally
         {
             isSaving = false;
-            StateHasChanged();
+            if (!_disposed) StateHasChanged();
         }
     }
 
     private async Task OnRefreshLogs()
     {
+        if (_disposed) return;
+
         if (jobManager == null)
         {
             logOutput = $"[{DateTime.Now:HH:mm:ss}] JobManager not initialized. Check connection strings.\n";
-            StateHasChanged();
+            if (!_disposed) StateHasChanged();
             return;
         }
 
@@ -806,6 +918,7 @@ except Exception as e:
                 if (currentJobInstanceId > 0)
                 {
                     jobLogs = await jobManager.GetLogsForJobInstanceAsync(currentJobId, currentJobInstanceId);
+                    if (_disposed) return;
                     logOutput = $"[{DateTime.Now:HH:mm:ss}] Loaded {jobLogs.Count} log entries for Job {currentJobId}, Instance {currentJobInstanceId}\n";
                 }
                 else
@@ -823,7 +936,10 @@ except Exception as e:
             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error loading logs: {ex.Message}\n";
         }
 
-        StateHasChanged();
+        if (!_disposed)
+        {
+            StateHasChanged();
+        }
     }
 
     private static string GetLogLevelColor(string level)
@@ -853,5 +969,12 @@ except Exception as e:
         public string SelectedLanguage { get; set; } = "csharp";
         public int LastJobId { get; set; }
         public int LastJobInstanceId { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _pollingTimer?.Stop();
+        _pollingTimer?.Dispose();
     }
 }
