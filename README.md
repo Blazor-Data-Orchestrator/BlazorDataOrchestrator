@@ -1,4 +1,4 @@
-## This project is in progress
+# NOTE: This project is currently *in progress*
 
 # BlazorDataOrchestrator
 <img width="426" height="176" alt="BlazorDataOrchestratorLogo" src="https://github.com/user-attachments/assets/9df86186-193a-4a48-a2ba-e751abbf21eb" />
