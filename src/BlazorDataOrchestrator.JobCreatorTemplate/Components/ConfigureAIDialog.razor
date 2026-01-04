@@ -1,6 +1,9 @@
 @using Radzen
 @using Radzen.Blazor
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
+@using OpenAI
+@using Azure.AI.OpenAI
+@using System.ClientModel
 @inject AISettingsService SettingsService
 @inject NotificationService NotificationService
 @inject IJSRuntime JSRuntime
@@ -19,12 +22,8 @@
     @if (aiServiceType == "OpenAI")
     {
         <RadzenFormField Text="Default AI Model:" Variant="Variant.Outlined">
-            <RadzenDropDown Data="@openAIModels" @bind-Value="@aiModel"
-                            Style="width: 100%;" />
+            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" />
         </RadzenFormField>
-        <RadzenText TextStyle="TextStyle.Caption" Style="color: #666;">
-            Note: GPT 3.5 is faster and costs less than GPT 4, but does not perform as well.
-        </RadzenText>
     }
     else if (aiServiceType == "Azure OpenAI")
     {
@@ -83,7 +82,6 @@
     private bool isSettingsEntered = false;
 
     private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI" };
-    private List<string> openAIModels = new() { "gpt-4o", "gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo" };
 
     protected override async Task OnInitializedAsync()
     {
@@ -169,6 +167,36 @@
                     });
                     return;
                 }
+            }
+
+            // Test connection
+            try
+            {
+                if (aiServiceType == "Azure OpenAI")
+                {
+                    var azureClient = new AzureOpenAIClient(
+                        new Uri(endpoint),
+                        new ApiKeyCredential(apiKey));
+                    var chatClient = azureClient.GetChatClient(aiModel);
+                    await chatClient.CompleteChatAsync("Hello");
+                }
+                else
+                {
+                    var openAIClient = new OpenAIClient(new ApiKeyCredential(apiKey));
+                    var chatClient = openAIClient.GetChatClient(aiModel);
+                    await chatClient.CompleteChatAsync("Hello");
+                }
+            }
+            catch (Exception ex)
+            {
+                NotificationService.Notify(new NotificationMessage
+                {
+                    Severity = NotificationSeverity.Error,
+                    Summary = "Connection Test Failed",
+                    Detail = $"Could not connect to AI service: {ex.Message}",
+                    Duration = 4000
+                });
+                return;
             }
 
             var settings = new AISettings
