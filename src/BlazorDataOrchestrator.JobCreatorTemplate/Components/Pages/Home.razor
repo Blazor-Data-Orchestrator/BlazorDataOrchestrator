@@ -6,6 +6,7 @@
 @using SimpleBlazorMonaco
 @using System.IO
 @using System.Text.Json
+@using System.Text.RegularExpressions
 @using BlazorDataOrchestrator.Core
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
@@ -93,7 +94,9 @@
                                         <RadzenAIChat @ref="aiChat"
                                                       Style="height: 100%; max-height: 100%; --rz-aichat-background-color: #ffffff; --rz-text-color: #333; border-radius: 12px; overflow: hidden;"
                                                       ShowClearButton="true"
-                                                      MessageSent="@OnChatMessageSent" />
+                                                      MessageSent="@OnChatMessageSent"
+                                                      ResponseReceived="@OnChatResponseReceived"
+                                                      MessageAdded="@OnChatMessageAdded" />
                                     </div>
                                 </div>
                             </RadzenStack>
@@ -178,6 +181,11 @@
     private Stack<string> redoStack = new();
     private bool CanUndo => undoStack.Count > 0;
     private bool CanRedo => redoStack.Count > 0;
+    
+    // Code extraction markers
+    private const string CodeBeginMarker = "### UPDATED CODE BEGIN ###";
+    private const string CodeEndMarker = "### UPDATED CODE END ###";
+    private string? _pendingCodeUpdate = null;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -702,6 +710,129 @@ except Exception as e:
         else
         {
             ChatService.SetCurrentEditorCode(currentCode);
+        }
+    }
+    
+    private async Task OnChatResponseReceived(string response)
+    {
+        // Check if the response contains code markers
+        if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
+        {
+            // Extract the code between markers
+            var extractedCode = ExtractCodeFromResponse(response);
+            if (!string.IsNullOrEmpty(extractedCode))
+            {
+                _pendingCodeUpdate = extractedCode;
+            }
+        }
+    }
+    
+    private void OnChatMessageAdded(Radzen.Blazor.ChatMessage message)
+    {
+        // Only process assistant messages (not user messages)
+        if (!message.IsUser && message.Content != null)
+        {
+            // Check if message contains code markers and strip them
+            if (message.Content.Contains(CodeBeginMarker) || message.Content.Contains(CodeEndMarker))
+            {
+                message.Content = StripCodeMarkersFromMessage(message.Content);
+            }
+            
+            // Apply any pending code update to the editor
+            if (!string.IsNullOrEmpty(_pendingCodeUpdate))
+            {
+                _ = ApplyCodeUpdateAsync(_pendingCodeUpdate);
+                _pendingCodeUpdate = null;
+            }
+        }
+    }
+    
+    private string? ExtractCodeFromResponse(string response)
+    {
+        try
+        {
+            var beginIndex = response.IndexOf(CodeBeginMarker);
+            var endIndex = response.IndexOf(CodeEndMarker);
+            
+            if (beginIndex >= 0 && endIndex > beginIndex)
+            {
+                var codeStart = beginIndex + CodeBeginMarker.Length;
+                var code = response.Substring(codeStart, endIndex - codeStart).Trim();
+                
+                // Remove markdown code block markers if present
+                code = Regex.Replace(code, @"^```[\w]*\n?", "", RegexOptions.Multiline);
+                code = Regex.Replace(code, @"\n?```$", "", RegexOptions.Multiline);
+                
+                return code.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error extracting code from response: {ex.Message}\n";
+        }
+        return null;
+    }
+    
+    private string StripCodeMarkersFromMessage(string content)
+    {
+        try
+        {
+            var beginIndex = content.IndexOf(CodeBeginMarker);
+            var endIndex = content.IndexOf(CodeEndMarker);
+            
+            if (beginIndex >= 0 && endIndex > beginIndex)
+            {
+                // Remove the code block between markers (including markers)
+                var beforeCode = content.Substring(0, beginIndex).TrimEnd();
+                var afterCode = content.Substring(endIndex + CodeEndMarker.Length).TrimStart();
+                
+                // Add a note that code was applied
+                var result = beforeCode;
+                if (!string.IsNullOrEmpty(result))
+                {
+                    result += "\n\n";
+                }
+                result += "✅ **Code has been applied to the editor.**";
+                if (!string.IsNullOrEmpty(afterCode))
+                {
+                    result += "\n\n" + afterCode;
+                }
+                return result;
+            }
+        }
+        catch
+        {
+            // Return original content if parsing fails
+        }
+        return content;
+    }
+    
+    private async Task ApplyCodeUpdateAsync(string code)
+    {
+        try
+        {
+            if (codeEditor != null)
+            {
+                // Save current code to undo stack before applying update
+                var currentEditorCode = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(currentEditorCode))
+                {
+                    undoStack.Push(currentEditorCode);
+                    redoStack.Clear();
+                }
+                
+                // Apply the new code to the editor
+                currentCode = code;
+                await codeEditor.UpdateCodeAsync(code);
+                
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Code updated from AI response.\n";
+                if (!_disposed) StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
+            if (!_disposed) StateHasChanged();
         }
     }
 

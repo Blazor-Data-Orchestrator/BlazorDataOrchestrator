@@ -19,6 +19,8 @@ import pandas as pd
 
 The generated Python code must meet the following strict criteria to ensure it can be executed by the system's `OnRunCode` harness via the `runner.py` wrapper.
 
+When the response is a code update, provide the full code in a block surrounded by ### UPDATED CODE BEGIN ### and ### UPDATED CODE END ###
+
 ### Function Signature
 
 You must define a function named `execute_job` in `main.py` with the exact signature below:

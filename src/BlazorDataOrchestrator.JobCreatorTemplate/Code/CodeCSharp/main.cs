@@ -12,7 +12,7 @@ public class BlazorDataOrchestratorJob
     public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
     {
         // List to collect log messages
-        var logs = new List<string>();
+        var colLogs = new List<string>();
 
         // Initialize Connection strings
         string connectionString = "";
@@ -70,19 +70,19 @@ public class BlazorDataOrchestratorJob
 
             // Log job start
             await JobManager.LogProgress(dbContext, jobInstanceId, "Job started", "Info", tableConnectionString);
-            logs.Add("Job started");
+            colLogs.Add("Job started");
 
             // Log execution details
             string execInfo = $"Executing Job ID: {jobId}, Instance: {jobInstanceId}, Schedule: {jobScheduleId}, Agent: {jobAgentId}";
             Console.WriteLine(execInfo);
             await JobManager.LogProgress(dbContext, jobInstanceId, execInfo, "Info", tableConnectionString);
-            logs.Add(execInfo);
+            colLogs.Add(execInfo);
 
             // Log partition key info
             string partitionKeyInfo = $"Log partition key: {jobId}-{jobInstanceId}";
             Console.WriteLine(partitionKeyInfo);
             await JobManager.LogProgress(dbContext, jobInstanceId, partitionKeyInfo, "Info", tableConnectionString);
-            logs.Add(partitionKeyInfo);
+            colLogs.Add(partitionKeyInfo);
 
             // Check for previous run time
             JobDatum? lastRunDatum = null;
@@ -102,21 +102,21 @@ public class BlazorDataOrchestratorJob
                     string prevRunMsg = $"Previous time the job was run: {localTime:MM/dd/yyyy hh:mm}{localTime.ToString("tt").ToLower()}";
                     Console.WriteLine(prevRunMsg);
                     await JobManager.LogProgress(dbContext, jobInstanceId, prevRunMsg, "Info", tableConnectionString);
-                    logs.Add(prevRunMsg);
+                    colLogs.Add(prevRunMsg);
                 }
             }
 
             // Fetch weather data for Los Angeles, CA
             await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
-            logs.Add("Fetching weather data for Los Angeles, CA");
+            colLogs.Add("Fetching weather data for Los Angeles, CA");
 
             // Set up HTTP client                
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
-                
+
             // Using wttr.in as a free weather API (weather.com requires API key)
             string weatherUrl = "https://wttr.in/Los+Angeles,CA?format=j1";
-                
+
             try
             {
                 // Make the HTTP GET request
@@ -124,7 +124,7 @@ public class BlazorDataOrchestratorJob
 
                 // Parse the JSON response
                 var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
-                    
+
                 // Extract current weather information
                 var currentCondition = weatherData.GetProperty("current_condition")[0];
                 string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
@@ -136,26 +136,26 @@ public class BlazorDataOrchestratorJob
                 string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                 Console.WriteLine(weatherInfo);
                 await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
-                logs.Add(weatherInfo);
+                colLogs.Add(weatherInfo);
             }
             catch (HttpRequestException ex)
             {
                 string errorMsg = $"Failed to fetch weather data: {ex.Message}";
                 Console.WriteLine(errorMsg);
                 await JobManager.LogProgress(dbContext, jobInstanceId, errorMsg, "Warning", tableConnectionString);
-                logs.Add(errorMsg);
+                colLogs.Add(errorMsg);
             }
 
             // Job completed successfully
             await JobManager.LogProgress(dbContext, jobInstanceId, "Job completed successfully!", "Info", tableConnectionString);
-            logs.Add("Job completed successfully!");
+            colLogs.Add("Job completed successfully!");
         }
         catch (Exception ex)
         {
             string errorMsg = $"Job execution error: {ex.Message}";
             Console.WriteLine(errorMsg);
             await JobManager.LogError(dbContext, jobInstanceId, errorMsg, ex.StackTrace, tableConnectionString);
-            logs.Add(errorMsg);
+            colLogs.Add(errorMsg);
             throw;
         }
         finally
@@ -201,6 +201,6 @@ public class BlazorDataOrchestratorJob
         }
 
         // Return the collected logs
-        return logs;
+        return colLogs;
     }
 }
