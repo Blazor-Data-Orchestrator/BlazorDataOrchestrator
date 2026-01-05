@@ -537,7 +537,16 @@
                     string jobName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "DesignerJob";
                     jobInstanceId = await jobManager.CreateDesignerJobInstanceAsync(jobName);
                     currentJobInstanceId = jobInstanceId;
-                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Created Job Instance ID: {jobInstanceId}\n";
+                    
+                    // Resolve and update currentJobId from the newly created instance
+                    var resolvedJobId = await jobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
+                    if (resolvedJobId.HasValue)
+                    {
+                        currentJobId = resolvedJobId.Value;
+                    }
+                    
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Created Job Instance ID: {jobInstanceId} for Job ID: {currentJobId}\n";
+                    SaveConfiguration(); // Persist the updated IDs
                 }
                 catch (Exception ex)
                 {
