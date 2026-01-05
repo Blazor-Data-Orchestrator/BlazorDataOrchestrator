@@ -158,6 +158,20 @@
     </div>
 }
 
+@* Calling AI Overlay *@
+@if (isCallingAI)
+{
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="20">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Calling AI…</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait for the AI response</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
 @code {
     private CodeEditor? codeEditor;
     private RadzenAIChat? aiChat;
@@ -168,6 +182,7 @@
     private string logOutput = "Ready to execute...";
     private bool isSaving = false;
     private bool isExecuting = false;
+    private bool isCallingAI = false;
     private bool _disposed = false;
 
     private List<string> fileList = new List<string>();
@@ -701,6 +716,10 @@ except Exception as e:
 
     private async Task OnChatMessageSent(string message)
     {
+        // Show the AI calling overlay
+        isCallingAI = true;
+        StateHasChanged();
+        
         // Update the ChatService with the current code from the editor before the AI processes the request
         if (codeEditor != null)
         {
@@ -715,6 +734,10 @@ except Exception as e:
     
     private async Task OnChatResponseReceived(string response)
     {
+        // Hide the AI calling overlay
+        isCallingAI = false;
+        StateHasChanged();
+        
         // Check if the response contains code markers
         if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
         {
