@@ -1,4 +1,4 @@
-﻿@page "/"
+﻿@page "/" 
 @implements IDisposable
 @using Radzen
 @using Radzen.Blazor
@@ -1076,20 +1076,55 @@ except Exception as e:
 
                             using var process = new System.Diagnostics.Process { StartInfo = startInfo };
                             process.Start();
+
+                            // Start reading stderr asynchronously before writing to avoid deadlocks
+                            var errorTask = process.StandardError.ReadToEndAsync();
                             
-                            await process.StandardInput.WriteAsync(code);
-                            process.StandardInput.Close();
+                            // Write to stdin and close it to signal EOF
+                            try
+                            {
+                                using (var writer = process.StandardInput)
+                                {
+                                    await writer.WriteAsync(code);
+                                }
+                            }
+                            catch (System.IO.IOException)
+                            {
+                                // Pipe was closed - Python may have crashed or not started properly
+                            }
 
-                            var error = await process.StandardError.ReadToEndAsync();
-                            await process.WaitForExitAsync();
-
-                            if (process.ExitCode != 0)
+                            var error = await errorTask;
+                            
+                            // Wait for process with timeout
+                            var exited = process.WaitForExit(5000);
+                            if (!exited)
+                            {
+                                process.Kill();
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
+                                if (!_disposed) StateHasChanged();
+                                // Continue with save
+                            }
+                            else if (process.ExitCode != 0)
                             {
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
                                 await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
                                 if (!_disposed) StateHasChanged();
                                 return false;
                             }
+                        }
+                        catch (System.ComponentModel.Win32Exception)
+                        {
+                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found. Skipping syntax check.\n";
+                            await DialogService.Alert(
+                                "Python is not installed or not found in your system PATH.\n\n" +
+                                "To resolve this:\n" +
+                                "1. Download Python from https://www.python.org/downloads/\n" +
+                                "2. During installation, check 'Add Python to PATH'\n" +
+                                "3. Restart your application after installation\n\n" +
+                                "The file will be saved without syntax validation.", 
+                                "Python Not Found");
+                            if (!_disposed) StateHasChanged();
+                            // Continue with save even if Python is not available
                         }
                         catch (Exception ex)
                         {
