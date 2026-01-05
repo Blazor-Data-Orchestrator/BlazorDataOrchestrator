@@ -9,7 +9,7 @@ using BlazorDataOrchestrator.Core.Data;
 
 public class BlazorDataOrchestratorJob
 {
-    public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
+    public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId, string webAPIParameter)
     {
         // List to collect log messages
         var colLogs = new List<string>();
@@ -106,7 +106,15 @@ public class BlazorDataOrchestratorJob
                 }
             }
 
-            // Fetch weather data for Los Angeles, CA
+            string WeatherAPIParam = "Los+Angeles,CA";
+
+            // If webAPIParameter is passed, use it to fetch weather data
+            if (!string.IsNullOrEmpty(webAPIParameter))
+            {
+                WeatherAPIParam = webAPIParameter.Replace(" ", "+");
+            }
+
+            // Fetch weather data for webAPIParameter
             await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
             colLogs.Add("Fetching weather data for Los Angeles, CA");
 
@@ -114,8 +122,8 @@ public class BlazorDataOrchestratorJob
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
 
-            // Using wttr.in as a free weather API (weather.com requires API key)
-            string weatherUrl = "https://wttr.in/Los+Angeles,CA?format=j1";
+            // Using wttr.in as a free weather API 
+            string weatherUrl = $"https://wttr.in/{WeatherAPIParam}?format=j1";
 
             try
             {

@@ -557,7 +557,7 @@
                 if (selectedLanguage == "csharp")
                 {
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
-                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1);
+                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1, "");
                     if (_disposed) return;
                 }
                 else if (selectedLanguage == "python")
@@ -580,7 +580,7 @@ try:
     with open(app_settings_path, 'r') as f:
         app_settings = f.read()
         
-    main.execute_job(app_settings, -1, -1, job_instance_id, -1)
+    main.execute_job(app_settings, -1, -1, job_instance_id, -1, '')
 except Exception as e:
     print(f'Error executing job: {e}')
     traceback.print_exc()

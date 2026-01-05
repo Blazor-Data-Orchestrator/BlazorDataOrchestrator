@@ -178,7 +178,7 @@ class JobLogger:
             self.connection.close()
 
 
-def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int) -> list[str]:
+def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int, web_api_parameter: str = "") -> list[str]:
     """
     Execute the job with the given parameters.
     Logs are partitioned by '{JobId}-{JobInstanceId}' for efficient querying.
@@ -189,6 +189,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         job_id: The ID of the job
         job_instance_id: The ID of this specific job instance
         job_schedule_id: The ID of the job schedule
+        web_api_parameter: Optional parameter for the weather API location
     """
     logs = []
     # Parse connection strings from app_settings
@@ -249,8 +250,15 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         logger.log_progress("Fetching weather data for Los Angeles, CA")
         logs.append("Fetching weather data for Los Angeles, CA")
         
+        # Set default weather API parameter
+        weather_api_param = "Los+Angeles,CA"
+        
+        # If web_api_parameter is passed, use it to fetch weather data
+        if web_api_parameter:
+            weather_api_param = web_api_parameter.replace(" ", "+")
+        
         # Using wttr.in as a free weather API (weather.com requires API key)
-        weather_url = "https://wttr.in/Los+Angeles,CA?format=j1"
+        weather_url = f"https://wttr.in/{weather_api_param}?format=j1"
         
         try:
             req = urllib.request.Request(
