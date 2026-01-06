@@ -3,21 +3,19 @@
 using System;
 using System.Collections.Generic;
 
-namespace BlazorOrchestrator.Web.Data.Data;
+namespace BlazorDataOrchestrator.Core.Data;
 
-public partial class JobDatum
+public partial class JobInstance
 {
     public int Id { get; set; }
 
-    public int JobId { get; set; }
+    public int JobScheduleId { get; set; }
 
-    public string JobFieldDescription { get; set; }
+    public bool InProcess { get; set; }
 
-    public int? JobIntValue { get; set; }
+    public bool HasError { get; set; }
 
-    public string JobStringValue { get; set; }
-
-    public DateTime? JobDateValue { get; set; }
+    public string AgentId { get; set; }
 
     public DateTime CreatedDate { get; set; }
 
@@ -27,5 +25,5 @@ public partial class JobDatum
 
     public string UpdatedBy { get; set; }
 
-    public virtual Job Job { get; set; }
+    public virtual JobSchedule JobSchedule { get; set; }
 }

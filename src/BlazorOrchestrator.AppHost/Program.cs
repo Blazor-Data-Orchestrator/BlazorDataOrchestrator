@@ -22,7 +22,13 @@ var storage = builder.AddAzureStorage("storage");
 
 if (builder.Environment.IsDevelopment())
 {
-    storage.RunAsEmulator();
+    storage.RunAsEmulator(emulator =>
+    {
+        emulator.WithLifetime(ContainerLifetime.Persistent);
+        emulator.WithEndpoint("blob", endpoint => endpoint.Port = 10000);
+        emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);
+        emulator.WithEndpoint("table", endpoint => endpoint.Port = 10002);
+    });
 }
 
 // Add Blob storage resource

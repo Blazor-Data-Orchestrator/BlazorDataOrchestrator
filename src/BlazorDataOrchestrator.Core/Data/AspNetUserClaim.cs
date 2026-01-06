@@ -3,17 +3,17 @@
 using System;
 using System.Collections.Generic;
 
-namespace BlazorOrchestrator.Web.Data.Data;
+namespace BlazorDataOrchestrator.Core.Data;
 
-public partial class AspNetRoleClaim
+public partial class AspNetUserClaim
 {
     public int Id { get; set; }
 
-    public string RoleId { get; set; }
+    public string UserId { get; set; }
 
     public string ClaimType { get; set; }
 
     public string ClaimValue { get; set; }
 
-    public virtual AspNetRole Role { get; set; }
+    public virtual AspNetUser User { get; set; }
 }

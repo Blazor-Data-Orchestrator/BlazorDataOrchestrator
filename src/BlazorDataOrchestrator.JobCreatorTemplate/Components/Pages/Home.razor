@@ -1,7 +1,1270 @@
-﻿@page "/"
+﻿@page "/" 
+@implements IDisposable
+@using Radzen
+@using Radzen.Blazor
+@using MonacoRazor
+@using SimpleBlazorMonaco
+@using System.IO
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.JobCreatorTemplate.Services
+@using Microsoft.CodeAnalysis
+@using Microsoft.CodeAnalysis.CSharp
+@using Microsoft.JSInterop
+@inject IWebHostEnvironment Environment
+@inject IConfiguration Configuration
+@inject DialogService DialogService
+@inject CodeAssistantChatService ChatService
+@inject NuGetPackageService PackageService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Job Creator</PageTitle>
 
-<h1>Hello, world!</h1>
+<RadzenCard class="rz-shadow-3" Style="padding: 0; margin: 16px; height: calc(100vh - 112px); border-radius: 16px; overflow: hidden; background: #ffffff;">
+    <RadzenStack Gap="0" Style="height: 100%;">
+        @* Header with Tabs *@
+        <RadzenTabs TabPosition="TabPosition.Top" @bind-SelectedIndex="selectedTabIndex"
+                    Style="flex-grow: 1; height: 100%;">
+            <Tabs>
+                <RadzenTabsItem Text="Code" Icon="code">
+                    @* Main Content Area *@
+                    <RadzenSplitter Orientation="Orientation.Horizontal" Style="height: calc(100vh - 180px);">
+                        <RadzenSplitterPane Size="70%" Min="40%">
+                            @* Editor Section *@
+                            <RadzenStack Gap="0" Style="height: 100%; background: #fafafa; border-radius: 12px;">
+                                @* Editor Toolbar *@
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             JustifyContent="JustifyContent.Start" Gap="12"
+                                             Style="padding: 12px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8; border-radius: 12px 12px 0 0;">
+                                    <RadzenDropDown @bind-Value="selectedLanguage" Data="@languageOptions"
+                                                    TextProperty="Name" ValueProperty="Value"
+                                                    Style="background: #ffffff; color: #333; border: 1px solid #ddd; border-radius: 8px; min-width: 100px;"
+                                                    Change="@OnLanguageChanged"
+                                                    AllowClear="false" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
+                                        <RadzenDropDown @bind-Value="selectedFile" Data="@fileList"
+                                                        Style="background: #ffffff; color: #333; border: 1px solid #ddd; border-radius: 8px; min-width: 150px;"
+                                                        Change="@OnFileChanged"
+                                                        AllowClear="false" />
+                                    </RadzenStack>
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="8" Style="margin-left: auto;">
+                                        <RadzenButton Icon="undo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Undo" Click="@OnUndo" Disabled="@(!CanUndo)" />
+                                        <RadzenButton Icon="redo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Redo" Click="@OnRedo" Disabled="@(!CanRedo)" />
+                                        <RadzenButton Icon="refresh" Text="Refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Reload file from disk" Click="@OnRefreshFile" />
+                                        <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" IsBusy="@isSaving" />
+                                        <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
+                                                           ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small">
+                                            <ChildContent>
+                                                <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
+                                                <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
+                                            </ChildContent>
+                                        </RadzenSplitButton>
+                                        <RadzenButton Text="Create NuGet" Icon="inventory_2"
+                                                      ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                                      Click="@OnCreatePackage" IsBusy="@isCreatingPackage" />
+                                    </RadzenStack>
+                                </RadzenStack>
 
-Welcome to your new app.
+                                @* Code Editor *@
+                                <div style="flex-grow: 1; height: calc(100% - 50px); overflow: hidden; margin: 12px; border-radius: 8px; border: 1px solid #e8e8e8;">
+                                    <CodeEditor @ref="codeEditor"
+                                                Language="@GetMonacoLanguage()"
+                                                Code="@currentCode"
+                                                Height="100%"
+                                                Width="100%"
+                                                Border="0"
+                                                Margin="0" />
+                                </div>
+                            </RadzenStack>
+                        </RadzenSplitterPane>
+
+                        <RadzenSplitterPane Size="30%" Min="20%">
+                            @* Chat Section *@
+                            <RadzenStack Gap="0" Style="height: 100%; background: #f8f9fa; border-left: 1px solid #e8e8e8;">
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             JustifyContent="JustifyContent.SpaceBetween"
+                                             Style="padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8;">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: #333; margin: 0; font-weight: 600;">
+                                        <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px; color: #5c6bc0;" />Chat
+                                    </RadzenText>
+                                    <RadzenButton Icon="settings" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                                                  title="Configure AI Service" Click="@OpenAISettingsDialog"
+                                                  Style="padding: 4px 8px; min-width: auto;" />
+                                </RadzenStack>
+                                <div class="chat-container" style="flex-grow: 1; overflow: hidden; padding: 12px; position: relative;">
+                                    <div style="position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; overflow: hidden;">
+                                        <RadzenAIChat @ref="aiChat"
+                                                      Style="height: 100%; max-height: 100%; --rz-aichat-background-color: #ffffff; --rz-text-color: #333; border-radius: 12px; overflow: hidden;"
+                                                      ShowClearButton="true"
+                                                      MessageSent="@OnChatMessageSent"
+                                                      ResponseReceived="@OnChatResponseReceived"
+                                                      MessageAdded="@OnChatMessageAdded" />
+                                    </div>
+                                </div>
+                            </RadzenStack>
+                        </RadzenSplitterPane>
+                    </RadzenSplitter>
+                </RadzenTabsItem>
+                <RadzenTabsItem Text="Logs" Icon="list_alt">
+                    <RadzenStack Gap="8" Style="height: calc(100vh - 180px); padding: 12px;">
+                        @* Log Controls *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="12" Style="padding: 8px 12px; background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8;">
+                            <RadzenText TextStyle="TextStyle.Body2" Style="color: #666;">
+                                Job ID: <strong>@currentJobId</strong> | Instance ID: <strong>@currentJobInstanceId</strong>
+                            </RadzenText>
+                            <RadzenButton Text="Refresh Logs" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@OnRefreshLogs" Style="margin-left: auto;" />
+                        </RadzenStack>
+                        @* Log Output *@
+                        <RadzenCard Style="flex-grow: 1; background: #f8f9fa; color: #333; overflow: auto; padding: 12px; font-family: 'Consolas', 'Monaco', monospace; border-radius: 8px;">
+                            @if (jobLogs.Any())
+                            {
+                                <RadzenDataList Data="@jobLogs" Style="background: transparent;">
+                                    <Template Context="log">
+                                        <div style="padding: 8px 12px; margin-bottom: 4px; background: #ffffff; border-radius: 6px; border-left: 4px solid @GetLogLevelColor(log.Level);">
+                                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="8">
+                                                <RadzenBadge BadgeStyle="@GetLogLevelBadgeStyle(log.Level)" Text="@log.Level" Style="min-width: 60px; text-align: center;" />
+                                                <RadzenStack Gap="2" Style="flex-grow: 1;">
+                                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #888;">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
+                                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #333; word-break: break-word;">@log.Details</RadzenText>
+                                                </RadzenStack>
+                                            </RadzenStack>
+                                        </div>
+                                    </Template>
+                                </RadzenDataList>
+                            }
+                            else
+                            {
+                                <pre style="margin: 0; white-space: pre-wrap; background: #ffffff; padding: 16px; border-radius: 8px; border: 1px solid #e8e8e8;">@logOutput</pre>
+                            }
+                        </RadzenCard>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+
+
+    </RadzenStack>
+</RadzenCard>
+
+@* Executing Job Overlay *@
+@if (isExecuting)
+{
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="20">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Executing Job...</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait while your code is running</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
+@* Calling AI Overlay *@
+@if (isCallingAI)
+{
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="20">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Calling AI…</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait for the AI response</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
+@* Creating Package Overlay *@
+@if (isCreatingPackage)
+{
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="20">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Creating NuGet Package…</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait while your package is being built</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
+@code {
+    private CodeEditor? codeEditor;
+    private RadzenAIChat? aiChat;
+    private int selectedTabIndex = 0;
+    private string? selectedFile;
+    private string selectedLanguage = "csharp";
+    private string currentCode = "";
+    private string logOutput = "Ready to execute...";
+    private bool isSaving = false;
+    private bool isExecuting = false;
+    private bool isCallingAI = false;
+    private bool isCreatingPackage = false;
+    private bool _disposed = false;
+
+    private List<string> fileList = new List<string>();
+    private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
+    private int currentJobId = 0;
+    private int currentJobInstanceId = 0;
+    private JobManager? jobManager;
+
+    // Undo/Redo stacks
+    private Stack<string> undoStack = new();
+    private Stack<string> redoStack = new();
+    private bool CanUndo => undoStack.Count > 0;
+    private bool CanRedo => redoStack.Count > 0;
+    
+    // Code extraction markers
+    private const string CodeBeginMarker = "### UPDATED CODE BEGIN ###";
+    private const string CodeEndMarker = "### UPDATED CODE END ###";
+    private string? _pendingCodeUpdate = null;
+
+    private List<LanguageOption> languageOptions = new List<LanguageOption>
+    {
+        new LanguageOption { Name = "C#", Value = "csharp" },
+        new LanguageOption { Name = "Python", Value = "python" }
+    };
+
+    public class LanguageOption
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+
+    private string BaseCodeFolderPath => Path.Combine(Environment.ContentRootPath, "Code");
+    private string GetCodeFolderPath(string language)
+    {
+        if (language == "csharp") return Path.Combine(BaseCodeFolderPath, "CodeCSharp");
+        if (language == "python") return Path.Combine(BaseCodeFolderPath, "CodePython");
+        return BaseCodeFolderPath;
+    }
+    private string CurrentCodeFolderPath => GetCodeFolderPath(selectedLanguage);
+    private string ConfigFilePath => Path.Combine(BaseCodeFolderPath, "configuration.json");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Directory.Exists(BaseCodeFolderPath))
+        {
+            Directory.CreateDirectory(BaseCodeFolderPath);
+        }
+        if (!Directory.Exists(GetCodeFolderPath("csharp")))
+        {
+            Directory.CreateDirectory(GetCodeFolderPath("csharp"));
+        }
+        if (!Directory.Exists(GetCodeFolderPath("python")))
+        {
+            Directory.CreateDirectory(GetCodeFolderPath("python"));
+        }
+
+        // Initialize JobManager if connection strings are available
+        InitializeJobManager();
+
+        // Load configuration and files
+        LoadConfiguration();
+        LoadFiles();
+
+        if (fileList.Any())
+        {
+            selectedFile = fileList.First();
+            // Load the content into currentCode but don't try to update the editor yet
+            var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
+            if (File.Exists(path))
+            {
+                currentCode = await File.ReadAllTextAsync(path);
+            }
+        }
+
+        // Start polling for changes
+        _pollingTimer = new System.Timers.Timer(2000);
+        _pollingTimer.Elapsed += async (s, e) => await CheckForChanges();
+        _pollingTimer.AutoReset = true;
+        _pollingTimer.Start();
+    }
+
+    private void InitializeJobManager()
+    {
+        try
+        {
+            var sqlConnectionString = Configuration.GetConnectionString("blazororchestratordb") ?? "";
+            var blobConnectionString = Configuration.GetConnectionString("blobs") ?? "";
+            var queueConnectionString = Configuration.GetConnectionString("queues") ?? "";
+            var tableConnectionString = Configuration.GetConnectionString("tables") ?? "";
+
+            if (!string.IsNullOrEmpty(sqlConnectionString) && !string.IsNullOrEmpty(tableConnectionString))
+            {
+                jobManager = new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Could not initialize JobManager: {ex.Message}\n";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && codeEditor != null && !string.IsNullOrEmpty(currentCode))
+        {
+            await codeEditor.UpdateCodeAsync(currentCode);
+            var lang = selectedFile != null ? GetLanguageFromFile(selectedFile) : GetMonacoLanguage();
+            await codeEditor.UpdateLanguageAsync(lang);
+        }
+    }
+
+    private void LoadConfiguration()
+    {
+        try
+        {
+            if (File.Exists(ConfigFilePath))
+            {
+                var json = File.ReadAllText(ConfigFilePath);
+                var config = JsonSerializer.Deserialize<DesignerConfiguration>(json);
+                if (config != null)
+                {
+                    if (!string.IsNullOrEmpty(config.SelectedLanguage))
+                    {
+                        selectedLanguage = config.SelectedLanguage;
+                    }
+                    currentJobId = config.LastJobId;
+                    currentJobInstanceId = config.LastJobInstanceId;
+                }
+            }
+            else
+            {
+                SaveConfiguration();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error loading config: {ex.Message}\n";
+        }
+    }
+
+    private void SaveConfiguration()
+    {
+        try
+        {
+            var config = new DesignerConfiguration 
+            { 
+                SelectedLanguage = selectedLanguage,
+                LastJobId = currentJobId,
+                LastJobInstanceId = currentJobInstanceId
+            };
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error saving config: {ex.Message}\n";
+        }
+    }
+
+    private void LoadFiles()
+    {
+        fileList.Clear();
+        if (!Directory.Exists(CurrentCodeFolderPath)) return;
+
+        var allFiles = Directory.GetFiles(CurrentCodeFolderPath);
+        foreach (var file in allFiles)
+        {
+            var fileName = Path.GetFileName(file);
+            if (fileName.Equals("configuration.json", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            bool include = false;
+
+            if (selectedLanguage == "csharp")
+            {
+                if (ext == ".cs" || ext == ".json") include = true;
+            }
+            else if (selectedLanguage == "python")
+            {
+                if (ext == ".py" || ext == ".txt" || ext == ".json") include = true;
+            }
+
+            // Suppress dependencies.json from the file list
+            if (fileName.Equals("dependencies.json", StringComparison.OrdinalIgnoreCase))
+            {
+                include = false;
+            }
+
+            if (include)
+            {
+                fileList.Add(fileName);
+            }
+        }
+    }
+
+    private async Task LoadFileContent(string fileName, bool clearStack = true)
+    {
+        try
+        {
+            var path = Path.Combine(CurrentCodeFolderPath, fileName);
+            if (File.Exists(path))
+            {
+                currentCode = await File.ReadAllTextAsync(path);
+                if (_disposed) return;
+                var lang = GetLanguageFromFile(fileName);
+                if (codeEditor != null)
+                {
+                    await codeEditor.UpdateCodeAsync(currentCode);
+                    await codeEditor.UpdateLanguageAsync(lang);
+                }
+                
+                if (clearStack)
+                {
+                    // Clear undo/redo stacks when loading a new file
+                    undoStack.Clear();
+                    redoStack.Clear();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error loading file '{fileName}': {ex.Message}\n";
+        }
+    }    
+
+    private string GetMonacoLanguage()
+    {
+        return selectedLanguage switch
+        {
+            "csharp" => "csharp",
+            "python" => "python",
+            _ => "csharp"
+        };
+    }
+
+    private string GetLanguageFromFile(string fileName)
+    {
+        var extension = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
+        {
+            ".cs" => "csharp",
+            ".py" => "python",
+            ".json" => "json",
+            ".js" => "javascript",
+            ".ts" => "typescript",
+            _ => "plaintext"
+        };
+    }
+
+    private async Task OnFileChanged(object value)
+    {
+        if (value is string fileName)
+        {
+            selectedFile = fileName;
+            await LoadFileContent(fileName);
+        }
+        if (!_disposed) StateHasChanged();
+    }
+
+    private async Task OnLanguageChanged(object value)
+    {
+        if (value is string lang)
+        {
+            selectedLanguage = lang;
+            SaveConfiguration();
+            LoadFiles();
+
+            if (fileList.Any())
+            {
+                selectedFile = fileList.First();
+                await LoadFileContent(selectedFile);
+            }            
+        }
+        if (!_disposed) StateHasChanged();
+    }
+
+    private async Task OnRunCode(RadzenSplitButtonItem? item)
+    {
+        if (_disposed) return;
+
+        // Save before running
+        if (!await OnSaveFile())
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Save failed. Aborting run.\n";
+            return;
+        }
+
+        if (_disposed) return;
+
+        var environment = item?.Value?.ToString() ?? "Development";
+        logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
+        
+        isExecuting = true;
+        StateHasChanged();
+        await Task.Delay(1); // Allow UI to update
+
+        if (_disposed) return;
+
+        if (codeEditor != null)
+        {
+            var currentCode = await codeEditor.GetCodeAsync();
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Code retrieved ({currentCode?.Length ?? 0} characters)\n";
+
+            // 1. Get AppSettings
+            string appSettingsFileName = environment == "Production" ? "appsettingsProduction.json" : "appsettings.json";
+            string appSettingsContent = "{}";
+            string appSettingsFile = Path.Combine(Environment.ContentRootPath, appSettingsFileName);
+            
+            if (File.Exists(appSettingsFile))
+            {
+                appSettingsContent = await File.ReadAllTextAsync(appSettingsFile);
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Loaded {appSettingsFileName}\n";
+            }
+            else
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {appSettingsFileName} not found. Using defaults.\n";
+            }
+
+            // Patch connection strings from Configuration (Aspire environment variables)
+            try
+            {
+                var jsonNode = System.Text.Json.Nodes.JsonNode.Parse(appSettingsContent) ?? new System.Text.Json.Nodes.JsonObject();
+                
+                var connString = Configuration.GetConnectionString("blazororchestratordb");
+                if (!string.IsNullOrEmpty(connString))
+                {
+                    if (jsonNode["ConnectionStrings"] == null)
+                    {
+                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
+                    }
+                    jsonNode["ConnectionStrings"]!["blazororchestratordb"] = connString;
+                }
+
+                var tableConnString = Configuration.GetConnectionString("tables");
+                if (!string.IsNullOrEmpty(tableConnString))
+                {
+                    if (jsonNode["ConnectionStrings"] == null)
+                    {
+                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
+                    }
+                    jsonNode["ConnectionStrings"]!["tables"] = tableConnString;
+                }
+                
+                appSettingsContent = jsonNode.ToJsonString();
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Patched connection strings from environment\n";
+            }
+            catch (Exception ex)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to patch connection strings: {ex.Message}\n";
+            }
+
+            // 2. Create Job Instance
+            int jobInstanceId = 0;
+            if (jobManager != null)
+            {
+                try
+                {
+                    string jobName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "DesignerJob";
+                    jobInstanceId = await jobManager.CreateDesignerJobInstanceAsync(jobName);
+                    currentJobInstanceId = jobInstanceId;
+                    
+                    // Resolve and update currentJobId from the newly created instance
+                    var resolvedJobId = await jobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
+                    if (resolvedJobId.HasValue)
+                    {
+                        currentJobId = resolvedJobId.Value;
+                    }
+                    
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Created Job Instance ID: {jobInstanceId} for Job ID: {currentJobId}\n";
+                    SaveConfiguration(); // Persist the updated IDs
+                }
+                catch (Exception ex)
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Error creating job instance: {ex.Message}\n";
+                    return;
+                }
+            }
+            else
+            {
+                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: JobManager not initialized. Skipping logging.\n";
+            }
+
+            // 3. Execute Code
+            List<string> results = new List<string>();
+            try
+            {
+                if (selectedLanguage == "csharp")
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
+                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1, "");
+                    if (_disposed) return;
+                }
+                else if (selectedLanguage == "python")
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing Python job...\n";
+
+                    var runnerScript = @"
+import sys
+import main
+import traceback
+
+if len(sys.argv) < 3:
+    print('Usage: runner.py <app_settings_path> <job_instance_id>')
+    sys.exit(1)
+
+app_settings_path = sys.argv[1]
+job_instance_id = int(sys.argv[2])
+
+try:
+    with open(app_settings_path, 'r') as f:
+        app_settings = f.read()
+        
+    main.execute_job(app_settings, -1, -1, job_instance_id, -1, '')
+except Exception as e:
+    print(f'Error executing job: {e}')
+    traceback.print_exc()
+";
+                    var pythonCodePath = GetCodeFolderPath("python");
+                    var runnerPath = Path.Combine(pythonCodePath, "runner.py");
+                    await File.WriteAllTextAsync(runnerPath, runnerScript);
+
+                    try
+                    {
+                        var startInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "python",
+                            Arguments = $"\"{runnerPath}\" \"{appSettingsFile}\" {currentJobInstanceId}",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            WorkingDirectory = pythonCodePath
+                        };
+
+                        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                        process.Start();
+
+                        var output = await process.StandardOutput.ReadToEndAsync();
+                        var error = await process.StandardError.ReadToEndAsync();
+
+                        await process.WaitForExitAsync();
+                        if (_disposed) return;
+
+                        if (!string.IsNullOrEmpty(output))
+                        {
+                            results.Add(output);
+                            logOutput += output + "\n";
+                        }
+
+                        if (!string.IsNullOrEmpty(error))
+                        {
+                            results.Add("ERROR:\n" + error);
+                            logOutput += "ERROR:\n" + error + "\n";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Error launching python: {ex.Message}\n";
+                    }
+                    finally
+                    {
+                        if (File.Exists(runnerPath))
+                        {
+                            File.Delete(runnerPath);
+                        }
+                    }
+                }
+
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
+
+                if (jobManager != null && currentJobInstanceId > 0)
+                {
+                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, false);
+                }
+
+                if (_disposed) return;
+
+                // Hide the executing overlay before showing results
+                isExecuting = false;
+                StateHasChanged();
+
+                // 4. Display Results
+                if (results.Any())
+                {
+                    await DialogService.OpenAsync("Execution Results", ds =>
+                        @<RadzenStack Gap="10">
+                            <RadzenTextArea Value="@string.Join("\n", results)" Style="width: 100%; height: 300px;" ReadOnly="true" />
+                            <RadzenButton Text="Close" Click="() => ds.Close(true)" Style="width: 100px; align-self: center;" />
+                        </RadzenStack>
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Error executing code: {ex.Message}\n";
+                if (ex.InnerException != null)
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Inner Error: {ex.InnerException.Message}\n";
+                }
+
+                if (jobManager != null && currentJobInstanceId > 0)
+                {
+                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, true);
+                }
+            }
+            finally
+            {
+                isExecuting = false; // Ensure it's always reset even on error
+            }
+        }
+
+        if (!_disposed) StateHasChanged();
+    }
+
+    private async Task OnCreatePackage()
+    {
+        if (_disposed) return;
+
+        // Save before creating package
+        if (!await OnSaveFile())
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Save failed. Aborting package creation.\n";
+            StateHasChanged();
+            return;
+        }
+
+        isCreatingPackage = true;
+        logOutput = $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
+        StateHasChanged();
+        await Task.Delay(1); // Allow UI to update
+
+        try
+        {
+            // Extract dependencies from project file and save to dependencies.json
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Extracting NuGet dependencies from project...\n";
+            StateHasChanged();
+            
+            var dependencies = await PackageService.ExtractAndSaveDependenciesFromProjectAsync();
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Found {dependencies.Count} dependencies to include.\n";
+            StateHasChanged();
+
+            // Generate a unique version based on timestamp
+            var version = $"1.0.{DateTime.Now:yyyyMMddHHmmss}";
+            var packageId = "BlazorDataOrchestrator.Job";
+
+            // Create the package
+            var packagePath = await PackageService.CreatePackageAsync(
+                packageId: packageId,
+                version: version,
+                description: $"Job package created from BlazorDataOrchestrator Job Creator",
+                authors: "BlazorDataOrchestrator");
+
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created: {Path.GetFileName(packagePath)}\n";
+
+            // Trigger download using JavaScript
+            var downloadUrl = $"/api/download-package?path={Uri.EscapeDataString(packagePath)}";
+            await JSRuntime.InvokeVoidAsync("open", downloadUrl, "_blank");
+
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Download initiated!\n";
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error creating package: {ex.Message}\n";
+        }
+        finally
+        {
+            isCreatingPackage = false;
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private async Task OpenAISettingsDialog()
+    {
+        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
+            new Dictionary<string, object>
+            {
+                { "OnSettingsSaved", EventCallback.Factory.Create(this, OnAISettingsSaved) }
+            },
+            new DialogOptions
+            {
+                Width = "500px",
+                Height = "auto",
+                CloseDialogOnOverlayClick = true,
+                ShowClose = true
+            });
+    }
+
+    private void OnAISettingsSaved()
+    {
+        // Refresh the chat client to use new settings
+        ChatService.RefreshClient();
+        DialogService.Close();
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] AI settings updated.\n";
+        if (!_disposed) StateHasChanged();
+    }
+
+    private async Task OnChatMessageSent(string message)
+    {
+        // Show the AI calling overlay
+        isCallingAI = true;
+        StateHasChanged();
+        
+        // Update the ChatService with the current code from the editor before the AI processes the request
+        if (codeEditor != null)
+        {
+            var code = await codeEditor.GetCodeAsync();
+            ChatService.SetCurrentEditorCode(code ?? "");
+        }
+        else
+        {
+            ChatService.SetCurrentEditorCode(currentCode);
+        }
+    }
+    
+    private async Task OnChatResponseReceived(string response)
+    {
+        // Hide the AI calling overlay
+        isCallingAI = false;
+        StateHasChanged();
+        
+        // Check if the response contains code markers
+        if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
+        {
+            // Extract the code between markers
+            var extractedCode = ExtractCodeFromResponse(response);
+            if (!string.IsNullOrEmpty(extractedCode))
+            {
+                _pendingCodeUpdate = extractedCode;
+            }
+        }
+    }
+    
+    private void OnChatMessageAdded(Radzen.Blazor.ChatMessage message)
+    {
+        // Only process assistant messages (not user messages)
+        if (!message.IsUser && message.Content != null)
+        {
+            // Check if message contains code markers and strip them
+            if (message.Content.Contains(CodeBeginMarker) || message.Content.Contains(CodeEndMarker))
+            {
+                message.Content = StripCodeMarkersFromMessage(message.Content);
+            }
+            
+            // Apply any pending code update to the editor
+            if (!string.IsNullOrEmpty(_pendingCodeUpdate))
+            {
+                _ = ApplyCodeUpdateAsync(_pendingCodeUpdate);
+                _pendingCodeUpdate = null;
+            }
+        }
+    }
+    
+    private string? ExtractCodeFromResponse(string response)
+    {
+        try
+        {
+            var beginIndex = response.IndexOf(CodeBeginMarker);
+            var endIndex = response.IndexOf(CodeEndMarker);
+            
+            if (beginIndex >= 0 && endIndex > beginIndex)
+            {
+                var codeStart = beginIndex + CodeBeginMarker.Length;
+                var code = response.Substring(codeStart, endIndex - codeStart).Trim();
+                
+                // Remove markdown code block markers if present
+                code = Regex.Replace(code, @"^```[\w]*\n?", "", RegexOptions.Multiline);
+                code = Regex.Replace(code, @"\n?```$", "", RegexOptions.Multiline);
+                
+                return code.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error extracting code from response: {ex.Message}\n";
+        }
+        return null;
+    }
+    
+    private string StripCodeMarkersFromMessage(string content)
+    {
+        try
+        {
+            var beginIndex = content.IndexOf(CodeBeginMarker);
+            var endIndex = content.IndexOf(CodeEndMarker);
+            
+            if (beginIndex >= 0 && endIndex > beginIndex)
+            {
+                // Remove the code block between markers (including markers)
+                var beforeCode = content.Substring(0, beginIndex).TrimEnd();
+                var afterCode = content.Substring(endIndex + CodeEndMarker.Length).TrimStart();
+                
+                // Add a note that code was applied
+                var result = beforeCode;
+                if (!string.IsNullOrEmpty(result))
+                {
+                    result += "\n\n";
+                }
+                result += "✅ **Code has been applied to the editor.**";
+                if (!string.IsNullOrEmpty(afterCode))
+                {
+                    result += "\n\n" + afterCode;
+                }
+                return result;
+            }
+        }
+        catch
+        {
+            // Return original content if parsing fails
+        }
+        return content;
+    }
+    
+    private async Task ApplyCodeUpdateAsync(string code)
+    {
+        try
+        {
+            if (codeEditor != null)
+            {
+                // Save current code to undo stack before applying update
+                var currentEditorCode = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(currentEditorCode))
+                {
+                    undoStack.Push(currentEditorCode);
+                    redoStack.Clear();
+                }
+                
+                // Apply the new code to the editor
+                currentCode = code;
+                await codeEditor.UpdateCodeAsync(code);
+                
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Code updated from AI response.\n";
+                if (!_disposed) StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private System.Timers.Timer? _pollingTimer;
+
+    private async Task CheckForChanges()
+    {
+        if (_disposed) return;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                if (codeEditor != null)
+                {
+                    var code = await codeEditor.GetCodeAsync();
+                    if (!string.IsNullOrEmpty(code) && code != currentCode)
+                    {
+                        undoStack.Push(currentCode);
+                        currentCode = code;
+                        redoStack.Clear();
+                        StateHasChanged();
+                    }
+                }
+            });
+        }
+        catch (ObjectDisposedException) { }
+        catch (Exception) { }
+    }
+
+    private async Task OnUndo()
+    {
+        if (CanUndo && codeEditor != null)
+        {
+            // Get the current code and push to redo stack
+            var current = await codeEditor.GetCodeAsync();
+            if (!string.IsNullOrEmpty(current))
+            {
+                redoStack.Push(current);
+            }
+
+            // Pop from undo stack and update editor
+            currentCode = undoStack.Pop();
+            await codeEditor.UpdateCodeAsync(currentCode);
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private async Task OnRedo()
+    {
+        if (CanRedo && codeEditor != null)
+        {
+            // Get the current code and push to undo stack
+            var current = await codeEditor.GetCodeAsync();
+            if (!string.IsNullOrEmpty(current))
+            {
+                undoStack.Push(current);
+            }
+
+            // Pop from redo stack and update editor
+            currentCode = redoStack.Pop();
+            await codeEditor.UpdateCodeAsync(currentCode);
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private async Task OnRefreshFile()
+    {
+        if (!string.IsNullOrEmpty(selectedFile))
+        {
+            // Save current state to undo stack before refreshing
+            if (codeEditor != null)
+            {
+                var current = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(current))
+                {
+                    undoStack.Push(current);
+                    redoStack.Clear();
+                }
+            }
+            await LoadFileContent(selectedFile, false);
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Reloaded {selectedFile} from disk.\n";
+        }
+    }
+
+    private async Task<bool> OnSaveFile()
+    {
+        isSaving = true;
+        if (!_disposed) StateHasChanged();
+
+        try
+        {
+            if (codeEditor != null)
+            {
+                var code = await codeEditor.GetCodeAsync();
+                if (!string.IsNullOrEmpty(selectedFile) && code != null)
+                {
+                    // Compilation check for main.cs
+                    if (selectedFile.Equals("main.cs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var syntaxTree = CSharpSyntaxTree.ParseText(code);
+                            var diagnostics = syntaxTree.GetDiagnostics();
+                            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+
+                            if (errors.Any())
+                            {
+                                var errorMsg = string.Join("\n", errors.Select(e => $"Line {e.Location.GetLineSpan().StartLinePosition.Line + 1}: {e.GetMessage()}"));
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
+                                
+                                await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Save Error");
+                                if (!_disposed) StateHasChanged();
+                                return false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
+                             if (!_disposed) StateHasChanged();
+                             return false;
+                        }
+                    }
+
+                    // Compilation check for main.py
+                    if (selectedFile.Equals("main.py", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var startInfo = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "python",
+                                Arguments = "-c \"import sys; compile(sys.stdin.read(), 'main.py', 'exec')\"",
+                                RedirectStandardInput = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+
+                            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                            process.Start();
+
+                            // Start reading stderr asynchronously before writing to avoid deadlocks
+                            var errorTask = process.StandardError.ReadToEndAsync();
+                            
+                            // Write to stdin and close it to signal EOF
+                            try
+                            {
+                                using (var writer = process.StandardInput)
+                                {
+                                    await writer.WriteAsync(code);
+                                }
+                            }
+                            catch (System.IO.IOException)
+                            {
+                                // Pipe was closed - Python may have crashed or not started properly
+                            }
+
+                            var error = await errorTask;
+                            
+                            // Wait for process with timeout
+                            var exited = process.WaitForExit(5000);
+                            if (!exited)
+                            {
+                                process.Kill();
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
+                                if (!_disposed) StateHasChanged();
+                                // Continue with save
+                            }
+                            else if (process.ExitCode != 0)
+                            {
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
+                                await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
+                                if (!_disposed) StateHasChanged();
+                                return false;
+                            }
+                        }
+                        catch (System.ComponentModel.Win32Exception)
+                        {
+                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found. Skipping syntax check.\n";
+                            await DialogService.Alert(
+                                "Python is not installed or not found in your system PATH.\n\n" +
+                                "To resolve this:\n" +
+                                "1. Download Python from https://www.python.org/downloads/\n" +
+                                "2. During installation, check 'Add Python to PATH'\n" +
+                                "3. Restart your application after installation\n\n" +
+                                "The file will be saved without syntax validation.", 
+                                "Python Not Found");
+                            if (!_disposed) StateHasChanged();
+                            // Continue with save even if Python is not available
+                        }
+                        catch (Exception ex)
+                        {
+                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
+                             if (!_disposed) StateHasChanged();
+                             return false;
+                        }
+                    }
+
+                    try 
+                    {
+                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
+                        await File.WriteAllTextAsync(path, code);
+                        
+                        // Update the undo stack after successful save
+                        undoStack.Push(code);
+                        redoStack.Clear();
+                        
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
+                        if (!_disposed) StateHasChanged();
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
+                        if (!_disposed) StateHasChanged();
+                        return false;
+                    }
+                }
+            }
+            return false;
+        }
+        finally
+        {
+            isSaving = false;
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private async Task OnRefreshLogs()
+    {
+        if (_disposed) return;
+
+        if (jobManager == null)
+        {
+            logOutput = $"[{DateTime.Now:HH:mm:ss}] JobManager not initialized. Check connection strings.\n";
+            if (!_disposed) StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            // Try to resolve JobId from InstanceId if missing
+            if (currentJobId == 0 && currentJobInstanceId > 0)
+            {
+                var jobId = await jobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
+                if (jobId.HasValue)
+                {
+                    currentJobId = jobId.Value;
+                }
+            }
+
+            if (currentJobId > 0)
+            {
+                // Get logs for the latest job instance of the current job
+                if (currentJobInstanceId == 0)
+                {
+                    var latestInstanceId = await jobManager.GetLatestJobInstanceIdAsync(currentJobId);
+                    if (latestInstanceId.HasValue)
+                    {
+                        currentJobInstanceId = latestInstanceId.Value;
+                    }
+                }
+
+                if (currentJobInstanceId > 0)
+                {
+                    jobLogs = await jobManager.GetLogsForJobInstanceAsync(currentJobId, currentJobInstanceId);
+                    if (_disposed) return;
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Loaded {jobLogs.Count} log entries for Job {currentJobId}, Instance {currentJobInstanceId}\n";
+                }
+                else
+                {
+                    logOutput = $"[{DateTime.Now:HH:mm:ss}] No job instances found for Job {currentJobId}\n";
+                }
+            }
+            else
+            {
+                logOutput = $"[{DateTime.Now:HH:mm:ss}] No job selected. Run a job first to see logs.\n";
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput = $"[{DateTime.Now:HH:mm:ss}] Error loading logs: {ex.Message}\n";
+        }
+
+        if (!_disposed)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private static string GetLogLevelColor(string level)
+    {
+        return level?.ToLower() switch
+        {
+            "error" => "#dc3545",
+            "warning" => "#ffc107",
+            "debug" => "#6c757d",
+            _ => "#28a745" // Info
+        };
+    }
+
+    private static BadgeStyle GetLogLevelBadgeStyle(string level)
+    {
+        return level?.ToLower() switch
+        {
+            "error" => BadgeStyle.Danger,
+            "warning" => BadgeStyle.Warning,
+            "debug" => BadgeStyle.Secondary,
+            _ => BadgeStyle.Success // Info
+        };
+    }
+
+    private class DesignerConfiguration
+    {
+        public string SelectedLanguage { get; set; } = "csharp";
+        public int LastJobId { get; set; }
+        public int LastJobInstanceId { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _pollingTimer?.Stop();
+        _pollingTimer?.Dispose();
+    }
+}

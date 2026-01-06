@@ -1,4 +1,7 @@
+using BlazorDataOrchestrator.Core.Data;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
+using BlazorDataOrchestrator.JobCreatorTemplate.Services;
+using Radzen;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
@@ -13,10 +16,24 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.AddAzureTableServiceClient("tables");
             builder.AddAzureQueueServiceClient("queues");
 
+            builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
+
             // Add services to the container.
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
+            builder.Services.AddRadzenComponents();
+            
+            // Register AI Settings Service
+            builder.Services.AddScoped<AISettingsService>();
+            
+            // Register AI Chat Service for code assistance
+            builder.Services.AddScoped<CodeAssistantChatService>();
+            builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CodeAssistantChatService>());
+            
+            // Register NuGet Package Service
+            builder.Services.AddScoped<NuGetPackageService>();
+            
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
@@ -33,6 +50,21 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             app.UseAntiforgery();
 
             app.MapStaticAssets();
+            
+            // Endpoint for downloading NuGet packages
+            app.MapGet("/api/download-package", async (string path) =>
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    return Results.NotFound("Package not found.");
+                }
+
+                var bytes = await File.ReadAllBytesAsync(path);
+                var fileName = Path.GetFileName(path);
+                
+                return Results.File(bytes, "application/octet-stream", fileName);
+            });
+            
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
 

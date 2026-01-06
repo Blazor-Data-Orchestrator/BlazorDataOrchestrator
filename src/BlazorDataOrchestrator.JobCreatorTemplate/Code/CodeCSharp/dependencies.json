@@ -1,0 +1,20 @@
+{
+  "Dependencies": [
+    {
+      "Id": "Azure.Storage.Blobs",
+      "Version": "12.26.0"
+    },
+    {
+      "Id": "Microsoft.EntityFrameworkCore",
+      "Version": "10.0.0"
+    },
+    {
+      "Id": "Microsoft.EntityFrameworkCore.SqlServer",
+      "Version": "10.0.0"
+    },
+    {
+      "Id": "Azure.Data.Tables",
+      "Version": "12.9.1"
+    }
+  ]
+}

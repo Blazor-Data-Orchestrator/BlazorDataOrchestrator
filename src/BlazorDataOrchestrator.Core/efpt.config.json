@@ -11,7 +11,7 @@
    "OutputPath": "Data",
    "PluralRules": null,
    "PreserveCasingWithRegex": true,
-   "ProjectRootNamespace": "BlazorOrchestrator.Web.Data",
+   "ProjectRootNamespace": "BlazorOrchestrator.Web.Data.Data",
    "Schemas": null,
    "SelectedHandlebarsLanguage": 2,
    "SelectedToBeGenerated": 0,

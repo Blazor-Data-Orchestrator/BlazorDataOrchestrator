@@ -1,18 +1,120 @@
-﻿@page "/counter"
+﻿@page "/counter" 
+@using SimpleBlazorMonaco
+<h1>Hello, world!</h1>
 
-<PageTitle>Counter</PageTitle>
+<h4>Welcome to your new app.</h4>
 
-<h1>Counter</h1>
+<div class="language-selector" style="margin-bottom:1em;">
+    <label for="languageSelect">Select Language:</label>
+    <select id="languageSelect"
+            @onchange="@(async args => await DynamicUpdateLanguage(args.Value?.ToString()!))"
+            value="@CurrentLanguage">
+        <option value="csharp">C#</option>
+        <option value="python">Python</option>
+    </select>
+</div>
 
-<p role="status">Current count: @currentCount</p>
+<CodeEditor @ref="@MonacoCodeEditor"
+            Language="@CurrentLanguage"
+            Code="@CurrentScript"
+            OnCompletionsRequested="GetCompletionsAsync"
+            Height="300px"
+            Width="90%"
+            Border="2px solid gray"
+            Margin="1em 0"
+            MinHeight="300px" />
+<br />
+<button @onclick="GetCode">Get Code</button>&nbsp;
+<button @onclick="UpdateCode">Update Code</button>
 
-<button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
+@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="modal fade show" tabindex="-1" role="dialog"
+         style="display: block;" aria-modal="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Current Script</h5>
+                </div>
+                <div class="modal-body">
+                    <CodeEditor Language="@CurrentLanguage"
+                                Height="90%"
+                                Width="99%"
+                                Border="0px"
+                                Code="@Message" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal" @onclick="CloseMessagePopup">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
 
 @code {
-    private int currentCount = 0;
+    CodeEditor MonacoCodeEditor;
+    string CurrentScript = "";
 
-    private void IncrementCount()
+    // default language
+    private string CurrentLanguage { get; set; } = "csharp";
+
+    string SampleScript = @"namespace Sample
     {
-        currentCount++;
+        public class MyClass
+        {
+        }
+    }";
+
+    protected override void OnInitialized()
+    {
+        CurrentScript = SampleScript;
+    }
+
+    private async Task DynamicUpdateLanguage(string language)
+    {
+        //set the field so the CodeEditor will pick up the new language
+        CurrentLanguage = language switch
+        {
+            "python" => "python",
+            _ => "csharp"
+        };
+
+        await UpdateLanguage(CurrentLanguage);
+    }
+
+    Task<Suggestion[]> GetCompletionsAsync(string currentValue, Position position)
+    {
+        return Task.FromResult(new[]
+        {
+            new Suggestion {Label = "From C#", InsertText = "From C#" },
+            new Suggestion {Label = "OK", InsertText = "OK" },
+        });
+    }
+
+    private async Task GetCode()
+    {
+        CurrentScript = await MonacoCodeEditor.GetCodeAsync();
+        Message = CurrentScript;
+    }
+
+    private async Task UpdateCode()
+    {
+        await MonacoCodeEditor.UpdateCodeAsync(SampleScript);
+    }
+
+    private async Task UpdateLanguage(string language)
+    {
+        await MonacoCodeEditor.UpdateLanguageAsync(language);
+    }
+
+    private string Message = "";
+
+    private void CloseMessagePopup()
+    {
+        Message = "";
     }
 }

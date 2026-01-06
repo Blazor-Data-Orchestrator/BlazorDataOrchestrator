@@ -3,17 +3,13 @@
 using System;
 using System.Collections.Generic;
 
-namespace BlazorOrchestrator.Web.Data.Data;
+namespace BlazorDataOrchestrator.Core.Data;
 
-public partial class JobOrganizationsAspNetUser
+public partial class JobOrganization
 {
     public int Id { get; set; }
 
-    public int OrganizationId { get; set; }
-
-    public string AspNetUsersId { get; set; }
-
-    public string RoleName { get; set; }
+    public string OrganizationName { get; set; }
 
     public DateTime CreatedDate { get; set; }
 
@@ -23,7 +19,7 @@ public partial class JobOrganizationsAspNetUser
 
     public string UpdatedBy { get; set; }
 
-    public virtual AspNetUser AspNetUsers { get; set; }
+    public virtual ICollection<JobOrganizationsAspNetUser> JobOrganizationsAspNetUsers { get; set; } = new List<JobOrganizationsAspNetUser>();
 
-    public virtual JobOrganization Organization { get; set; }
+    public virtual ICollection<Job> Jobs { get; set; } = new List<Job>();
 }

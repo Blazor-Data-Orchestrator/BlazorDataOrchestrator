@@ -2,6 +2,7 @@ using BlazorOrchestrator.Web.Components;
 using BlazorOrchestrator.Web.Data;
 using BlazorOrchestrator.Web.Data.Data;
 using Microsoft.Data.SqlClient;
+using Radzen;
 using System.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,7 @@ builder.Services.AddScoped<IDbConnection>(sp => new SqlConnection(connectionStri
 // Run the database initialization script at startup
 builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
 
+builder.Services.AddRadzenComponents();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
