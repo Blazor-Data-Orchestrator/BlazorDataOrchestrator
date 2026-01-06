@@ -384,6 +384,12 @@
                 if (ext == ".py" || ext == ".txt" || ext == ".json") include = true;
             }
 
+            // Suppress dependencies.json from the file list
+            if (fileName.Equals("dependencies.json", StringComparison.OrdinalIgnoreCase))
+            {
+                include = false;
+            }
+
             if (include)
             {
                 fileList.Add(fileName);
