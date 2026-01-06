@@ -7,6 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="efpt.config.json.user" />
   </ItemGroup>
 
