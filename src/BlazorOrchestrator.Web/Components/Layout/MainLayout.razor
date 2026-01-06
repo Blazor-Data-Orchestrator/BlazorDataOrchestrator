@@ -1,5 +1,7 @@
 ﻿@using System.Data
-@using Dapper   
+@using Dapper
+@using Radzen
+@using Radzen.Blazor
 @inherits LayoutComponentBase
 @inject IDbConnection Db // Or your actual DbContext/service
 <RadzenComponents @rendermode="InteractiveServer" />
@@ -10,7 +12,10 @@
 
     <main>
         <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Style="margin-left: auto;">
+                <RadzenButton Icon="notifications" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" Size="ButtonSize.Medium" />
+                <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+            </RadzenStack>
         </div>
 
         <article class="content px-4">
