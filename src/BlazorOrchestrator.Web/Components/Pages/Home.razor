@@ -1,6 +1,10 @@
 ﻿@page "/"
 @using Radzen
 @using Radzen.Blazor
+@using BlazorOrchestrator.Web.Services
+@inject ProjectCreatorService ProjectCreatorService
+@inject NotificationService NotificationService
+@inject DialogService DialogService
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -11,6 +15,7 @@
     </RadzenStack>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+        <RadzenButton Text="Create Visual Studio Project" ButtonStyle="ButtonStyle.Success" Click="@OpenCreateProjectDialog" />
         <RadzenButton Text="Upload .NuGet" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" />
         <RadzenButton Text="Create New Job" ButtonStyle="ButtonStyle.Primary" />
     </RadzenStack>
@@ -102,5 +107,130 @@
         public bool IsRunning { get; set; }
         public string LastRun { get; set; } = string.Empty;
         public string NextRun { get; set; } = string.Empty;
+    }
+
+    // Dialog state
+    private string projectName = string.Empty;
+    private string validationError = string.Empty;
+    private bool isCreating = false;
+    private bool IsValid => string.IsNullOrEmpty(validationError) && !string.IsNullOrWhiteSpace(projectName);
+
+    private async Task OpenCreateProjectDialog()
+    {
+        projectName = string.Empty;
+        validationError = string.Empty;
+        isCreating = false;
+
+        var result = await DialogService.OpenAsync("Create New Project", ds =>
+            @<RadzenStack Gap="1rem" Style="min-width: 350px;">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Enter project name" Component="ProjectName" />
+                    <RadzenTextBox Value="@projectName" Name="ProjectName" Style="width: 100%;" 
+                                   Placeholder="e.g., MyNewProject" 
+                                   Change="@(args => OnProjectNameChange(args, ds))" />
+                    @if (!string.IsNullOrEmpty(validationError))
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #ef4444; margin: 0;">@validationError</RadzenText>
+                    }
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End" Style="margin-top: 1rem;">
+                    <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" 
+                                  Click="@(() => ds.Close(false))" />
+                    <RadzenButton Text="Create" ButtonStyle="ButtonStyle.Primary" 
+                                  Click="@(() => OnCreateClick(ds))" />
+                </RadzenStack>
+                @if (isCreating)
+                {
+                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" Style="margin: 0 auto;" />
+                }
+            </RadzenStack>,
+            new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = false }
+        );
+    }
+
+    private void OnProjectNameChange(string value, DialogService ds)
+    {
+        projectName = value ?? string.Empty;
+        ValidateProjectName();
+        ds.Refresh();
+    }
+
+    private void ValidateProjectName()
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            validationError = "Project name is required.";
+        }
+        else if (projectName.Length > 20)
+        {
+            validationError = "Project name must be 20 characters or less.";
+        }
+        else if (projectName.Contains(' '))
+        {
+            validationError = "Project name cannot contain spaces.";
+        }
+        else
+        {
+            validationError = string.Empty;
+        }
+    }
+
+    private async Task OnCreateClick(DialogService ds)
+    {
+        ValidateProjectName();
+        if (!IsValid) return;
+
+        isCreating = true;
+        ds.Refresh();
+
+        try
+        {
+            var result = await ProjectCreatorService.CreateProjectAsync(projectName);
+            if (result.Success)
+            {
+                ds.Close(true);
+                await ShowSuccessDialog(projectName, result.OutputPath!);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to create project: {ex.Message}");
+        }
+        finally
+        {
+            isCreating = false;
+            ds.Refresh();
+        }
+    }
+
+    private async Task ShowSuccessDialog(string name, string outputPath)
+    {
+        await DialogService.OpenAsync("Project Created Successfully", ds =>
+            @<RadzenStack Gap="1.5rem" Style="min-width: 450px; text-align: center; padding: 1rem;">
+                <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #22c55e;" />
+                    <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Your project '@name' has been created!</RadzenText>
+                </RadzenStack>
+                
+                <RadzenStack Gap="1rem" Style="text-align: left; background-color: #f8fafc; padding: 1rem; border-radius: 8px;">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">How to open your new project:</RadzenText>
+                    <RadzenStack Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;"><strong>1.</strong> Open Visual Studio</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;"><strong>2.</strong> Select <em>File → Open → Project/Solution</em></RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;"><strong>3.</strong> Navigate to:</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; padding: 0.5rem; background-color: #e2e8f0; border-radius: 4px; font-family: monospace; word-break: break-all;">@outputPath</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;"><strong>4.</strong> Open the <code>.csproj</code> or <code>.sln</code> file</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;"><strong>5.</strong> Press <strong>F5</strong> to build and run</RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary" Click="@(() => ds.Close())" Style="min-width: 100px;" />
+            </RadzenStack>,
+            new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
+        );
     }
 }
