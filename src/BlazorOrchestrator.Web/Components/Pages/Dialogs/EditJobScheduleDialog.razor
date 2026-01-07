@@ -1,0 +1,189 @@
+@using BlazorOrchestrator.Web.Data.Data
+@using Radzen
+@using Radzen.Blazor
+
+<RadzenStack Gap="1.5rem" Style="min-width: 600px;">
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="6">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Job Schedule Name" Component="ScheduleName" Style="font-weight: 500;" />
+                <RadzenTextBox @bind-Value="@Schedule.ScheduleName" Name="ScheduleName" Style="width: 100%;" />
+            </RadzenStack>
+        </RadzenColumn>
+        <RadzenColumn Size="3">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
+                <RadzenCheckBox @bind-Value="@Schedule.Enabled" Name="Enabled" />
+            </RadzenStack>
+        </RadzenColumn>
+        <RadzenColumn Size="3">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Halt Error" Component="HadError" Style="font-weight: 500;" />
+                <RadzenCheckBox @bind-Value="@Schedule.HadError" Name="HadError" />
+            </RadzenStack>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="4">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Run Every Hour" Component="RunEveryHour" Style="font-weight: 500;" />
+                <RadzenNumeric @bind-Value="@Schedule.RunEveryHour" Name="RunEveryHour" Style="width: 100%;" Min="1" Max="24" />
+            </RadzenStack>
+        </RadzenColumn>
+        <RadzenColumn Size="4">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Start Time" Component="StartTime" Style="font-weight: 500;" />
+                <RadzenNumeric @bind-Value="@Schedule.StartTime" Name="StartTime" Style="width: 100%;" Min="0" Max="23" />
+            </RadzenStack>
+        </RadzenColumn>
+        <RadzenColumn Size="4">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Stop Time" Component="StopTime" Style="font-weight: 500;" />
+                <RadzenNumeric @bind-Value="@Schedule.StopTime" Name="StopTime" Style="width: 100%;" Min="0" Max="23" />
+            </RadzenStack>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="12">
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Last Run" Style="font-weight: 500;" />
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                    @(Schedule.LastRun?.ToString("g") ?? "Never")
+                </RadzenText>
+            </RadzenStack>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenFieldset Text="Days of Week" Style="padding: 1rem;">
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1.5rem" Wrap="FlexWrap.Wrap">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Monday" Name="Monday" />
+                <RadzenLabel Text="Monday" Component="Monday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Tuesday" Name="Tuesday" />
+                <RadzenLabel Text="Tuesday" Component="Tuesday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Wednesday" Name="Wednesday" />
+                <RadzenLabel Text="Wednesday" Component="Wednesday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Thursday" Name="Thursday" />
+                <RadzenLabel Text="Thursday" Component="Thursday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Friday" Name="Friday" />
+                <RadzenLabel Text="Friday" Component="Friday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Saturday" Name="Saturday" />
+                <RadzenLabel Text="Saturday" Component="Saturday" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                <RadzenCheckBox @bind-Value="@Schedule.Sunday" Name="Sunday" />
+                <RadzenLabel Text="Sunday" Component="Sunday" />
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenFieldset>
+
+    @if (!string.IsNullOrEmpty(ValidationError))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+            @ValidationError
+        </RadzenAlert>
+    }
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.SpaceBetween" Style="margin-top: 0.5rem;">
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            <RadzenButton Text="Save Job Schedule" ButtonStyle="ButtonStyle.Success" Icon="save" 
+                          Click="@OnSave" Disabled="@IsSaving" />
+            @if (Schedule.Id > 0)
+            {
+                <RadzenButton Text="Delete Job Schedule" ButtonStyle="ButtonStyle.Danger" Icon="delete" 
+                              Variant="Variant.Outlined" Click="@OnDeleteClick" Disabled="@IsSaving" />
+            }
+        </RadzenStack>
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" 
+                      Click="@(() => OnCancel.InvokeAsync())" Disabled="@IsSaving" />
+    </RadzenStack>
+
+    @if (IsSaving)
+    {
+        <RadzenStack AlignItems="AlignItems.Center">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter]
+    public JobSchedule Schedule { get; set; } = new JobSchedule();
+
+    [Parameter]
+    public EventCallback<JobSchedule> OnScheduleSaved { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnScheduleDeleted { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public string ValidationError { get; private set; } = string.Empty;
+    public bool IsSaving { get; private set; } = false;
+
+    private bool Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Schedule.ScheduleName))
+        {
+            ValidationError = "Schedule name is required.";
+            return false;
+        }
+
+        if (!Schedule.Monday && !Schedule.Tuesday && !Schedule.Wednesday && 
+            !Schedule.Thursday && !Schedule.Friday && !Schedule.Saturday && !Schedule.Sunday)
+        {
+            ValidationError = "At least one day of the week must be selected.";
+            return false;
+        }
+
+        ValidationError = string.Empty;
+        return true;
+    }
+
+    private async Task OnSave()
+    {
+        if (!Validate()) return;
+
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnScheduleSaved.InvokeAsync(Schedule);
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnDeleteClick()
+    {
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnScheduleDeleted.InvokeAsync(Schedule.Id);
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+}
