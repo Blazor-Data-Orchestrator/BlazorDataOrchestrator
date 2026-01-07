@@ -1,0 +1,97 @@
+@using BlazorOrchestrator.Web.Data.Data
+@using Radzen
+@using Radzen.Blazor
+
+<RadzenStack Gap="1.5rem" Style="min-width: 500px;">
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="Field Description" Component="FieldDescription" Style="font-weight: 500;" />
+        <RadzenTextBox @bind-Value="@Parameter.JobFieldDescription" Name="FieldDescription" Style="width: 100%;" 
+                       Placeholder="e.g., ConnectionString" />
+    </RadzenStack>
+
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="String Value" Component="StringValue" Style="font-weight: 500;" />
+        <RadzenTextBox @bind-Value="@Parameter.JobStringValue" Name="StringValue" Style="width: 100%;" 
+                       Placeholder="Enter string value" />
+    </RadzenStack>
+
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="6">
+            <RadzenStack Gap="0.5rem">
+                <RadzenLabel Text="Integer Value" Component="IntValue" Style="font-weight: 500;" />
+                <RadzenNumeric @bind-Value="@Parameter.JobIntValue" Name="IntValue" Style="width: 100%;" />
+            </RadzenStack>
+        </RadzenColumn>
+        <RadzenColumn Size="6">
+            <RadzenStack Gap="0.5rem">
+                <RadzenLabel Text="Date Value" Component="DateValue" Style="font-weight: 500;" />
+                <RadzenDatePicker @bind-Value="@Parameter.JobDateValue" Name="DateValue" Style="width: 100%;" />
+            </RadzenStack>
+        </RadzenColumn>
+    </RadzenRow>
+
+    @if (!string.IsNullOrEmpty(ValidationError))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+            @ValidationError
+        </RadzenAlert>
+    }
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" 
+                      Click="@(() => OnCancel.InvokeAsync())" Disabled="@IsSaving" />
+        <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Success" Icon="save" 
+                      Click="@OnSave" Disabled="@IsSaving" />
+    </RadzenStack>
+
+    @if (IsSaving)
+    {
+        <RadzenStack AlignItems="AlignItems.Center">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter]
+    public JobDatum Parameter { get; set; } = new JobDatum();
+
+    [Parameter]
+    public EventCallback<JobDatum> OnParameterSaved { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public string ValidationError { get; private set; } = string.Empty;
+    public bool IsSaving { get; private set; } = false;
+
+    private bool Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Parameter.JobFieldDescription))
+        {
+            ValidationError = "Field description is required.";
+            return false;
+        }
+
+        ValidationError = string.Empty;
+        return true;
+    }
+
+    private async Task OnSave()
+    {
+        if (!Validate()) return;
+
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnParameterSaved.InvokeAsync(Parameter);
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+}

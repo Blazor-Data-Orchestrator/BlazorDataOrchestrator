@@ -33,6 +33,7 @@ builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
 
 // Register custom services
 builder.Services.AddScoped<ProjectCreatorService>();
+builder.Services.AddScoped<JobService>();
 
 builder.Services.AddRadzenComponents();
 var app = builder.Build();

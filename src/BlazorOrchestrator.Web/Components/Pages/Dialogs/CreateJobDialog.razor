@@ -1,0 +1,100 @@
+@using Radzen
+@using Radzen.Blazor
+
+<RadzenStack Gap="1.5rem" Style="min-width: 400px;">
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="Job Name" Component="JobName" Style="font-weight: 500;" />
+        <input type="text" @bind="jobName" @bind:event="oninput" 
+               name="JobName" placeholder="e.g., IDMDbToWarehouse"
+               class="rz-textbox" style="width: 100%;" />
+        @if (!string.IsNullOrEmpty(ValidationError))
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #ef4444; margin: 0;">@ValidationError</RadzenText>
+        }
+    </RadzenStack>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
+        <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Success" Icon="save" 
+                      Click="@OnSave" Disabled="@(!IsValid || IsSaving)" />
+    </RadzenStack>
+
+    @if (IsSaving)
+    {
+        <RadzenStack AlignItems="AlignItems.Center">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    private string _jobName = string.Empty;
+    private string jobName 
+    { 
+        get => _jobName;
+        set 
+        {
+            _jobName = value;
+            ValidateJobName();
+        }
+    }
+
+    [Parameter]
+    public string JobName { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> JobNameChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnJobCreated { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public string ValidationError { get; private set; } = string.Empty;
+    public bool IsSaving { get; private set; } = false;
+    public bool IsValid => string.IsNullOrEmpty(ValidationError) && !string.IsNullOrWhiteSpace(jobName);
+
+    protected override void OnParametersSet()
+    {
+        _jobName = JobName;
+    }
+
+    private void ValidateJobName()
+    {
+        if (string.IsNullOrWhiteSpace(jobName))
+        {
+            ValidationError = "Job name is required.";
+        }
+        else if (jobName.Length > 100)
+        {
+            ValidationError = "Job name must be 100 characters or less.";
+        }
+        else if (jobName.Contains(' '))
+        {
+            ValidationError = "Job name cannot contain spaces.";
+        }
+        else
+        {
+            ValidationError = string.Empty;
+        }
+    }
+
+    private async Task OnSave()
+    {
+        ValidateJobName();
+        if (!IsValid) return;
+
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnJobCreated.InvokeAsync(jobName);
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+}
