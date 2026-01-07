@@ -34,14 +34,8 @@ A Microsoft Aspire .NET 9 solution that demonstrates a distributed application a
 
 ## Project Structure
 
-```
-src/
-├── BlazorOrchistrator.AppHost/        # Aspire orchestration host
-├── BlazorOrchistrator.Web/            # Blazor Server web application
-├── BlazorOrchistrator.Scheduler/      # Background scheduler service
-└── BlazorOrchistrator.Agent/          # Containerized agent service
-    └── Dockerfile                     # Container configuration
-```
+<img width="1097" height="654" alt="image" src="https://github.com/user-attachments/assets/6fb84b42-81fa-46ac-80d6-8c6922d34adb" />
+
 
 ## Configuration
 
