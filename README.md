@@ -11,7 +11,7 @@ A Microsoft Aspire .NET 9 solution that demonstrates a distributed application a
 
 ## Architecture
 
-This solution implements the following components:
+<img width="730" height="609" alt="image" src="https://github.com/user-attachments/assets/41365bcc-856f-4f1d-9ce1-b7238bd09116" />
 
 ### Components
 
