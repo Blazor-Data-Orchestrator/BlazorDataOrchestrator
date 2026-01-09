@@ -40,7 +40,7 @@ public class BlazorDataOrchestratorJob
 }
 
 ```
-
+Do not change the code in Home.razor.
 ### Dependencies & Context
 
 * The code must return a `List<string>` containing log messages.

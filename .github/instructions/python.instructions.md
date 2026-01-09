@@ -37,7 +37,7 @@ def execute_job(
     return []
 
 ```
-
+Do not change the code in Home.razor.
 ### Dependencies & Context
 
 * **Return Type:** The function must return a `list[str]` containing log messages.
