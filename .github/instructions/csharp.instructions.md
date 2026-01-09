@@ -20,7 +20,7 @@ If your solution requires 3rd party libraries (NuGet packages), you MUST indicat
 
 If the selected language is **C#**, the generated code must meet the following strict criteria to ensure it can be executed by the system's `OnRunCode` harness.
 
-When the response is a code update, provide the full code in a block surrounded by ### UPDATED CODE BEGIN ### and ### UPDATED CODE END ###
+When the response is a code update, provide the full code in a block surrounded by ###UPDATED CODE BEGIN### and ###UPDATED CODE END###
 ### Class and Method Signature
 
 You must define a class named `BlazorDataOrchestratorJob`. This class **must** expose a public static asynchronous method named `ExecuteJob` with the exact signature below:

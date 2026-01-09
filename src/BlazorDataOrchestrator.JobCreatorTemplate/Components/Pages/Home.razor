@@ -217,8 +217,8 @@
     private bool CanRedo => redoStack.Count > 0;
     
     // Code extraction markers
-    private const string CodeBeginMarker = "### UPDATED CODE BEGIN ###";
-    private const string CodeEndMarker = "### UPDATED CODE END ###";
+    private const string CodeBeginMarker = "###UPDATED CODE BEGIN###";
+    private const string CodeEndMarker = "###UPDATED CODE END###";
     private string? _pendingCodeUpdate = null;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
