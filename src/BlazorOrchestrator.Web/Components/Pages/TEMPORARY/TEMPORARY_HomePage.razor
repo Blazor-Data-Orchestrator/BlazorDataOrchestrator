@@ -21,8 +21,29 @@
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
         <RadzenButton Text="Create Visual Studio Project" ButtonStyle="ButtonStyle.Success" Click="@OpenCreateProjectDialog" />
         <RadzenButton Text="Create New Job" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateJobDialog" />
+        <RadzenButton Text="Refresh" ButtonStyle="ButtonStyle.Light" Icon="refresh" Click="@LoadJobsAsync" Disabled="@isLoading" />
     </RadzenStack>
 
+    @if (isLoading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+            <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading jobs...</RadzenText>
+        </RadzenStack>
+    }
+    else if (!Jobs.Any())
+    {
+        <RadzenCard Style="padding: 2rem; text-align: center;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenIcon Icon="folder_off" Style="font-size: 3rem; color: #9ca3af;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="color: #6b7280; margin: 0;">No jobs found</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="color: #9ca3af; margin: 0;">Create your first job to get started</RadzenText>
+                <RadzenButton Text="Create New Job" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateJobDialog" />
+            </RadzenStack>
+        </RadzenCard>
+    }
+    else
+    {
     <RadzenRow Gap="1rem">
         @foreach (var job in Jobs)
         {
@@ -32,9 +53,9 @@
                         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
                             <RadzenText TextStyle="TextStyle.H6" TagName="TagName.H3" Style="margin: 0; font-weight: 600;">@job.Name</RadzenText>
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
-                                <span style="@($"width: 8px; height: 8px; border-radius: 50%; background-color: {(job.IsRunning ? "#22c55e" : "#6b7280")};")"></span>
-                                <RadzenText TextStyle="TextStyle.Body2" Style="@($"color: {(job.IsRunning ? "#22c55e" : "#6b7280")}; margin: 0;")">
-                                    @(job.IsRunning ? "Running" : "Stopped")
+                                <span style="@GetStatusDotStyle(job)"></span>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="@GetStatusTextStyle(job)">
+                                    @GetStatusText(job)
                                 </RadzenText>
                             </RadzenStack>
                         </RadzenStack>
@@ -51,17 +72,21 @@
                         </RadzenStack>
 
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
-                            <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" />
+                            <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@(() => NavigationManager.NavigateTo($"/job/{job.Id}"))" />
                             <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
                             @if (job.IsRunning)
                             {
-                                <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" />
                                 <RadzenButton Text="Stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                                <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
+                            }
+                            else if (job.IsEnabled)
+                            {
+                                <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" />
                                 <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
                             }
                             else
                             {
-                                <RadzenButton Text="Start" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
+                                <RadzenButton Text="Enable" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
                                 <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
                             }
                         </RadzenStack>
@@ -70,44 +95,136 @@
             </RadzenColumn>
         }
     </RadzenRow>
+    }
 </RadzenStack>
 
 @code {
     private List<JobViewModel> Jobs { get; set; } = new();
+    private bool isLoading = true;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        // Sample data matching the screenshot
-        Jobs = new List<JobViewModel>
+        await LoadJobsAsync();
+    }
+
+    private async Task LoadJobsAsync()
+    {
+        isLoading = true;
+        try
         {
-            new JobViewModel
+            var jobs = await JobService.GetJobsAsync();
+            Jobs = jobs.Select(j => new JobViewModel
             {
-                Name = "Nightly Import – HR",
-                IsRunning = true,
-                LastRun = "Today 02:00",
-                NextRun = "Tomorrow 02:00"
-            },
-            new JobViewModel
-            {
-                Name = "Generate Forecasts",
-                IsRunning = false,
-                LastRun = "Yesterday 03:13",
-                NextRun = "Today 03:00"
-            },
-            new JobViewModel
-            {
-                Name = "Sync Attachments",
-                IsRunning = true,
-                LastRun = "Today 01:10",
-                NextRun = "Today 05:10"
-            }
-        };
+                Id = j.Id,
+                Name = j.JobName ?? "Unnamed Job",
+                IsRunning = j.JobInProcess,
+                IsEnabled = j.JobEnabled,
+                IsQueued = j.JobQueued,
+                HasError = j.JobInError,
+                LastRun = GetLastRunDisplay(j),
+                NextRun = GetNextRunDisplay(j)
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load jobs: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetLastRunDisplay(Job job)
+    {
+        var lastRun = job.JobSchedules?
+            .Where(s => s.LastRun.HasValue)
+            .OrderByDescending(s => s.LastRun)
+            .FirstOrDefault()?.LastRun;
+
+        if (!lastRun.HasValue)
+            return "Never";
+
+        var now = DateTime.UtcNow;
+        var diff = now - lastRun.Value;
+
+        if (diff.TotalMinutes < 1)
+            return "Just now";
+        if (diff.TotalHours < 1)
+            return $"{(int)diff.TotalMinutes}m ago";
+        if (lastRun.Value.Date == now.Date)
+            return $"Today {lastRun.Value:HH:mm}";
+        if (lastRun.Value.Date == now.Date.AddDays(-1))
+            return $"Yesterday {lastRun.Value:HH:mm}";
+        
+        return lastRun.Value.ToString("MMM d, HH:mm");
+    }
+
+    private string GetNextRunDisplay(Job job)
+    {
+        var enabledSchedule = job.JobSchedules?
+            .FirstOrDefault(s => s.Enabled);
+
+        if (enabledSchedule == null)
+            return "Not scheduled";
+
+        // Calculate next run based on schedule settings
+        if (enabledSchedule.RunEveryHour.HasValue && enabledSchedule.RunEveryHour > 0)
+        {
+            var lastRun = enabledSchedule.LastRun ?? DateTime.UtcNow;
+            var nextRun = lastRun.AddHours(enabledSchedule.RunEveryHour.Value);
+            
+            var now = DateTime.UtcNow;
+            if (nextRun.Date == now.Date)
+                return $"Today {nextRun:HH:mm}";
+            if (nextRun.Date == now.Date.AddDays(1))
+                return $"Tomorrow {nextRun:HH:mm}";
+            
+            return nextRun.ToString("MMM d, HH:mm");
+        }
+
+        return "See schedule";
+    }
+
+    private string GetStatusDotStyle(JobViewModel job)
+    {
+        var color = job.HasError ? "#ef4444" : // Red for error
+                    job.IsRunning ? "#22c55e" : // Green for running
+                    job.IsQueued ? "#f59e0b" :  // Amber for queued
+                    job.IsEnabled ? "#3b82f6" : // Blue for enabled but not running
+                    "#6b7280";                  // Gray for disabled
+        
+        return $"width: 8px; height: 8px; border-radius: 50%; background-color: {color};";
+    }
+
+    private string GetStatusTextStyle(JobViewModel job)
+    {
+        var color = job.HasError ? "#ef4444" :
+                    job.IsRunning ? "#22c55e" :
+                    job.IsQueued ? "#f59e0b" :
+                    job.IsEnabled ? "#3b82f6" :
+                    "#6b7280";
+        
+        return $"color: {color}; margin: 0;";
+    }
+
+    private string GetStatusText(JobViewModel job)
+    {
+        if (job.HasError) return "Error";
+        if (job.IsRunning) return "Running";
+        if (job.IsQueued) return "Queued";
+        if (job.IsEnabled) return "Ready";
+        return "Disabled";
     }
 
     private class JobViewModel
     {
+        public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
         public bool IsRunning { get; set; }
+        public bool IsEnabled { get; set; }
+        public bool IsQueued { get; set; }
+        public bool HasError { get; set; }
         public string LastRun { get; set; } = string.Empty;
         public string NextRun { get; set; } = string.Empty;
     }
