@@ -2,80 +2,331 @@
 @using Radzen
 @using Radzen.Blazor
 @using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using BlazorOrchestrator.Web.Components.Pages.InstallUpgrade
+@using Microsoft.EntityFrameworkCore
+@inject IConfiguration Configuration
+@inject IServiceProvider ServiceProvider
 @inject ProjectCreatorService ProjectCreatorService
 @inject JobService JobService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
 @inject NavigationManager NavigationManager
+@inject WizardStateService WizardState
 
-<PageTitle>Dashboard</PageTitle>
+<PageTitle>@(IsInstalling ? "Setup Wizard" : "Dashboard")</PageTitle>
 
-<RadzenStack Gap="1.5rem">
-    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-        <RadzenIcon Icon="assignment" Style="font-size: 1.5rem;" />
-        <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" Style="margin: 0;">Status of all running jobs</RadzenText>
+@if (IsLoading)
+{
+    <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+        <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+            <RadzenText TextStyle="TextStyle.Body1">Checking system status...</RadzenText>
+        </RadzenStack>
+    </div>
+}
+else if (IsInstalling)
+{
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert" style="margin: 1rem;">
+            <strong>Error:</strong> @ErrorMessage
+        </div>
+    }
+    
+    <div class="alert alert-info" role="alert" style="margin: 1rem;">
+        <strong>Wizard Mode:</strong> @WizardMode
+    </div>
+
+    @if (WizardMode == "INSTALL" || WizardMode == "RUNSCRIPTS" || WizardMode == "CreateAdministrator")
+    {
+        <InstallWizard WizardMode="@WizardMode" OnInstallComplete="OnInstallComplete" />
+    }
+    else if (WizardMode == "UPGRADE")
+    {
+        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" LatestGitHubVersion="@GitHubVersion" OnUpgradeComplete="OnUpgradeComplete" />
+    }
+    else
+    {
+        <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.Body1">Initializing wizard...</RadzenText>
+            </RadzenStack>
+        </div>
+    }
+}
+else
+{
+    <RadzenStack Gap="1.5rem">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenIcon Icon="assignment" Style="font-size: 1.5rem;" />
+            <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" Style="margin: 0;">Status of all running jobs</RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            <RadzenButton Text="Create Visual Studio Project" ButtonStyle="ButtonStyle.Success" Click="@OpenCreateProjectDialog" />
+            <RadzenButton Text="Create New Job" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateJobDialog" />
+        </RadzenStack>
+
+        <RadzenRow Gap="1rem">
+            @foreach (var job in Jobs)
+            {
+                <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
+                    <RadzenCard Style="padding: 1.5rem;">
+                        <RadzenStack Gap="1rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                                <RadzenText TextStyle="TextStyle.H6" TagName="TagName.H3" Style="margin: 0; font-weight: 600;">@job.Name</RadzenText>
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                    <span style="@($"width: 8px; height: 8px; border-radius: 50%; background-color: {(job.IsRunning ? "#22c55e" : "#6b7280")};")"></span>
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="@($"color: {(job.IsRunning ? "#22c55e" : "#6b7280")}; margin: 0;")">
+                                        @(job.IsRunning ? "Running" : "Stopped")
+                                    </RadzenText>
+                                </RadzenStack>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="2rem">
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">Last run</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@job.LastRun</RadzenText>
+                                </RadzenStack>
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">Next run</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@job.NextRun</RadzenText>
+                                </RadzenStack>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" />
+                                <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
+                                @if (job.IsRunning)
+                                {
+                                    <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                                    <RadzenButton Text="Stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                                    <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
+                                }
+                                else
+                                {
+                                    <RadzenButton Text="Start" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
+                                    <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
+                                }
+                            </RadzenStack>
+                        </RadzenStack>
+                    </RadzenCard>
+                </RadzenColumn>
+            }
+        </RadzenRow>
     </RadzenStack>
-
-    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-        <RadzenButton Text="Create Visual Studio Project" ButtonStyle="ButtonStyle.Success" Click="@OpenCreateProjectDialog" />
-        <RadzenButton Text="Create New Job" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateJobDialog" />
-    </RadzenStack>
-
-    <RadzenRow Gap="1rem">
-        @foreach (var job in Jobs)
-        {
-            <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
-                <RadzenCard Style="padding: 1.5rem;">
-                    <RadzenStack Gap="1rem">
-                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
-                            <RadzenText TextStyle="TextStyle.H6" TagName="TagName.H3" Style="margin: 0; font-weight: 600;">@job.Name</RadzenText>
-                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
-                                <span style="@($"width: 8px; height: 8px; border-radius: 50%; background-color: {(job.IsRunning ? "#22c55e" : "#6b7280")};")"></span>
-                                <RadzenText TextStyle="TextStyle.Body2" Style="@($"color: {(job.IsRunning ? "#22c55e" : "#6b7280")}; margin: 0;")">
-                                    @(job.IsRunning ? "Running" : "Stopped")
-                                </RadzenText>
-                            </RadzenStack>
-                        </RadzenStack>
-
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="2rem">
-                            <RadzenStack Gap="0.25rem">
-                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">Last run</RadzenText>
-                                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@job.LastRun</RadzenText>
-                            </RadzenStack>
-                            <RadzenStack Gap="0.25rem">
-                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">Next run</RadzenText>
-                                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@job.NextRun</RadzenText>
-                            </RadzenStack>
-                        </RadzenStack>
-
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
-                            <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" />
-                            <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
-                            @if (job.IsRunning)
-                            {
-                                <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" />
-                                <RadzenButton Text="Stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Size="ButtonSize.Small" />
-                                <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
-                            }
-                            else
-                            {
-                                <RadzenButton Text="Start" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
-                                <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
-                            }
-                        </RadzenStack>
-                    </RadzenStack>
-                </RadzenCard>
-            </RadzenColumn>
-        }
-    </RadzenRow>
-</RadzenStack>
+}
 
 @code {
+    // ********************************
+    // Current Application Version - should match the format in GitHub SQLVersion file
+    private const string CurrentVersion = "1.0";
+    // GitHub URL for the latest version
+    private const string GitHubVersionUrl = "https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion";
+    // ********************************
+
+    private bool IsLoading { get; set; } = true;
+    private bool IsInstalling { get; set; } = true;
+    private string WizardMode { get; set; } = "";
+    private string ErrorMessage { get; set; } = "";
+    private string GitHubVersion { get; set; } = "";
+
     private List<JobViewModel> Jobs { get; set; } = new();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckSystemStatus();
+    }
+
+    private async Task CheckSystemStatus()
+    {
+        IsLoading = true;
+        ErrorMessage = string.Empty;
+
+        try
+        {
+            // Check if database can connect
+            if (!await CanConnectToDatabase())
+            {
+                WizardMode = "INSTALL";
+                IsInstalling = true;
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Database connection error: {ex.Message}";
+            WizardMode = "INSTALL";
+            IsInstalling = true;
+            IsLoading = false;
+            return;
+        }
+
+        // Check if database tables exist
+        try
+        {
+            if (!await IsDatabaseSetUpAsync())
+            {
+                WizardMode = "RUNSCRIPTS";
+                IsInstalling = true;
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Database setup check error: {ex.Message}";
+            WizardMode = "RUNSCRIPTS";
+            IsInstalling = true;
+            IsLoading = false;
+            return;
+        }
+
+        // Check if admin user exists
+        try
+        {
+            if (!await AdminExistsAsync())
+            {
+                WizardMode = "CreateAdministrator";
+                IsInstalling = true;
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Admin check error: {ex.Message}";
+            WizardMode = "CreateAdministrator";
+            IsInstalling = true;
+            IsLoading = false;
+            return;
+        }
+
+        // Check if upgrade is needed
+        try
+        {
+            if (await IsDatabaseNeedUpgradeAsync())
+            {
+                WizardMode = "UPGRADE";
+                IsInstalling = true;
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Version check error: {ex.Message}";
+            WizardMode = "UPGRADE";
+            IsInstalling = true;
+            IsLoading = false;
+            return;
+        }
+
+        // All checks passed - show the dashboard
+        IsInstalling = false;
+        IsLoading = false;
+        LoadDashboardData();
+    }
+
+    private async Task<bool> CanConnectToDatabase()
+    {
+        using var scope = ServiceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return await context.Database.CanConnectAsync();
+    }
+
+    private async Task<bool> IsDatabaseSetUpAsync()
+    {
+        try
+        {
+            using var scope = ServiceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            
+            // Check if essential tables exist by trying to query them
+            // If tables don't exist, this will throw an exception
+            _ = await context.AspNetUsers.AsNoTracking().FirstOrDefaultAsync();
+            return true;
+        }
+        catch
+        {
+            // Tables don't exist
+            return false;
+        }
+    }
+
+    private async Task<bool> AdminExistsAsync()
+    {
+        try
+        {
+            using var scope = ServiceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Check if any user exists with SuperAdmin role
+            // For now, just check if any user exists
+            var userExists = await context.AspNetUsers.AsNoTracking().AnyAsync();
+            return userExists;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> IsDatabaseNeedUpgradeAsync()
+    {
+        try
+        {
+            // Fetch the latest version from GitHub
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
+            GitHubVersion = (await httpClient.GetStringAsync(GitHubVersionUrl)).Trim();
+
+            // Compare versions - if GitHub version is higher than local code version, upgrade needed
+            // This means there are new SQL scripts to run from CurrentVersion to GitHubVersion
+            if (ConvertVersionToInteger(GitHubVersion) > ConvertVersionToInteger(CurrentVersion))
+            {
+                return true;
+            }
+
+            // Versions match - no upgrade needed, show dashboard (Happy Path!)
+            return false;
+        }
+        catch
+        {
+            // If we can't reach GitHub, assume no upgrade needed and continue to dashboard
+            GitHubVersion = CurrentVersion;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Converts a version string like "01.00.00" to an integer for comparison
+    /// </summary>
+    private int ConvertVersionToInteger(string version)
+    {
+        if (string.IsNullOrEmpty(version)) return 0;
+
+        int versionNumber = 0;
+        var segments = version.Split('.');
+        var multipliers = new List<int> { 10000, 100, 1 };
+
+        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
+        {
+            if (int.TryParse(segments[i], out int segment))
+            {
+                versionNumber += segment * multipliers[i];
+            }
+        }
+
+        return versionNumber;
+    }
+
+    private void LoadDashboardData()
     {
         // Sample data matching the screenshot
         Jobs = new List<JobViewModel>
@@ -102,6 +353,23 @@
                 NextRun = "Today 05:10"
             }
         };
+    }
+
+    private async Task OnInstallComplete()
+    {
+        // Reset wizard state
+        WizardState.SetInstalling(false);
+        WizardState.SetStep(1);
+        // Re-check system status after installation
+        await CheckSystemStatus();
+    }
+
+    private async Task OnUpgradeComplete()
+    {
+        // Reset wizard state
+        WizardState.SetUpgrading(false);
+        // Re-check system status after upgrade
+        await CheckSystemStatus();
     }
 
     private class JobViewModel

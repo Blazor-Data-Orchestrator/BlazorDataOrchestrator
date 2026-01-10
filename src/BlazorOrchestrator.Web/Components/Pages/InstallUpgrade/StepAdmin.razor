@@ -1,0 +1,34 @@
+@using BlazorOrchestrator.Web.Data
+
+@code {
+    [Parameter] 
+    public InstallationModel Model { get; set; } = new();
+}
+
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+        Create the super administrator account for BlazorOrchestrator.
+    </RadzenAlert>
+
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2">Username *</RadzenText>
+            <RadzenTextBox @bind-Value="Model.AdminUser" Placeholder="admin" Style="width: 100%;" />
+            <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">This will be your login username.</RadzenText>
+        </div>
+    </div>
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2">Email Address *</RadzenText>
+            <RadzenTextBox @bind-Value="Model.AdminEmail" Placeholder="admin@company.com" Style="width: 100%;" />
+            <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">Used for password recovery and notifications.</RadzenText>
+        </div>
+    </div>
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2">Password *</RadzenText>
+            <RadzenPassword @bind-Value="Model.AdminPassword" Placeholder="Enter a strong password" Style="width: 100%;" />
+            <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">Must be at least 8 characters with uppercase, lowercase, and numbers.</RadzenText>
+        </div>
+    </div>
+</div>

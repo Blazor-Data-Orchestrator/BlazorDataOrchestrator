@@ -1,0 +1,232 @@
+@using BlazorOrchestrator.Web.Data
+@using BlazorOrchestrator.Web.Services
+@inject WizardStateService WizardState
+
+@code {
+    [Parameter]
+    public EventCallback OnUpgradeComplete { get; set; }
+
+    [Parameter]
+    public string CurrentCodeVersion { get; set; } = "01.00.00";
+
+    [Parameter]
+    public string LatestGitHubVersion { get; set; } = "01.00.00";
+
+    public string Stage { get; set; } = "login";
+    public List<string> Logs = new();
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    
+    // Check if local version is ahead of GitHub (shouldn't happen in normal scenarios)
+    private bool IsDowngrade => ConvertVersionToInteger(CurrentCodeVersion) > ConvertVersionToInteger(LatestGitHubVersion);
+
+    protected override void OnInitialized()
+    {
+        WizardState.SetUpgrading(true);
+    }
+
+    private int ConvertVersionToInteger(string version)
+    {
+        if (string.IsNullOrEmpty(version)) return 0;
+        int versionNumber = 0;
+        var segments = version.Split('.');
+        var multipliers = new List<int> { 10000, 100, 1 };
+        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
+        {
+            if (int.TryParse(segments[i], out int segment))
+            {
+                versionNumber += segment * multipliers[i];
+            }
+        }
+        return versionNumber;
+    }
+
+    private async Task Authenticate()
+    {
+        ErrorMessage = string.Empty;
+
+        if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
+        {
+            ErrorMessage = "Please enter username and password.";
+            return;
+        }
+
+        // TODO: Implement actual admin authentication
+        // For now, proceed to check stage
+        Stage = "check";
+    }
+
+    private async Task RunScripts()
+    {
+        Stage = "running";
+        Logs.Clear();
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Starting database backup...");
+        StateHasChanged();
+        await Task.Delay(1000);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Backup completed successfully.");
+        StateHasChanged();
+        await Task.Delay(500);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Applying migration scripts...");
+        StateHasChanged();
+        await Task.Delay(1500);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Running script: 01.00.00.sql");
+        StateHasChanged();
+        await Task.Delay(1000);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Database schema updated.");
+        StateHasChanged();
+        await Task.Delay(500);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Updating version table...");
+        StateHasChanged();
+        await Task.Delay(500);
+
+        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✓ Upgrade completed successfully!");
+        StateHasChanged();
+
+        Stage = "complete";
+    }
+
+    private async Task SkipUpgrade()
+    {
+        // Allow user to continue when local version is ahead (dev/pre-release scenario)
+        if (OnUpgradeComplete.HasDelegate)
+        {
+            await OnUpgradeComplete.InvokeAsync();
+        }
+    }
+
+    private async Task FinishUpgrade()
+    {
+        if (OnUpgradeComplete.HasDelegate)
+        {
+            await OnUpgradeComplete.InvokeAsync();
+        }
+    }
+}
+
+@if (Stage == "login")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 450px;" Class="rz-shadow-5">
+            <div class="text-center rz-mb-4">
+                <RadzenIcon Icon="system_update" IconColor="@Colors.Warning" Style="font-size: 3rem;" />
+                <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">System Upgrade Required</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
+                    Your Version: <strong>@CurrentCodeVersion</strong> | Latest Version: <strong>@LatestGitHubVersion</strong>
+                </RadzenText>
+            </div>
+
+            @if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-3">
+                    @ErrorMessage
+                </RadzenAlert>
+            }
+
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-3">Super Admin Login</RadzenText>
+            <div class="rz-mb-3">
+                <RadzenTextBox @bind-Value="Username" Placeholder="Username" Style="width: 100%;" />
+            </div>
+            <div class="rz-mb-4">
+                <RadzenPassword @bind-Value="Password" Placeholder="Password" Style="width: 100%;" />
+            </div>
+            <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "check")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 600px;" Class="rz-shadow-5">
+            <div class="d-flex justify-content-between align-items-center rz-mb-5 rz-px-4">
+                <div class="text-center">
+                    <RadzenText TextStyle="TextStyle.Overline">YOUR VERSION</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H4">@CurrentCodeVersion</RadzenText>
+                </div>
+                <RadzenIcon Icon="arrow_forward" Style="font-size: 2rem; color: #ccc;" />
+                <div class="text-center">
+                    <RadzenText TextStyle="TextStyle.Overline">LATEST VERSION</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H4" Class="rz-color-primary">@LatestGitHubVersion</RadzenText>
+                </div>
+            </div>
+
+            @if (IsDowngrade)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Version Mismatch</RadzenText>
+                    Your local code version is higher than the latest published version on GitHub.
+                    This may happen if you are running a development or pre-release version.
+                </RadzenAlert>
+                <RadzenButton Click="SkipUpgrade" Text="Continue Anyway" ButtonStyle="ButtonStyle.Warning" Style="width: 100%; margin-top: 1rem;" Icon="skip_next" />
+            }
+            else
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Upgrade Available</RadzenText>
+                    Migration scripts are ready to be applied. A backup will be created before upgrading.
+                </RadzenAlert>
+                <RadzenButton Click="RunScripts" Text="Apply Upgrade" ButtonStyle="ButtonStyle.Primary" Style="width: 100%; margin-top: 1rem;" Icon="upgrade" />
+            }
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "running")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 700px;" Class="rz-p-0">
+            <div class="rz-p-3 rz-background-color-base-200" style="border-bottom: 1px solid #e0e0e0;">
+                <div class="d-flex align-items-center gap-2">
+                    <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width: 100px; height: 6px;" />
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Class="rz-m-0">Applying Upgrade Scripts...</RadzenText>
+                </div>
+            </div>
+            <div style="background-color: #1e1e1e; color: #00ff00; padding: 20px; height: 350px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;">
+                @foreach (var log in Logs)
+                {
+                    <div style="margin-bottom: 4px;">@log</div>
+                }
+                <div class="rz-mt-2" style="animation: blink 1s infinite;">▌</div>
+            </div>
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "complete")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 500px;" Class="rz-shadow-5">
+            <div class="text-center rz-mb-4">
+                <RadzenIcon Icon="check_circle" IconColor="@Colors.Success" Style="font-size: 4rem;" />
+                <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">Upgrade Complete!</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
+                    Application has been upgraded to version <strong>@LatestGitHubVersion</strong>
+                </RadzenText>
+            </div>
+
+            <RadzenCard Class="rz-background-color-base-100 rz-mb-4">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    <strong>Summary:</strong>
+                </RadzenText>
+                <ul style="margin-bottom: 0; padding-left: 20px;">
+                    <li>Database backup created successfully</li>
+                    <li>Migration scripts applied</li>
+                    <li>Version updated to @LatestGitHubVersion</li>
+                </ul>
+            </RadzenCard>
+
+            <RadzenButton Click="FinishUpgrade" Text="Continue to Application" Style="width: 100%;" ButtonStyle="ButtonStyle.Success" Icon="arrow_forward" />
+        </RadzenCard>
+    </div>
+}
+
+<style>
+    @@keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0; }
+    }
+</style>

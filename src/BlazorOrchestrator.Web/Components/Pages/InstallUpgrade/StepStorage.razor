@@ -1,0 +1,65 @@
+@using BlazorOrchestrator.Web.Data
+
+@code {
+    [Parameter] 
+    public InstallationModel Model { get; set; } = new();
+
+    class Option { public string Label { get; set; } = string.Empty; public string Value { get; set; } = string.Empty; }
+    
+    List<Option> storageOptions = new() {
+        new Option { Label = "Azure (Managed Identity)", Value = "managed" },
+        new Option { Label = "Manual Connection String", Value = "manual" }
+    };
+}
+
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+        Configure Azure storage services (Blob, Table, Queue) for file storage and job queuing.
+    </RadzenAlert>
+
+    <div class="rz-mb-4">
+        <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
+            <RadzenIcon Icon="cloud_upload" Style="vertical-align: middle; margin-right: 4px;" />
+            Blob Storage
+        </RadzenText>
+        <RadzenDropDown @bind-Value="Model.BlobType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
+        @if (Model.BlobType == "manual")
+        {
+            <RadzenTextBox @bind-Value="Model.BlobString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+        }
+    </div>
+
+    <div class="rz-mb-4">
+        <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
+            <RadzenIcon Icon="table_chart" Style="vertical-align: middle; margin-right: 4px;" />
+            Table Storage
+        </RadzenText>
+        <RadzenDropDown @bind-Value="Model.TableType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
+        @if (Model.TableType == "manual")
+        {
+            <RadzenTextBox @bind-Value="Model.TableString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+        }
+    </div>
+
+    <div class="rz-mb-4">
+        <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
+            <RadzenIcon Icon="queue" Style="vertical-align: middle; margin-right: 4px;" />
+            Queue Storage
+        </RadzenText>
+        <RadzenDropDown @bind-Value="Model.QueueType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
+        @if (Model.QueueType == "manual")
+        {
+            <RadzenTextBox @bind-Value="Model.QueueString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+        }
+    </div>
+
+    @if (Model.BlobType == "managed" && Model.TableType == "managed" && Model.QueueType == "managed")
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3">
+            <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                All storage services will use <strong>Azure Managed Identity</strong> for secure, passwordless authentication.
+            </RadzenText>
+        </RadzenCard>
+    }
+</div>

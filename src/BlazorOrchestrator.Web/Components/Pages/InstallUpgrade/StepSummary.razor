@@ -1,0 +1,106 @@
+@using BlazorOrchestrator.Web.Data
+
+@code {
+    [Parameter] 
+    public InstallationModel Model { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnInstallComplete { get; set; }
+}
+
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+        Please review all configuration settings before proceeding with installation.
+    </RadzenAlert>
+
+    <RadzenCard Class="rz-mb-3">
+        <div class="d-flex align-items-center gap-2 rz-mb-2">
+            <RadzenIcon Icon="account_circle" IconColor="@Colors.Primary" />
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-m-0">Admin Account</RadzenText>
+        </div>
+        <div class="rz-ps-4">
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
+                <strong>Username:</strong> @(string.IsNullOrEmpty(Model.AdminUser) ? "(not set)" : Model.AdminUser)
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
+                <strong>Email:</strong> @(string.IsNullOrEmpty(Model.AdminEmail) ? "(not set)" : Model.AdminEmail)
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                <strong>Password:</strong> @(string.IsNullOrEmpty(Model.AdminPassword) ? "(not set)" : "••••••••")
+            </RadzenText>
+        </div>
+    </RadzenCard>
+
+    <RadzenCard Class="rz-mb-3">
+        <div class="d-flex align-items-center gap-2 rz-mb-2">
+            <RadzenIcon Icon="dns" IconColor="@Colors.Primary" />
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-m-0">Database Connection</RadzenText>
+        </div>
+        <div class="rz-ps-4">
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
+                <strong>Connection Type:</strong> @(Model.DbConnectionType == "managed" ? "Azure Managed Identity" : "Manual Connection String")
+            </RadzenText>
+            @if (Model.DbConnectionType == "manual" && !string.IsNullOrEmpty(Model.DbConnectionString))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500" Style="word-break: break-all;">
+                    @Model.DbConnectionString
+                </RadzenText>
+            }
+        </div>
+    </RadzenCard>
+
+    <RadzenCard Class="rz-mb-3">
+        <div class="d-flex align-items-center gap-2 rz-mb-2">
+            <RadzenIcon Icon="storage" IconColor="@Colors.Primary" />
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-m-0">Storage Configuration</RadzenText>
+        </div>
+        <div class="rz-ps-4">
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
+                <strong>Blob Storage:</strong> @(Model.BlobType == "managed" ? "Azure Managed Identity" : "Manual")
+            </RadzenText>
+            @if (Model.BlobType == "manual" && !string.IsNullOrEmpty(Model.BlobString))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-mb-2" Style="word-break: break-all;">
+                    @Model.BlobString
+                </RadzenText>
+            }
+
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
+                <strong>Table Storage:</strong> @(Model.TableType == "managed" ? "Azure Managed Identity" : "Manual")
+            </RadzenText>
+            @if (Model.TableType == "manual" && !string.IsNullOrEmpty(Model.TableString))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-mb-2" Style="word-break: break-all;">
+                    @Model.TableString
+                </RadzenText>
+            }
+
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
+                <strong>Queue Storage:</strong> @(Model.QueueType == "managed" ? "Azure Managed Identity" : "Manual")
+            </RadzenText>
+            @if (Model.QueueType == "manual" && !string.IsNullOrEmpty(Model.QueueString))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500" Style="word-break: break-all;">
+                    @Model.QueueString
+                </RadzenText>
+            }
+        </div>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Flat" Class="rz-background-color-info-lighter">
+        <div class="d-flex align-items-start gap-2">
+            <RadzenIcon Icon="info" IconColor="@Colors.Info" />
+            <div>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    Clicking <strong>"Install System"</strong> will:
+                </RadzenText>
+                <ul style="margin-bottom: 0; padding-left: 20px; margin-top: 8px;">
+                    <li>Create the database schema and tables</li>
+                    <li>Create the administrator account</li>
+                    <li>Configure storage connections</li>
+                    <li>Initialize the application</li>
+                </ul>
+            </div>
+        </div>
+    </RadzenCard>
+</div>
