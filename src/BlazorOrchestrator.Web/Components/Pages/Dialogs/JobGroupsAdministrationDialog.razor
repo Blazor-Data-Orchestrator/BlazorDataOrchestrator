@@ -1,0 +1,199 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Data.Data
+@inject JobGroupService JobGroupService
+@inject NotificationService NotificationService
+@inject DialogService DialogService
+
+<RadzenStack Gap="1rem" Style="min-width: 600px;">
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+        <RadzenButton Text="Add Job Group" ButtonStyle="ButtonStyle.Success" Icon="add" Size="ButtonSize.Small" Click="@OpenAddDialog" />
+        <RadzenButton Text="Refresh" ButtonStyle="ButtonStyle.Light" Icon="refresh" Size="ButtonSize.Small" Click="@LoadJobGroupsAsync" Disabled="@isLoading" />
+    </RadzenStack>
+
+    @if (isLoading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 150px;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+            <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading job groups...</RadzenText>
+        </RadzenStack>
+    }
+    else if (!JobGroups.Any())
+    {
+        <RadzenStack AlignItems="AlignItems.Center" Gap="1rem" Style="padding: 1.5rem;">
+            <RadzenIcon Icon="folder_off" Style="font-size: 2.5rem; color: #9ca3af;" />
+            <RadzenText TextStyle="TextStyle.H6" Style="color: #6b7280; margin: 0;">No job groups found</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Style="color: #9ca3af; margin: 0;">Create your first job group to organize your jobs</RadzenText>
+            <RadzenButton Text="Add Job Group" ButtonStyle="ButtonStyle.Success" Icon="add" Click="@OpenAddDialog" />
+        </RadzenStack>
+    }
+    else
+    {
+        <RadzenDataGrid @ref="grid" Data="@JobGroups" TItem="JobGroup"
+                        AllowPaging="true" PageSize="8" PagerHorizontalAlign="HorizontalAlign.Center"
+                        AllowSorting="true" Style="height: auto;">
+            <Columns>
+                <RadzenDataGridColumn TItem="JobGroup" Width="100px" Title="Actions" Sortable="false">
+                    <Template Context="group">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.ExtraSmall"
+                                          Click="@(() => OpenEditDialog(group))" title="Edit" />
+                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.ExtraSmall"
+                                          Variant="Variant.Outlined" Click="@(() => ConfirmDelete(group))" title="Delete" />
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="JobGroup" Property="JobGroupName" Title="Group Name" />
+                <RadzenDataGridColumn TItem="JobGroup" Title="Jobs" Width="70px" Sortable="false">
+                    <Template Context="group">
+                        <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="@(group.JobJobGroups?.Count.ToString() ?? "0")" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="JobGroup" Property="CreatedDate" Title="Created" Width="120px">
+                    <Template Context="group">
+                        @group.CreatedDate.ToString("MMM d, yyyy")
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
+        <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@OnClose" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback OnGroupsChanged { get; set; }
+
+    private List<JobGroup> JobGroups { get; set; } = new();
+    private bool isLoading = true;
+    private RadzenDataGrid<JobGroup>? grid;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadJobGroupsAsync();
+    }
+
+    private async Task LoadJobGroupsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            JobGroups = await JobGroupService.GetJobGroupsAsync();
+            
+            // Load job counts for each group
+            foreach (var group in JobGroups)
+            {
+                var fullGroup = await JobGroupService.GetJobGroupByIdAsync(group.Id);
+                if (fullGroup != null)
+                {
+                    group.JobJobGroups = fullGroup.JobJobGroups;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load job groups: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OpenAddDialog()
+    {
+        var result = await DialogService.OpenAsync<JobGroupDialog>("Add Job Group",
+            new Dictionary<string, object>
+            {
+                { "OnSaved", EventCallback.Factory.Create<(string Name, bool IsActive)>(this, OnJobGroupCreated) },
+                { "OnCancel", EventCallback.Factory.Create(this, () => DialogService.Close()) }
+            },
+            new DialogOptions { Width = "450px", CloseDialogOnEsc = true });
+    }
+
+    private async Task OpenEditDialog(JobGroup group)
+    {
+        var result = await DialogService.OpenAsync<JobGroupDialog>("Edit Job Group",
+            new Dictionary<string, object>
+            {
+                { "ExistingJobGroup", group },
+                { "OnSaved", EventCallback.Factory.Create<(string Name, bool IsActive)>(this, async (data) => await OnJobGroupUpdated(group.Id, data)) },
+                { "OnCancel", EventCallback.Factory.Create(this, () => DialogService.Close()) }
+            },
+            new DialogOptions { Width = "450px", CloseDialogOnEsc = true });
+    }
+
+    private async Task OnJobGroupCreated((string Name, bool IsActive) data)
+    {
+        try
+        {
+            var group = await JobGroupService.CreateJobGroupAsync(data.Name);
+
+            DialogService.Close();
+            NotificationService.Notify(NotificationSeverity.Success, "Success", $"Job group '{data.Name}' created successfully.");
+            await LoadJobGroupsAsync();
+            await OnGroupsChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to create job group: {ex.Message}");
+        }
+    }
+
+    private async Task OnJobGroupUpdated(int id, (string Name, bool IsActive) data)
+    {
+        try
+        {
+            var group = await JobGroupService.GetJobGroupByIdAsync(id);
+            if (group != null)
+            {
+                group.JobGroupName = data.Name;
+                await JobGroupService.UpdateJobGroupAsync(group);
+
+                DialogService.Close();
+                NotificationService.Notify(NotificationSeverity.Success, "Success", $"Job group '{data.Name}' updated successfully.");
+                await LoadJobGroupsAsync();
+                await OnGroupsChanged.InvokeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to update job group: {ex.Message}");
+        }
+    }
+
+    private async Task ConfirmDelete(JobGroup group)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Are you sure you want to delete the job group '{group.JobGroupName}'? This will remove all job associations with this group.",
+            "Delete Job Group",
+            new ConfirmOptions { OkButtonText = "Delete", CancelButtonText = "Cancel" });
+
+        if (confirmed == true)
+        {
+            await DeleteJobGroup(group);
+        }
+    }
+
+    private async Task DeleteJobGroup(JobGroup group)
+    {
+        try
+        {
+            await JobGroupService.DeleteJobGroupAsync(group.Id);
+            NotificationService.Notify(NotificationSeverity.Success, "Success", $"Job group '{group.JobGroupName}' deleted successfully.");
+            await LoadJobGroupsAsync();
+            await OnGroupsChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to delete job group: {ex.Message}");
+        }
+    }
+}

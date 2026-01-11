@@ -1,0 +1,113 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorOrchestrator.Web.Data.Data
+
+<RadzenStack Gap="1.5rem" Style="min-width: 400px;">
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="Job Group Name" Component="JobGroupName" Style="font-weight: 500;" />
+        <input type="text" @bind="groupName" @bind:event="oninput" 
+               name="JobGroupName" placeholder="e.g., Data Imports"
+               class="rz-textbox" style="width: 100%;" />
+        @if (!string.IsNullOrEmpty(ValidationError))
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #ef4444; margin: 0;">@ValidationError</RadzenText>
+        }
+    </RadzenStack>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined"
+                      Click="@OnCancelClick" Disabled="@IsSaving" />
+        <RadzenButton Text="@(IsEditMode ? "Update" : "Create")" ButtonStyle="ButtonStyle.Success" Icon="save" 
+                      Click="@OnSave" Disabled="@(!IsValid || IsSaving)" />
+    </RadzenStack>
+
+    @if (IsSaving)
+    {
+        <RadzenStack AlignItems="AlignItems.Center">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    private string _groupName = string.Empty;
+    private string groupName 
+    { 
+        get => _groupName;
+        set 
+        {
+            _groupName = value;
+            ValidateGroupName();
+        }
+    }
+
+    private bool isActive = true;
+
+    [Parameter]
+    public JobGroup? ExistingJobGroup { get; set; }
+
+    [Parameter]
+    public EventCallback<(string Name, bool IsActive)> OnSaved { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    public string ValidationError { get; private set; } = string.Empty;
+    public bool IsSaving { get; private set; } = false;
+    public bool IsValid => string.IsNullOrEmpty(ValidationError) && !string.IsNullOrWhiteSpace(groupName);
+    public bool IsEditMode => ExistingJobGroup != null;
+
+    protected override void OnParametersSet()
+    {
+        if (ExistingJobGroup != null)
+        {
+            _groupName = ExistingJobGroup.JobGroupName ?? string.Empty;
+            isActive = ExistingJobGroup.IsActive;
+        }
+        else
+        {
+            _groupName = string.Empty;
+            isActive = true;
+        }
+    }
+
+    private void ValidateGroupName()
+    {
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            ValidationError = "Job group name is required.";
+        }
+        else if (groupName.Length > 100)
+        {
+            ValidationError = "Job group name must be 100 characters or less.";
+        }
+        else
+        {
+            ValidationError = string.Empty;
+        }
+    }
+
+    private async Task OnSave()
+    {
+        ValidateGroupName();
+        if (!IsValid) return;
+
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnSaved.InvokeAsync((groupName, isActive));
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnCancelClick()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}

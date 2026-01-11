@@ -1,4 +1,3 @@
-@page "/job/{JobId:int}"
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
@@ -6,107 +5,96 @@
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
-@inject NavigationManager NavigationManager
 @inject NotificationService NotificationService
 @inject DialogService DialogService
 
-<PageTitle>Job Details - @(Job?.JobName ?? "Loading...")</PageTitle>
-
 @if (IsLoading)
 {
-    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="height: 200px;">
+    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="height: 200px; min-width: 800px;">
         <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
         <RadzenText TextStyle="TextStyle.Body1">Loading job details...</RadzenText>
     </RadzenStack>
 }
 else if (Job == null)
 {
-    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter">
-        Job not found. <RadzenLink Path="/" Text="Return to Dashboard" />
-    </RadzenAlert>
+    <RadzenStack Style="min-width: 400px;">
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter">
+            Job not found.
+        </RadzenAlert>
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Style="margin-top: 1rem;">
+            <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@OnCloseClick" />
+        </RadzenStack>
+    </RadzenStack>
 }
 else
 {
-    <RadzenStack Gap="1.5rem">
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-            <RadzenButton Icon="arrow_back" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" 
-                          Click="@(() => NavigationManager.NavigateTo("/"))" />
-            <RadzenText TextStyle="TextStyle.H5" TagName="TagName.H1" Style="margin: 0;">@Job.JobName</RadzenText>
-        </RadzenStack>
-
+    <RadzenStack Gap="1rem" Style="min-width: 850px;">
         <RadzenTabs @bind-SelectedIndex="@SelectedTabIndex" Style="width: 100%;">
             <Tabs>
                 <RadzenTabsItem Text="Details" Icon="info">
                     @* Details Tab Content *@
-                    <RadzenStack Gap="1.5rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                      Style="align-self: flex-start;" />
+                                      Size="ButtonSize.Small" Style="align-self: flex-start;" />
 
-                        <RadzenCard Style="padding: 1.5rem;">
-                            <RadzenStack Gap="1rem">
-                                <RadzenStack Gap="0.5rem">
+                        <RadzenStack Gap="1rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
                                     <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
-                                    <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%; max-width: 400px;" />
+                                    <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
                                 </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
                                     <RadzenLabel Text="Environment" Component="Environment" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@Job.JobEnvironment" Data="@Environments" 
-                                                    Name="Environment" Style="width: 100%; max-width: 400px;" />
+                                                    Name="Environment" Style="width: 100%;" />
                                 </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
                                     <RadzenLabel Text="Job Group" Component="JobGroup" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@selectedJobGroupId" Data="@AvailableJobGroups" 
                                                     TextProperty="JobGroupName" ValueProperty="Id"
                                                     AllowClear="true" Placeholder="Select a job group..."
-                                                    Name="JobGroup" Style="width: 100%; max-width: 400px;" />
-                                </RadzenStack>
-
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
-                                    <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
-                                </RadzenStack>
-
-                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
-                                    <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Success" 
-                                                  Click="@SaveJob" />
-                                    <RadzenButton Text="Delete" Icon="delete" ButtonStyle="ButtonStyle.Danger" 
-                                                  Variant="Variant.Outlined" Click="@DeleteJob" />
+                                                    Name="JobGroup" Style="width: 100%;" />
                                 </RadzenStack>
                             </RadzenStack>
-                        </RadzenCard>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
+                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                            </RadzenStack>
+                        </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
 
                 <RadzenTabsItem Text="Schedule" Icon="schedule">
                     @* Schedule Tab Content *@
-                    <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenButton Text="Add New Job Schedule" Icon="add" ButtonStyle="ButtonStyle.Success" 
-                                      Click="@OpenAddScheduleDialog" Style="align-self: flex-start;" />
+                                      Size="ButtonSize.Small" Click="@OpenAddScheduleDialog" Style="align-self: flex-start;" />
 
                         <RadzenDataGrid @ref="ScheduleGrid" Data="@Schedules" TItem="JobSchedule" 
-                                        AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;">
+                                        AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="JobSchedule" Width="80px" Title="">
+                                <RadzenDataGridColumn TItem="JobSchedule" Width="60px" Title="">
                                     <Template Context="schedule">
-                                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.ExtraSmall"
                                                       Click="@(() => OpenEditScheduleDialog(schedule))" />
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobSchedule" Property="ScheduleName" Title="Schedule Name" />
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="100px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="80px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.Enabled" Disabled="true" />
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Once" Width="100px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Once" Width="80px">
                                     <Template Context="schedule">
                                         <RadzenText>@(schedule.RunEveryHour == null ? "True" : "False")</RadzenText>
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="100px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="90px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.InProcess" Disabled="true" />
                                     </Template>
@@ -118,28 +106,28 @@ else
 
                 <RadzenTabsItem Text="Parameters" Icon="tune">
                     @* Parameters Tab Content *@
-                    <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenButton Text="Add New Job Parameter" Icon="add" ButtonStyle="ButtonStyle.Success" 
-                                      Click="@OpenAddParameterDialog" Style="align-self: flex-start;" />
+                                      Size="ButtonSize.Small" Click="@OpenAddParameterDialog" Style="align-self: flex-start;" />
 
                         <RadzenDataGrid @ref="ParameterGrid" Data="@Parameters" TItem="JobDatum" 
-                                        AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;">
+                                        AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="JobDatum" Width="100px" Title="">
+                                <RadzenDataGridColumn TItem="JobDatum" Width="80px" Title="">
                                     <Template Context="param">
                                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
-                                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.ExtraSmall"
                                                           Click="@(() => OpenEditParameterDialog(param))" />
-                                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.ExtraSmall"
                                                           Variant="Variant.Outlined" Click="@(() => DeleteParameter(param.Id))" />
                                         </RadzenStack>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobFieldDescription" Title="Field Description" />
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobStringValue" Title="String Value" />
-                                <RadzenDataGridColumn TItem="JobDatum" Property="JobIntValue" Title="Int Value" Width="100px" />
-                                <RadzenDataGridColumn TItem="JobDatum" Property="JobDateValue" Title="Date Value" Width="150px">
+                                <RadzenDataGridColumn TItem="JobDatum" Property="JobIntValue" Title="Int Value" Width="80px" />
+                                <RadzenDataGridColumn TItem="JobDatum" Property="JobDateValue" Title="Date Value" Width="120px">
                                     <Template Context="param">
                                         @(param.JobDateValue?.ToString("g") ?? "-")
                                     </Template>
@@ -151,18 +139,18 @@ else
 
                 <RadzenTabsItem Text="Logs" Icon="list_alt">
                     @* Logs Tab Content *@
-                    <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenDataGrid @ref="LogsGrid" Data="@Logs" TItem="LogEntry" 
-                                        AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;">
+                                        AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Id" Title="Id" Width="80px" />
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Id" Title="Id" Width="60px" />
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="80px">
                                     <Template Context="log">
                                         <RadzenBadge BadgeStyle="@GetLogLevelStyle(log.Level)" Text="@log.Level" />
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="LogEntry" Property="CreatedDate" Title="Created Date" Width="180px">
+                                <RadzenDataGridColumn TItem="LogEntry" Property="CreatedDate" Title="Created Date" Width="150px">
                                     <Template Context="log">
                                         @log.CreatedDate.ToString("g")
                                     </Template>
@@ -175,49 +163,63 @@ else
 
                 <RadzenTabsItem Text="Code" Icon="code">
                     @* Code Tab Content *@
-                    <RadzenStack Gap="1.5rem" Style="padding: 1.5rem 0;">
-                        <RadzenCard Style="padding: 1.5rem;">
-                            <RadzenStack Gap="1rem">
-                                <RadzenText TextStyle="TextStyle.Subtitle1" Style="font-weight: 600;">Existing Code file</RadzenText>
-                                <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
-                                    @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
-                                </RadzenText>
-                            </RadzenStack>
-                        </RadzenCard>
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Existing Code file</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
+                                @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
+                            </RadzenText>
+                        </RadzenStack>
 
-                        <RadzenCard Style="padding: 1.5rem;">
-                            <RadzenStack Gap="1rem">
-                                <RadzenText TextStyle="TextStyle.Subtitle1" Style="font-weight: 600;">Upload nuget package file</RadzenText>
-                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                    <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" />
-                                    @if (SelectedFile != null)
-                                    {
-                                        <RadzenText TextStyle="TextStyle.Body2">@SelectedFile.Name</RadzenText>
-                                    }
-                                    else
-                                    {
-                                        <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280;">No file chosen</RadzenText>
-                                    }
-                                </RadzenStack>
-                                <RadzenButton Text="Upload nuget package file" Icon="upload" ButtonStyle="ButtonStyle.Primary" 
-                                              Click="@UploadCodeFile" Disabled="@(SelectedFile == null || IsUploading)" 
-                                              Style="align-self: flex-start;" />
-                                @if (IsUploading)
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" />
+                                @if (SelectedFile != null)
                                 {
-                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    <RadzenText TextStyle="TextStyle.Body2">@SelectedFile.Name</RadzenText>
+                                }
+                                else
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280;">No file chosen</RadzenText>
                                 }
                             </RadzenStack>
-                        </RadzenCard>
+                            <RadzenButton Text="Upload nuget package file" Icon="upload" ButtonStyle="ButtonStyle.Primary" 
+                                          Size="ButtonSize.Small" Click="@UploadCodeFile" Disabled="@(SelectedFile == null || IsUploading)" 
+                                          Style="align-self: flex-start;" />
+                            @if (IsUploading)
+                            {
+                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                            }
+                        </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>
         </RadzenTabs>
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" Style="margin-top: 0.5rem;">
+            <RadzenButton Text="Delete Job" Icon="delete" ButtonStyle="ButtonStyle.Danger" 
+                          Variant="Variant.Outlined" Size="ButtonSize.Small" Click="@DeleteJob" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@OnCloseClick" />
+                <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Success" Click="@SaveJob" />
+            </RadzenStack>
+        </RadzenStack>
     </RadzenStack>
 }
 
 @code {
     [Parameter]
     public int JobId { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback OnJobDeleted { get; set; }
+
+    [Parameter]
+    public EventCallback OnJobSaved { get; set; }
 
     private Job? Job { get; set; }
     private List<JobSchedule> Schedules { get; set; } = new();
@@ -306,6 +308,7 @@ else
             await JobGroupService.UpdateJobGroupAssignmentsAsync(JobId, groupIds);
             
             NotificationService.Notify(NotificationSeverity.Success, "Success", "Job saved successfully.");
+            await OnJobSaved.InvokeAsync();
         }
         catch (Exception ex)
         {
@@ -326,13 +329,18 @@ else
             {
                 await JobService.DeleteJobAsync(JobId);
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Job deleted successfully.");
-                NavigationManager.NavigateTo("/");
+                await OnJobDeleted.InvokeAsync();
             }
             catch (Exception ex)
             {
                 NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to delete job: {ex.Message}");
             }
         }
+    }
+
+    private async Task OnCloseClick()
+    {
+        await OnClose.InvokeAsync();
     }
 
     private async Task OpenAddScheduleDialog()
