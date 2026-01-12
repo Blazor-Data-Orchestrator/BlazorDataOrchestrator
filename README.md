@@ -3,7 +3,7 @@
 # BlazorDataOrchestrator
 <img width="426" height="176" alt="BlazorDataOrchestratorLogo" src="https://github.com/user-attachments/assets/9df86186-193a-4a48-a2ba-e751abbf21eb" />
 
-A Microsoft Aspire .NET 9 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
+A Microsoft Aspire .NET 10 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
 
 <img width="1182" height="578" alt="image" src="https://github.com/user-attachments/assets/97d7233c-57f2-4498-9e06-fc75c34b05a1" />
 
@@ -29,13 +29,14 @@ A Microsoft Aspire .NET 9 solution that demonstrates a distributed application a
 ## Prerequisites
 
 - .NET 10.0 SDK
-- Docker Desktop (for container services)
-- Aspire workload: `dotnet workload install aspire`
+- Docker Desktop or Podman (for container services)
+- Visual Studio or Visual Studio Code
 
 ## Project Structure
 
 <img width="1097" height="654" alt="image" src="https://github.com/user-attachments/assets/6fb84b42-81fa-46ac-80d6-8c6922d34adb" />
 
+<img width="1087" height="524" alt="image" src="https://github.com/user-attachments/assets/4cdb903f-9c7a-4d7f-8ce5-a8941edbf959" />
 
 ## Configuration
 
