@@ -2,6 +2,11 @@ using BlazorOrchestrator.Web.Components;
 using BlazorOrchestrator.Web.Data;
 using BlazorOrchestrator.Web.Data.Data;
 using BlazorOrchestrator.Web.Services;
+using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Services;
+using Azure.Storage.Blobs;
+using Azure.Storage.Queues;
+using Azure.Data.Tables;
 using Microsoft.Data.SqlClient;
 using Radzen;
 using System.Data;
@@ -35,6 +40,36 @@ builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
 builder.Services.AddScoped<ProjectCreatorService>();
 builder.Services.AddScoped<JobService>();
 builder.Services.AddScoped<JobGroupService>();
+
+// Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
+builder.Services.AddScoped<JobStorageService>(sp =>
+{
+    var blobServiceClient = sp.GetRequiredService<BlobServiceClient>();
+    return new JobStorageService(blobServiceClient);
+});
+
+builder.Services.AddScoped<PackageProcessorService>(sp =>
+{
+    var storageService = sp.GetRequiredService<JobStorageService>();
+    return new PackageProcessorService(storageService);
+});
+
+builder.Services.AddScoped<CodeExecutorService>(sp =>
+{
+    var packageProcessor = sp.GetRequiredService<PackageProcessorService>();
+    return new CodeExecutorService(packageProcessor);
+});
+
+builder.Services.AddScoped<JobManager>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var sqlConnectionString = config.GetConnectionString("blazororchestratordb") ?? "";
+    var blobConnectionString = config.GetConnectionString("blobs") ?? "";
+    var queueConnectionString = config.GetConnectionString("queues") ?? "";
+    var tableConnectionString = config.GetConnectionString("tables") ?? "";
+    
+    return new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+});
 
 builder.Services.AddRadzenComponents();
 var app = builder.Build();

@@ -2,10 +2,12 @@
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using BlazorDataOrchestrator.Core
 @using Radzen
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
+@inject JobManager JobManager
 @inject NavigationManager NavigationManager
 @inject NotificationService NotificationService
 @inject DialogService DialogService
@@ -39,8 +41,8 @@ else
                 <RadzenTabsItem Text="Details" Icon="info">
                     @* Details Tab Content *@
                     <RadzenStack Gap="1.5rem" Style="padding: 1.5rem 0;">
-                        <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                      Style="align-self: flex-start;" />
+                        <RadzenButton Text="@(IsRunningJob ? "Running..." : "Run Job Now")" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
+                                      Style="align-self: flex-start;" Click="@RunJobNow" Disabled="@IsRunningJob" />
 
                         <RadzenCard Style="padding: 1.5rem;">
                             <RadzenStack Gap="1rem">
@@ -231,6 +233,7 @@ else
 
     private bool IsLoading { get; set; } = true;
     private bool IsUploading { get; set; } = false;
+    private bool IsRunningJob { get; set; } = false;
     private int SelectedTabIndex { get; set; } = 0;
     private IBrowserFile? SelectedFile { get; set; }
 
@@ -496,10 +499,19 @@ else
 
         try
         {
-            // For now, just update the file name - actual file storage would integrate with Azure Blob Storage
-            Job.JobCodeFile = $"{Job.JobName} ({DateTime.Now:yyyy-MM-dd_HH-mm-ss}).{Path.GetExtension(SelectedFile.Name).TrimStart('.')}";
-            await JobService.UpdateJobAsync(Job);
-            NotificationService.Notify(NotificationSeverity.Success, "Success", "Code file uploaded successfully.");
+            // Read file stream and upload to Azure Blob Storage via JobManager
+            using var stream = SelectedFile.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024); // 100MB max
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            // Upload package using JobManager - this updates Job.JobCodeFile automatically
+            var blobName = await JobManager.UploadJobPackageAsync(JobId, memoryStream, SelectedFile.Name);
+            
+            // Update local job object with the new blob name
+            Job.JobCodeFile = blobName;
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Success", $"Package uploaded successfully: {SelectedFile.Name}");
             SelectedFile = null;
         }
         catch (Exception ex)
@@ -509,6 +521,42 @@ else
         finally
         {
             IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunJobNow()
+    {
+        if (Job == null) return;
+
+        // Check if job has a code file uploaded
+        if (string.IsNullOrEmpty(Job.JobCodeFile))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", "Please upload a NuGet package before running the job.");
+            return;
+        }
+
+        IsRunningJob = true;
+        StateHasChanged();
+
+        try
+        {
+            // Create JobInstance and send to queue via JobManager
+            var jobInstanceId = await JobManager.RunJobNowAsync(JobId);
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Job Queued", 
+                $"Job has been queued for execution. Instance ID: {jobInstanceId}");
+            
+            // Refresh logs to show the new instance
+            await LoadLogs();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to run job: {ex.Message}");
+        }
+        finally
+        {
+            IsRunningJob = false;
             StateHasChanged();
         }
     }
