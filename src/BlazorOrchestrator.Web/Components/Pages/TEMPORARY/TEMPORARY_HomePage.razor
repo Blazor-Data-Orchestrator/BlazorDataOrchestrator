@@ -4,12 +4,14 @@
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using BlazorDataOrchestrator.Core
 @inject ProjectCreatorService ProjectCreatorService
 @inject JobService JobService
 @inject JobGroupService JobGroupService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
 @inject NavigationManager NavigationManager
+@inject JobManager JobManager
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -115,7 +117,7 @@
                             }
                             else if (job.IsEnabled)
                             {
-                                <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                                <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Base" Variant="Variant.Outlined" Size="ButtonSize.Small" Click="@(() => RunJobNow(job))" />
                                 <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Base" Variant="Variant.Text" Size="ButtonSize.Small" Style="color: #6b7280;" />
                             }
                             else
@@ -563,5 +565,39 @@
         </RadzenStack>,
         new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
         );
+    }
+
+    private async Task RunJobNow(JobViewModel job)
+    {
+        // Get the actual job from the database to check if it has code file
+        var fullJob = await JobService.GetJobByIdAsync(job.Id);
+        if (fullJob == null)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", "Job not found.");
+            return;
+        }
+
+        // Check if job has a code file uploaded
+        if (string.IsNullOrEmpty(fullJob.JobCodeFile))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", "Please upload a NuGet package before running the job.");
+            return;
+        }
+
+        try
+        {
+            // Create JobInstance and send to queue via JobManager
+            var jobInstanceId = await JobManager.RunJobNowAsync(job.Id);
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Job Queued", 
+                $"Job '{job.Name}' has been queued for execution. Instance ID: {jobInstanceId}");
+            
+            // Refresh job list to show updated status
+            await LoadJobsAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to run job: {ex.Message}");
+        }
     }
 }

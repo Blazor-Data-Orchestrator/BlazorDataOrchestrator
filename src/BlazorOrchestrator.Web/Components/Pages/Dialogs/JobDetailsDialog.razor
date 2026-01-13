@@ -1,10 +1,12 @@
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using BlazorDataOrchestrator.Core
 @using Radzen
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
+@inject JobManager JobManager
 @inject NotificationService NotificationService
 @inject DialogService DialogService
 
@@ -504,9 +506,18 @@ else
 
         try
         {
-            // For now, just update the file name - actual file storage would integrate with Azure Blob Storage
-            Job.JobCodeFile = $"{Job.JobName} ({DateTime.Now:yyyy-MM-dd_HH-mm-ss}).{Path.GetExtension(SelectedFile.Name).TrimStart('.')}";
-            await JobService.UpdateJobAsync(Job);
+            // Read file stream and upload to Azure Blob Storage via JobManager
+            using var stream = SelectedFile.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024); // 100MB max
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            // Upload package using JobManager - this updates Job.JobCodeFile automatically
+            var blobName = await JobManager.UploadJobPackageAsync(JobId, memoryStream, SelectedFile.Name);
+            
+            // Update local job object with the new blob name
+            Job.JobCodeFile = blobName;
+            
             NotificationService.Notify(NotificationSeverity.Success, "Success", "Code file uploaded successfully.");
             SelectedFile = null;
         }
