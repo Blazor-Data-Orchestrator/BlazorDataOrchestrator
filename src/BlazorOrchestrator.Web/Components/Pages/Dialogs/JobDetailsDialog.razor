@@ -37,7 +37,8 @@ else
                     @* Details Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                      Size="ButtonSize.Small" Style="align-self: flex-start;" />
+                                      Size="ButtonSize.Small" Style="align-self: flex-start;" 
+                                      Click="@RunJobNow" Disabled="@IsRunningJob" />
 
                         <RadzenStack Gap="1rem">
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
@@ -528,6 +529,44 @@ else
         finally
         {
             IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsRunningJob { get; set; } = false;
+
+    private async Task RunJobNow()
+    {
+        if (Job == null) return;
+
+        // Check if job has a code file uploaded
+        if (string.IsNullOrEmpty(Job.JobCodeFile))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", "Please upload a NuGet package before running the job.");
+            return;
+        }
+
+        IsRunningJob = true;
+        StateHasChanged();
+
+        try
+        {
+            // Create JobInstance and send to queue via JobManager
+            var jobInstanceId = await JobManager.RunJobNowAsync(JobId);
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Job Queued", 
+                $"Job has been queued for execution. Instance ID: {jobInstanceId}");
+            
+            // Refresh logs to show the new instance
+            await LoadLogs();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to run job: {ex.Message}");
+        }
+        finally
+        {
+            IsRunningJob = false;
             StateHasChanged();
         }
     }
