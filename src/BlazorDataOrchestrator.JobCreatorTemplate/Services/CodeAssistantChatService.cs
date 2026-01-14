@@ -92,8 +92,8 @@ Keep responses concise and focused on the code task at hand.";
         
         string instructionsFile = selectedLanguage switch
         {
-            "python" => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "instructions", "python.instructions.md"),
-            _ => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "instructions", "csharp.instructions.md")
+            "python" => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", "python.instructions.md"),
+            _ => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", "csharp.instructions.md")
         };
         
         try
