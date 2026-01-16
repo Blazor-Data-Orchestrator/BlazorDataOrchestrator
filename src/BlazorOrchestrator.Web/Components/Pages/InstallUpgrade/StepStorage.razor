@@ -1,22 +1,266 @@
 @using BlazorOrchestrator.Web.Data
+@using Azure.Storage.Blobs
+@using Azure.Storage.Queues
+@using Azure.Data.Tables
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject IWebHostEnvironment Environment
 
 @code {
     [Parameter] 
     public InstallationModel Model { get; set; } = new();
 
+    private bool IsTestingBlob { get; set; } = false;
+    private bool IsTestingTable { get; set; } = false;
+    private bool IsTestingQueue { get; set; } = false;
+    
+    private string? BlobTestMessage { get; set; }
+    private bool? BlobTestSuccess { get; set; }
+    private string? TableTestMessage { get; set; }
+    private bool? TableTestSuccess { get; set; }
+    private string? QueueTestMessage { get; set; }
+    private bool? QueueTestSuccess { get; set; }
+    
+    private string? SaveSettingsMessage { get; set; }
+    private bool? SaveSettingsSuccess { get; set; }
+
     class Option { public string Label { get; set; } = string.Empty; public string Value { get; set; } = string.Empty; }
     
     List<Option> storageOptions = new() {
-        new Option { Label = "Azure (Managed Identity)", Value = "managed" },
-        new Option { Label = "Manual Connection String", Value = "manual" }
+        new Option { Label = "Manual Connection String", Value = "manual" },
+        new Option { Label = "Azure (Managed Identity)", Value = "managed" }
     };
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Read connection strings directly from appsettings.json file to avoid Aspire expansion
+        await LoadConnectionStringsFromAppSettingsFile();
+    }
+
+    private async Task LoadConnectionStringsFromAppSettingsFile()
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                var jsonNode = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
+                
+                if (jsonNode?["ConnectionStrings"] != null)
+                {
+                    var blobConn = jsonNode["ConnectionStrings"]?["blobs"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(blobConn))
+                    {
+                        Model.BlobString = blobConn;
+                    }
+                    
+                    var tableConn = jsonNode["ConnectionStrings"]?["tables"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(tableConn))
+                    {
+                        Model.TableString = tableConn;
+                    }
+                    
+                    var queueConn = jsonNode["ConnectionStrings"]?["queues"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(queueConn))
+                    {
+                        Model.QueueString = queueConn;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // If file reading fails, leave model values as-is
+        }
+    }
+
+    private async Task SaveStorageConnectionStringsToAppSettings()
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
+            
+            if (!File.Exists(appSettingsPath))
+            {
+                SaveSettingsMessage = "appsettings.json file not found.";
+                SaveSettingsSuccess = false;
+                return;
+            }
+
+            var json = await File.ReadAllTextAsync(appSettingsPath);
+            var jsonNode = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
+            
+            if (jsonNode == null)
+            {
+                SaveSettingsMessage = "Failed to parse appsettings.json.";
+                SaveSettingsSuccess = false;
+                return;
+            }
+
+            // Ensure ConnectionStrings section exists
+            if (jsonNode["ConnectionStrings"] == null)
+            {
+                jsonNode["ConnectionStrings"] = new JsonObject();
+            }
+
+            // Update the connection strings
+            if (!string.IsNullOrEmpty(Model.BlobString))
+                jsonNode["ConnectionStrings"]!["blobs"] = Model.BlobString;
+            if (!string.IsNullOrEmpty(Model.TableString))
+                jsonNode["ConnectionStrings"]!["tables"] = Model.TableString;
+            if (!string.IsNullOrEmpty(Model.QueueString))
+                jsonNode["ConnectionStrings"]!["queues"] = Model.QueueString;
+
+            // Write back to file with proper formatting
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = jsonNode.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            SaveSettingsMessage = "Storage connection strings saved to appsettings.json successfully!";
+            SaveSettingsSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            SaveSettingsMessage = $"Failed to save settings: {ex.Message}";
+            SaveSettingsSuccess = false;
+        }
+    }
+
+    private async Task TestBlobConnection()
+    {
+        if (string.IsNullOrWhiteSpace(Model.BlobString))
+        {
+            BlobTestMessage = "Please enter a Blob connection string.";
+            BlobTestSuccess = false;
+            return;
+        }
+
+        IsTestingBlob = true;
+        BlobTestMessage = null;
+        BlobTestSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(Model.BlobString);
+            // Try to get account info to verify connection
+            await blobServiceClient.GetPropertiesAsync();
+            
+            BlobTestMessage = "Blob Storage connection successful!";
+            BlobTestSuccess = true;
+            Model.BlobVerified = true;
+
+            // Save connection string to appsettings.json on success
+            await SaveStorageConnectionStringsToAppSettings();
+        }
+        catch (Exception ex)
+        {
+            BlobTestMessage = $"Blob connection failed: {ex.Message}";
+            BlobTestSuccess = false;
+            Model.BlobVerified = false;
+        }
+        finally
+        {
+            IsTestingBlob = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestTableConnection()
+    {
+        if (string.IsNullOrWhiteSpace(Model.TableString))
+        {
+            TableTestMessage = "Please enter a Table connection string.";
+            TableTestSuccess = false;
+            return;
+        }
+
+        IsTestingTable = true;
+        TableTestMessage = null;
+        TableTestSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            var tableServiceClient = new TableServiceClient(Model.TableString);
+            // Try to get properties to verify connection
+            await tableServiceClient.GetPropertiesAsync();
+            
+            TableTestMessage = "Table Storage connection successful!";
+            TableTestSuccess = true;
+            Model.TableVerified = true;
+
+            // Save connection string to appsettings.json on success
+            await SaveStorageConnectionStringsToAppSettings();
+        }
+        catch (Exception ex)
+        {
+            TableTestMessage = $"Table connection failed: {ex.Message}";
+            TableTestSuccess = false;
+            Model.TableVerified = false;
+        }
+        finally
+        {
+            IsTestingTable = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestQueueConnection()
+    {
+        if (string.IsNullOrWhiteSpace(Model.QueueString))
+        {
+            QueueTestMessage = "Please enter a Queue connection string.";
+            QueueTestSuccess = false;
+            return;
+        }
+
+        IsTestingQueue = true;
+        QueueTestMessage = null;
+        QueueTestSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            var queueServiceClient = new QueueServiceClient(Model.QueueString);
+            // Try to get properties to verify connection
+            await queueServiceClient.GetPropertiesAsync();
+            
+            QueueTestMessage = "Queue Storage connection successful!";
+            QueueTestSuccess = true;
+            Model.QueueVerified = true;
+
+            // Save connection string to appsettings.json on success
+            await SaveStorageConnectionStringsToAppSettings();
+        }
+        catch (Exception ex)
+        {
+            QueueTestMessage = $"Queue connection failed: {ex.Message}";
+            QueueTestSuccess = false;
+            Model.QueueVerified = false;
+        }
+        finally
+        {
+            IsTestingQueue = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestAllConnections()
+    {
+        await TestBlobConnection();
+        await TestTableConnection();
+        await TestQueueConnection();
+    }
 }
 
 <div class="rz-p-2">
     <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
-        Configure Azure storage services (Blob, Table, Queue) for file storage and job queuing.
+        Configure Azure storage services (Blob, Table, Queue) for file storage and job queuing. For local development, use Azurite with "UseDevelopmentStorage=true".
     </RadzenAlert>
 
+    @* Blob Storage Section *@
     <div class="rz-mb-4">
         <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
             <RadzenIcon Icon="cloud_upload" Style="vertical-align: middle; margin-right: 4px;" />
@@ -25,10 +269,30 @@
         <RadzenDropDown @bind-Value="Model.BlobType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.BlobType == "manual")
         {
-            <RadzenTextBox @bind-Value="Model.BlobString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <RadzenTextBox @bind-Value="Model.BlobString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <div class="rz-mt-2">
+                <RadzenButton Text="Test Blob Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small"
+                              Click="@TestBlobConnection" IsBusy="@IsTestingBlob" BusyText="Testing..."
+                              Disabled="@(string.IsNullOrWhiteSpace(Model.BlobString))" />
+            </div>
+            @if (BlobTestMessage != null)
+            {
+                <RadzenAlert AlertStyle="@(BlobTestSuccess == true ? AlertStyle.Success : AlertStyle.Danger)" 
+                             ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mt-2">
+                    @BlobTestMessage
+                </RadzenAlert>
+            }
+            @if (Model.BlobVerified)
+            {
+                <div class="d-flex align-items-center gap-2 rz-mt-2">
+                    <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+                    <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-success rz-m-0">Verified</RadzenText>
+                </div>
+            }
         }
     </div>
 
+    @* Table Storage Section *@
     <div class="rz-mb-4">
         <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
             <RadzenIcon Icon="table_chart" Style="vertical-align: middle; margin-right: 4px;" />
@@ -37,10 +301,30 @@
         <RadzenDropDown @bind-Value="Model.TableType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.TableType == "manual")
         {
-            <RadzenTextBox @bind-Value="Model.TableString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <RadzenTextBox @bind-Value="Model.TableString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <div class="rz-mt-2">
+                <RadzenButton Text="Test Table Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small"
+                              Click="@TestTableConnection" IsBusy="@IsTestingTable" BusyText="Testing..."
+                              Disabled="@(string.IsNullOrWhiteSpace(Model.TableString))" />
+            </div>
+            @if (TableTestMessage != null)
+            {
+                <RadzenAlert AlertStyle="@(TableTestSuccess == true ? AlertStyle.Success : AlertStyle.Danger)" 
+                             ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mt-2">
+                    @TableTestMessage
+                </RadzenAlert>
+            }
+            @if (Model.TableVerified)
+            {
+                <div class="d-flex align-items-center gap-2 rz-mt-2">
+                    <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+                    <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-success rz-m-0">Verified</RadzenText>
+                </div>
+            }
         }
     </div>
 
+    @* Queue Storage Section *@
     <div class="rz-mb-4">
         <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">
             <RadzenIcon Icon="queue" Style="vertical-align: middle; margin-right: 4px;" />
@@ -49,11 +333,62 @@
         <RadzenDropDown @bind-Value="Model.QueueType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.QueueType == "manual")
         {
-            <RadzenTextBox @bind-Value="Model.QueueString" Placeholder="DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <RadzenTextBox @bind-Value="Model.QueueString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
+            <div class="rz-mt-2">
+                <RadzenButton Text="Test Queue Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small"
+                              Click="@TestQueueConnection" IsBusy="@IsTestingQueue" BusyText="Testing..."
+                              Disabled="@(string.IsNullOrWhiteSpace(Model.QueueString))" />
+            </div>
+            @if (QueueTestMessage != null)
+            {
+                <RadzenAlert AlertStyle="@(QueueTestSuccess == true ? AlertStyle.Success : AlertStyle.Danger)" 
+                             ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mt-2">
+                    @QueueTestMessage
+                </RadzenAlert>
+            }
+            @if (Model.QueueVerified)
+            {
+                <div class="d-flex align-items-center gap-2 rz-mt-2">
+                    <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+                    <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-success rz-m-0">Verified</RadzenText>
+                </div>
+            }
         }
     </div>
 
-    @if (Model.BlobType == "managed" && Model.TableType == "managed" && Model.QueueType == "managed")
+    @* Test All Button *@
+    @if (Model.BlobType == "manual" || Model.TableType == "manual" || Model.QueueType == "manual")
+    {
+        <div class="rz-mb-4">
+            <RadzenButton Text="Test All Storage Connections" Icon="check_circle" ButtonStyle="ButtonStyle.Primary"
+                          Click="@TestAllConnections" 
+                          IsBusy="@(IsTestingBlob || IsTestingTable || IsTestingQueue)" 
+                          BusyText="Testing..." />
+        </div>
+    }
+
+    @* Save Settings Message *@
+    @if (SaveSettingsMessage != null)
+    {
+        <RadzenAlert AlertStyle="@(SaveSettingsSuccess == true ? AlertStyle.Success : AlertStyle.Warning)" 
+                     ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+            @SaveSettingsMessage
+        </RadzenAlert>
+    }
+
+    @* All Verified Card *@
+    @if ((Model.BlobType == "managed" || Model.BlobVerified) && 
+         (Model.TableType == "managed" || Model.TableVerified) && 
+         (Model.QueueType == "managed" || Model.QueueVerified))
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3">
+            <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                <strong>All storage services configured!</strong> You can proceed to the next step.
+            </RadzenText>
+        </RadzenCard>
+    }
+    else if (Model.BlobType == "managed" && Model.TableType == "managed" && Model.QueueType == "managed")
     {
         <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3">
             <RadzenIcon Icon="verified" IconColor="@Colors.Success" />

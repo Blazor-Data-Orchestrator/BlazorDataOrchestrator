@@ -32,15 +32,15 @@
             <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">@GetCurrentStepTitle()</RadzenText>
             @if (CurrentStep == 1)
             {
-                <StepAdmin Model="@Model" />
+                <StepDatabase Model="@Model" />
             }
             else if (CurrentStep == 2)
             {
-                <StepDatabase Model="@Model" />
+                <StepStorage Model="@Model" />
             }
             else if (CurrentStep == 3)
             {
-                <StepStorage Model="@Model" />
+                <StepAdmin Model="@Model" />
             }
             else if (CurrentStep == 4)
             {
@@ -69,19 +69,26 @@
     public class WizardStep { public int Id { get; set; } public string Label { get; set; } = string.Empty; public string Icon { get; set; } = string.Empty; }
 
     public List<WizardStep> Steps = new List<WizardStep> {
-        new WizardStep { Id = 1, Label = "Admin Account", Icon = "account_circle" },
-        new WizardStep { Id = 2, Label = "Database", Icon = "dns" },
-        new WizardStep { Id = 3, Label = "Storage", Icon = "storage" },
+        new WizardStep { Id = 1, Label = "Database", Icon = "dns" },
+        new WizardStep { Id = 2, Label = "Storage", Icon = "storage" },
+        new WizardStep { Id = 3, Label = "Admin Account", Icon = "account_circle" },
         new WizardStep { Id = 4, Label = "Installation", Icon = "verified" }
     };
 
     protected override void OnParametersSet()
     {
-        // If we're in CreateAdministrator mode, start at step 1 (admin)
-        // If we're in RUNSCRIPTS mode, we might skip to a specific step
+        // Adjust starting step based on wizard mode
         if (WizardMode == "CreateAdministrator")
         {
-            CurrentStep = 1;
+            // Database and storage are already configured, skip directly to Admin (step 3)
+            CurrentStep = 3;
+            StepIndex = 2;
+        }
+        else if (WizardMode == "RUNSCRIPTS")
+        {
+            // Database exists but tables need to be created, start at step 1 but skip to summary
+            CurrentStep = 4; // Go directly to summary/install to run scripts
+            StepIndex = 3;
         }
     }
 
@@ -101,9 +108,9 @@
 
     private string GetCurrentStepTitle() => CurrentStep switch
     {
-        1 => "Setup Administrator",
-        2 => "Connect Database",
-        3 => "Configure Storage",
+        1 => "Connect Database",
+        2 => "Configure Storage",
+        3 => "Setup Administrator",
         4 => "Review & Install",
         _ => string.Empty
     };
@@ -144,34 +151,65 @@
         {
             using var scope = ServiceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+            var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger("InstallWizard");
 
-            // Create admin user if it doesn't exist
-            var existingUser = await context.AspNetUsers
-                .FirstOrDefaultAsync(u => u.UserName == Model.AdminUser || u.Email == Model.AdminEmail);
-
-            if (existingUser == null)
+            // Step 1: Run database initialization scripts to create tables
+            // Only run if we're in INSTALL or RUNSCRIPTS mode (not CreateAdministrator)
+            if (WizardMode == "INSTALL" || WizardMode == "RUNSCRIPTS")
             {
-                // Create a simple password hash (in production, use proper Identity hashing)
-                var passwordHasher = new PasswordHasher<AspNetUser>();
-                var newUser = new AspNetUser
+                try
                 {
-                    Id = Guid.NewGuid().ToString(),
-                    UserName = Model.AdminUser,
-                    NormalizedUserName = Model.AdminUser?.ToUpperInvariant(),
-                    Email = Model.AdminEmail,
-                    NormalizedEmail = Model.AdminEmail?.ToUpperInvariant(),
-                    EmailConfirmed = true,
-                    SecurityStamp = Guid.NewGuid().ToString(),
-                    ConcurrencyStamp = Guid.NewGuid().ToString(),
-                    PhoneNumberConfirmed = false,
-                    TwoFactorEnabled = false,
-                    LockoutEnabled = false,
-                    AccessFailedCount = 0
-                };
-                newUser.PasswordHash = passwordHasher.HashPassword(newUser, Model.AdminPassword ?? "Admin@123");
+                    await DatabaseInitializer.EnsureDatabaseAsync(configuration, logger);
+                    logger.LogInformation("Database tables created/verified successfully.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to run database initialization scripts.");
+                    throw new Exception($"Failed to initialize database tables: {ex.Message}", ex);
+                }
+            }
 
-                context.AspNetUsers.Add(newUser);
-                await context.SaveChangesAsync();
+            // Step 2: Create admin user if it doesn't exist
+            if (!string.IsNullOrEmpty(Model.AdminUser) && !string.IsNullOrEmpty(Model.AdminEmail))
+            {
+                var existingUser = await context.AspNetUsers
+                    .FirstOrDefaultAsync(u => u.UserName == Model.AdminUser || u.Email == Model.AdminEmail);
+
+                if (existingUser == null)
+                {
+                    // Create a simple password hash (in production, use proper Identity hashing)
+                    var passwordHasher = new PasswordHasher<AspNetUser>();
+                    var newUser = new AspNetUser
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        UserName = Model.AdminUser,
+                        NormalizedUserName = Model.AdminUser?.ToUpperInvariant(),
+                        Email = Model.AdminEmail,
+                        NormalizedEmail = Model.AdminEmail?.ToUpperInvariant(),
+                        EmailConfirmed = true,
+                        SecurityStamp = Guid.NewGuid().ToString(),
+                        ConcurrencyStamp = Guid.NewGuid().ToString(),
+                        PhoneNumberConfirmed = false,
+                        TwoFactorEnabled = false,
+                        LockoutEnabled = false,
+                        AccessFailedCount = 0
+                    };
+                    newUser.PasswordHash = passwordHasher.HashPassword(newUser, Model.AdminPassword ?? "Admin@123");
+
+                    context.AspNetUsers.Add(newUser);
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("Admin user '{User}' created successfully.", Model.AdminUser);
+                }
+                else
+                {
+                    logger.LogInformation("Admin user '{User}' already exists, skipping creation.", Model.AdminUser);
+                }
+            }
+            else
+            {
+                logger.LogWarning("Admin user/email not provided, skipping admin creation.");
             }
 
             // Notify parent that installation is complete
