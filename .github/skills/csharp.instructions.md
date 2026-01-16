@@ -33,7 +33,8 @@ public class BlazorDataOrchestratorJob
         int jobAgentId, 
         int jobId, 
         int jobInstanceId, 
-        int jobScheduleId)
+        int jobScheduleId,
+        string webAPIParameter)
     {
         // Your logic here
     }
@@ -189,7 +190,7 @@ public class BlazorDataOrchestratorJob
                 string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
 
                 // Log the weather information
-                string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
+                string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}ï¿½F ({tempC}ï¿½C), Humidity: {humidity}%, Conditions: {weatherDesc}";
                 Console.WriteLine(weatherInfo);
                 await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
                 logs.Add(weatherInfo);

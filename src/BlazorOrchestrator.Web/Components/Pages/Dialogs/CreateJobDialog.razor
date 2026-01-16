@@ -1,5 +1,6 @@
 @using Radzen
 @using Radzen.Blazor
+@using BlazorOrchestrator.Web.Data.Data
 
 <RadzenStack Gap="1.5rem" Style="min-width: 400px;">
     <RadzenStack Gap="0.5rem">
@@ -11,6 +12,17 @@
         {
             <RadzenText TextStyle="TextStyle.Caption" Style="color: #ef4444; margin: 0;">@ValidationError</RadzenText>
         }
+    </RadzenStack>
+
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="Job Groups (Optional)" Component="JobGroups" Style="font-weight: 500;" />
+        <RadzenDropDown @bind-Value="@selectedJobGroupIds" Data="@AvailableJobGroups" 
+                        TextProperty="JobGroupName" ValueProperty="Id"
+                        Multiple="true" AllowClear="true" Chips="true"
+                        Placeholder="Select job groups..." Style="width: 100%;" />
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">
+            Assign this job to one or more groups for better organization
+        </RadzenText>
     </RadzenStack>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
@@ -38,6 +50,8 @@
         }
     }
 
+    private IEnumerable<int> selectedJobGroupIds = new List<int>();
+
     [Parameter]
     public string JobName { get; set; } = string.Empty;
 
@@ -45,10 +59,16 @@
     public EventCallback<string> JobNameChanged { get; set; }
 
     [Parameter]
+    public EventCallback<(string JobName, IEnumerable<int> JobGroupIds)> OnJobCreatedWithGroups { get; set; }
+
+    [Parameter]
     public EventCallback<string> OnJobCreated { get; set; }
 
     [Parameter]
     public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public List<JobGroup> AvailableJobGroups { get; set; } = new();
 
     public string ValidationError { get; private set; } = string.Empty;
     public bool IsSaving { get; private set; } = false;
@@ -89,7 +109,15 @@
 
         try
         {
-            await OnJobCreated.InvokeAsync(jobName);
+            // Use the new callback with groups if available, otherwise fall back to simple callback
+            if (OnJobCreatedWithGroups.HasDelegate)
+            {
+                await OnJobCreatedWithGroups.InvokeAsync((jobName, selectedJobGroupIds));
+            }
+            else
+            {
+                await OnJobCreated.InvokeAsync(jobName);
+            }
         }
         finally
         {

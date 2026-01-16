@@ -32,6 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BlazorDataOrchestrator.Core\BlazorDataOrchestrator.Core.csproj" />
     <ProjectReference Include="..\BlazorOrchestrator.ServiceDefaults\BlazorOrchestrator.ServiceDefaults.csproj" />
   </ItemGroup>
 
@@ -39,6 +40,10 @@
     <None Update="!SQL\01.00.00.sql">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Components\Shared\" />
   </ItemGroup>
 
 </Project>
