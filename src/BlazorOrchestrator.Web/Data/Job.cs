@@ -25,6 +25,8 @@ public partial class Job
 
     public string JobCodeFile { get; set; }
 
+    public string WebhookGuid { get; set; }
+
     public DateTime CreatedDate { get; set; }
 
     public string CreatedBy { get; set; }

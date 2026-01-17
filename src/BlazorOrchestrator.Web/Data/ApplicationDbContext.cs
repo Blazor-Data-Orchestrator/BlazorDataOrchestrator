@@ -129,6 +129,9 @@ public partial class ApplicationDbContext : DbContext
                 .HasMaxLength(250);
             entity.Property(e => e.UpdatedBy).HasMaxLength(500);
             entity.Property(e => e.UpdatedDate).HasColumnType("datetime");
+            entity.Property(e => e.WebhookGuid)
+                .HasMaxLength(500)
+                .HasColumnName("WebhookGUID");
 
             entity.HasOne(d => d.JobOrganization).WithMany(p => p.Jobs)
                 .HasForeignKey(d => d.JobOrganizationId)
