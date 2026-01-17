@@ -25,6 +25,7 @@ if (builder.Environment.IsDevelopment())
     storage.RunAsEmulator(emulator =>
     {
         emulator.WithLifetime(ContainerLifetime.Persistent);
+        emulator.WithDataVolume();  // Persist Azurite data across restarts
         emulator.WithEndpoint("blob", endpoint => endpoint.Port = 10000);
         emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);
         emulator.WithEndpoint("table", endpoint => endpoint.Port = 10002);
