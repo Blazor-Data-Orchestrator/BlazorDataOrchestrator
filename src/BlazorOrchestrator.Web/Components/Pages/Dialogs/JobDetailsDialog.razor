@@ -144,11 +144,11 @@ else
                     @* Logs Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenDataGrid @ref="LogsGrid" Data="@Logs" TItem="LogEntry" 
-                                        AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
                                         AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Id" Title="Id" Width="60px" />
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="80px">
+                                <RadzenDataGridColumn TItem="LogEntry" Property="JobInstanceId" Title="Instance" Width="70px" />
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
                                     <Template Context="log">
                                         <RadzenBadge BadgeStyle="@GetLogLevelStyle(log.Level)" Text="@log.Level" />
                                     </Template>
@@ -285,15 +285,43 @@ else
 
     private async Task LoadLogs()
     {
+        var allLogs = new List<LogEntry>();
+        
         // Load job instances as log entries
         var instances = await JobService.GetJobInstancesAsync(JobId);
-        Logs = instances.Select(i => new LogEntry
+        var instanceLogs = instances.Select(i => new LogEntry
         {
             Id = i.Id,
+            JobInstanceId = i.Id,
             Level = i.HasError ? "Error" : (i.InProcess ? "Info" : "Success"),
             CreatedDate = i.CreatedDate,
-            Message = $"Job instance {i.Id} - Agent: {i.AgentId ?? "N/A"}"
-        }).ToList();
+            Message = $"Job instance {i.Id} - Agent: {i.AgentId ?? "N/A"}",
+            Source = "Instance"
+        });
+        allLogs.AddRange(instanceLogs);
+        
+        // Also load logs from Azure Table Storage (JobLogs table)
+        try
+        {
+            var azureLogs = await JobManager.GetAllLogsForJobAsync(JobId);
+            var tableLogEntries = azureLogs.Select(l => new LogEntry
+            {
+                Id = 0, // Azure table logs don't have an Id in the same sense
+                JobInstanceId = l.JobInstanceId,
+                Level = l.Level ?? "Info",
+                CreatedDate = l.Timestamp,
+                Message = $"[{l.Action}] {l.Details}",
+                Source = "AzureTable"
+            });
+            allLogs.AddRange(tableLogEntries);
+        }
+        catch
+        {
+            // If Azure Table logs fail, still show instance logs
+        }
+        
+        // Sort all logs by date descending
+        Logs = allLogs.OrderByDescending(l => l.CreatedDate).ToList();
     }
 
     private async Task SaveJob()
@@ -586,8 +614,10 @@ else
     private class LogEntry
     {
         public int Id { get; set; }
+        public int JobInstanceId { get; set; }
         public string Level { get; set; } = string.Empty;
         public DateTime CreatedDate { get; set; }
         public string Message { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty; // "Instance" or "AzureTable"
     }
 }

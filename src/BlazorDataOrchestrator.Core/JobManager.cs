@@ -185,6 +185,46 @@ namespace BlazorDataOrchestrator.Core
             return await GetLogsForJobInstanceAsync(jobId, latestInstanceId.Value, maxResults);
         }
 
+        /// <summary>
+        /// Gets all logs for a job across all its instances from Azure Table Storage.
+        /// Partition keys follow the format {JobId}-{JobInstanceId}.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="maxResults">Maximum number of results to return (default 500)</param>
+        /// <returns>List of log entries sorted by timestamp descending</returns>
+        public async Task<List<JobLogEntry>> GetAllLogsForJobAsync(int jobId, int maxResults = 500)
+        {
+            var allLogs = new List<JobLogEntry>();
+            try
+            {
+                // Query for all partition keys that start with the jobId
+                // This will match {JobId}-0, {JobId}-1, {JobId}-{anyInstanceId}, etc.
+                var queryResults = _logTableClient.QueryAsync<TableEntity>(
+                    filter: $"JobId eq {jobId}",
+                    maxPerPage: maxResults);
+
+                await foreach (var entity in queryResults)
+                {
+                    allLogs.Add(new JobLogEntry
+                    {
+                        PartitionKey = entity.PartitionKey,
+                        RowKey = entity.RowKey,
+                        Action = entity.GetString("Action"),
+                        Details = entity.GetString("Details"),
+                        Level = entity.GetString("Level"),
+                        Timestamp = entity.GetDateTime("Timestamp") ?? DateTime.UtcNow,
+                        JobId = entity.GetInt32("JobId") ?? 0,
+                        JobInstanceId = entity.GetInt32("JobInstanceId") ?? 0
+                    });
+                }
+            }
+            catch
+            {
+                // Return empty list on error
+            }
+            return allLogs.OrderByDescending(l => l.Timestamp).Take(maxResults).ToList();
+        }
+
         // #1 Create New Job
         public async Task<int> CreateNewJobAsync(Job job, string? jobGroupName = null, string? jobOrganizationName = null)
         {
