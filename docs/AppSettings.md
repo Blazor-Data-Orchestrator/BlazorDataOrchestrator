@@ -6,64 +6,73 @@ Enable jobs to use environment-specific appsettings files (e.g., appsettingsProd
 
 ```mermaid
 flowchart TD
-    subgraph "Job Administration (Web)"
-        A[User configures Job<br/>Environment & Queue Name] --> B[Set JobEnvironment &<br/>JobQueueName in Context]
-        B --> C[Save to Jobs Table]
+    subgraph "Administration Setup (Admin/AdminHome.razor)"
+        AA1[TEMPORARY page link<br/>to Administration] --> AA2[Admin/AdminHome.razor]
+        AA2 --> AA3[Tab: Manage JobQueue Table]
+        AA3 --> AA4[Create/Edit Queue Names]
     end
 
-    subgraph "Queue Job"
+    subgraph "Job Configuration (JobDetails.razor)"
+        A[User edits Job Details tab] --> B[Select Queue Name from<br/>JobQueue dropdown<br/>Optional - can be null]
+        B --> C[Save to Jobs Table<br/>with JobQueueName FK]
+    end
+
+    subgraph "Queue Job (JobService)"
         C --> D[QueueJobAsync]
-        D --> E[Create JobQueueMessage]
+        D --> E[Retrieve JobQueueName<br/>from Job definition]
         E --> F{JobQueueName Set?}
         
-        F -->|Yes| G[Determine Queue based<br/>on JobQueueName]
-        F -->|No| H[Use Default Queue]
+        F -->|Yes| G[Map to specific queue<br/>e.g. jobs-large-container]
+        F -->|No| H[Use default job queue]
         
-        G --> I[Include JobEnvironment<br/>& JobQueueName in message]
+        G --> I[Create queue if<br/>not exists]
         H --> I
         
-        I --> J[Send to Azure Queue<br/>Container or Default]
+        I --> J[Create JobQueueMessage<br/>with JobEnvironment & JobQueueName]
+        J --> K[Send to Azure Queue<br/>dynamically determined]
     end
 
     subgraph "Agent Processing"
-        J --> K[Agent receives message]
-        K --> L[Extract JobEnvironment<br/>from message]
-        L --> M[Download NuGet package]
-        M --> N[Extract package contents]
+        K --> L[Agent monitors queue<br/>based on QueueName in appsettings]
+        L --> M[Receive message &<br/>extract JobEnvironment]
+        M --> N[Download NuGet package]
+        N --> O[Extract package contents]
     end
 
-    subgraph "AppSettings Resolution"
-        N --> O{Determine file name}
-        O -->|Production| P["appsettingsProduction.json"]
-        O -->|Staging| Q["appsettingsStaging.json"]
-        O -->|Development/Local| R["appsettings.json"]
+    subgraph "AppSettings Resolution (JobManager)"
+        O --> P{Determine file name<br/>based on JobEnvironment}
+        P -->|Production| Q["appsettingsProduction.json"]
+        P -->|Staging| R["appsettingsStaging.json"]
+        P -->|Development/Local| S["appsettings.json"]
         
-        P --> S{File exists?}
-        Q --> S
-        R --> S
+        Q --> T{File exists?}
+        R --> T
+        S --> T
         
-        S -->|Yes| T[Read file contents]
-        S -->|No| U{appsettings.json exists?}
+        T -->|Yes| U[Read file contents]
+        T -->|No| V{appsettings.json exists?}
         
-        U -->|Yes| V[Use appsettings.json<br/>as fallback]
-        U -->|No| W[Log Error & Abort Job]
+        V -->|Yes| W[Use appsettings.json<br/>as fallback]
+        V -->|No| X[Log Error & Abort Job]
         
-        T --> X[Merge with Agent<br/>connection strings]
-        V --> X
+        U --> Y[Merge/Override<br/>ConnectionStrings with<br/>Agent configured values]
+        W --> Y
     end
 
     subgraph "Job Execution"
-        X --> Y[Set AppSettingsJson<br/>in JobExecutionContext]
-        Y --> Z[Execute Job Code]
-        W --> AA[Set JobInstanceError<br/>Stop execution]
+        Y --> Z[Set AppSettingsJson &<br/>Environment in<br/>JobExecutionContext]
+        Z --> ZA[Execute Job Code]
+        X --> ZB[Set JobInstanceError<br/>Stop execution]
     end
 
     %% Styling
-    style W fill:#ff6b6b,color:#fff
-    style AA fill:#ff6b6b,color:#fff
-    style Z fill:#51cf66,color:#fff
+    style X fill:#ff6b6b,color:#fff
+    style ZB fill:#ff6b6b,color:#fff
+    style ZA fill:#51cf66,color:#fff
+    style AA4 fill:#ffd43b,color:#000
     style B fill:#339af0,color:#fff
-    style I fill:#339af0,color:#fff
+    style J fill:#339af0,color:#fff
+    style I fill:#74c0fc,color:#000
 ```
 
 ## Implementation Steps
