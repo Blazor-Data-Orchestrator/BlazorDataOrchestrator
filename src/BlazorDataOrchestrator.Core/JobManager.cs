@@ -685,18 +685,18 @@ namespace BlazorDataOrchestrator.Core
             }
 
             // 2. Ensure Schedule exists
-            var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "Designer");
+            var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "RunNow");
             if (schedule == null)
             {
                 schedule = new JobSchedule
                 {
                     JobId = job.Id,
-                    ScheduleName = "Designer",
-                    Enabled = false,
+                    ScheduleName = "RunNow",
+                    Enabled = false, // Not a recurring schedule
                     InProcess = false,
                     HadError = false,
                     CreatedDate = DateTime.UtcNow,
-                    CreatedBy = "Designer"
+                    CreatedBy = "System"
                 };
                 context.JobSchedules.Add(schedule);
                 await context.SaveChangesAsync();
@@ -827,7 +827,7 @@ namespace BlazorDataOrchestrator.Core
             }
 
             // Get or create a schedule
-            var schedule = job.JobSchedules.FirstOrDefault();
+            var schedule = job.JobSchedules.Where(x => x.ScheduleName == "RunNow").FirstOrDefault();
             if (schedule == null)
             {
                 // Create a default "Run Now" schedule
@@ -917,27 +917,18 @@ namespace BlazorDataOrchestrator.Core
             }
 
             // Get or create a schedule for webhook-triggered runs
-            var schedule = job.JobSchedules.FirstOrDefault();
+            var schedule = job.JobSchedules.Where(x => x.ScheduleName == "RunNow").FirstOrDefault();
             if (schedule == null)
             {
                 schedule = new JobSchedule
                 {
                     JobId = jobId,
-                    ScheduleName = "Webhook Trigger",
-                    Enabled = true,
+                    ScheduleName = "RunNow",
+                    Enabled = false, // Not a recurring schedule
                     InProcess = false,
                     HadError = false,
-                    Monday = true,
-                    Tuesday = true,
-                    Wednesday = true,
-                    Thursday = true,
-                    Friday = true,
-                    Saturday = true,
-                    Sunday = true,
-                    StartTime = 0,
-                    StopTime = 23,
                     CreatedDate = DateTime.UtcNow,
-                    CreatedBy = "Webhook"
+                    CreatedBy = "System"
                 };
                 context.JobSchedules.Add(schedule);
                 await context.SaveChangesAsync();
