@@ -6,6 +6,7 @@
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
+@inject JobQueueService JobQueueService
 @inject JobManager JobManager
 @inject NotificationService NotificationService
 @inject DialogService DialogService
@@ -36,35 +37,43 @@ else
                 <RadzenTabsItem Text="Details" Icon="info">
                     @* Details Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                      Size="ButtonSize.Small" Style="align-self: flex-start;" 
-                                      Click="@RunJobNow" Disabled="@IsRunningJob" />
+                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                            <RadzenButton Text="@(IsRunningJob ? "Running..." : "Run Job Now")" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
+                                          Size="ButtonSize.Small" Click="@RunJobNow" Disabled="@IsRunningJob" />
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
+                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                            </RadzenStack>
+                        </RadzenStack>
 
                         <RadzenStack Gap="1rem">
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
-                                    <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
-                                    <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
-                                </RadzenStack>
+                            <RadzenStack Gap="0.5rem" Style="max-width: 400px;">
+                                <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
+                                <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
+                            </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Environment" Component="Environment" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@Job.JobEnvironment" Data="@Environments" 
                                                     Name="Environment" Style="width: 100%;" />
                                 </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Job Group" Component="JobGroup" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@selectedJobGroupId" Data="@AvailableJobGroups" 
                                                     TextProperty="JobGroupName" ValueProperty="Id"
                                                     AllowClear="true" Placeholder="Select a job group..."
                                                     Name="JobGroup" Style="width: 100%;" />
                                 </RadzenStack>
-                            </RadzenStack>
 
-                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
-                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
+                                    <RadzenLabel Text="Job Queue" Component="JobQueue" Style="font-weight: 500;" />
+                                    <RadzenDropDown @bind-Value="@Job.JobQueue" Data="@AvailableJobQueues" 
+                                                    TextProperty="QueueName" ValueProperty="Id"
+                                                    AllowClear="true" Placeholder="Select ..."
+                                                    Name="JobQueue" Style="width: 100%;" />
+                                </RadzenStack>
                             </RadzenStack>
                         </RadzenStack>
                     </RadzenStack>
@@ -177,23 +186,13 @@ else
                         <RadzenStack Gap="0.5rem">
                             <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" />
-                                @if (SelectedFile != null)
+                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
+                                @if (IsUploading)
                                 {
-                                    <RadzenText TextStyle="TextStyle.Body2">@SelectedFile.Name</RadzenText>
-                                }
-                                else
-                                {
-                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280;">No file chosen</RadzenText>
+                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
                                 }
                             </RadzenStack>
-                            <RadzenButton Text="Upload nuget package file" Icon="upload" ButtonStyle="ButtonStyle.Primary" 
-                                          Size="ButtonSize.Small" Click="@UploadCodeFile" Disabled="@(SelectedFile == null || IsUploading)" 
-                                          Style="align-self: flex-start;" />
-                            @if (IsUploading)
-                            {
-                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                            }
                         </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
@@ -234,8 +233,12 @@ else
     private List<JobGroup> AvailableJobGroups { get; set; } = new();
     private int? selectedJobGroupId = null;
 
+    // Job Queues
+    private List<JobQueue> AvailableJobQueues { get; set; } = new();
+
     private bool IsLoading { get; set; } = true;
     private bool IsUploading { get; set; } = false;
+    private bool IsRunningJob { get; set; } = false;
     private int SelectedTabIndex { get; set; } = 0;
     private IBrowserFile? SelectedFile { get; set; }
 
@@ -260,6 +263,9 @@ else
             
             // Load available job groups
             AvailableJobGroups = await JobGroupService.GetActiveJobGroupsAsync();
+            
+            // Load available job queues
+            AvailableJobQueues = await JobQueueService.GetActiveJobQueuesAsync();
             
             if (Job != null)
             {
@@ -520,10 +526,13 @@ else
         }
     }
 
-    private void OnFileSelected(InputFileChangeEventArgs e)
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
         SelectedFile = e.File;
-        StateHasChanged();
+        if (SelectedFile != null)
+        {
+            await UploadCodeFile();
+        }
     }
 
     private async Task UploadCodeFile()
@@ -560,8 +569,6 @@ else
             StateHasChanged();
         }
     }
-
-    private bool IsRunningJob { get; set; } = false;
 
     private async Task RunJobNow()
     {

@@ -330,21 +330,6 @@
     // Create Job Dialog state
     private string newJobName = string.Empty;
 
-    private async Task OpenJobGroupsAdministrationDialog()
-    {
-        await DialogService.OpenAsync<JobGroupsAdministrationDialog>("Job Groups Administration",
-            new Dictionary<string, object>
-            {
-                { "OnClose", EventCallback.Factory.Create(this, async () => 
-                    {
-                        DialogService.Close();
-                        await LoadJobGroupsAsync();
-                    }) },
-                { "OnGroupsChanged", EventCallback.Factory.Create(this, async () => await LoadJobGroupsAsync()) }
-            },
-            new DialogOptions { Width = "750px", Height = "550px", CloseDialogOnEsc = true, CloseDialogOnOverlayClick = false });
-    }
-
     private async Task OpenJobDetailsDialog(int jobId)
     {
         var job = AllJobs.FirstOrDefault(j => j.Id == jobId);
