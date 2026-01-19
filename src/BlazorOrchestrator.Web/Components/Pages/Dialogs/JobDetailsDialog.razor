@@ -91,7 +91,7 @@ else
 
                         <RadzenDataGrid @ref="ScheduleGrid" Data="@Schedules" TItem="JobSchedule" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobSchedule" Width="60px" Title="">
                                     <Template Context="schedule">
@@ -128,7 +128,7 @@ else
 
                         <RadzenDataGrid @ref="ParameterGrid" Data="@Parameters" TItem="JobDatum" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobDatum" Width="80px" Title="">
                                     <Template Context="param">
@@ -160,7 +160,7 @@ else
                                       Size="ButtonSize.Small" Click="@RefreshLogs" Style="align-self: flex-end;" />
                         <RadzenDataGrid @ref="LogsGrid" Data="@Logs" TItem="LogEntry" 
                                         AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
                                 <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
                                     <Template Context="log">
@@ -175,30 +175,6 @@ else
                                 <RadzenDataGridColumn TItem="LogEntry" Property="Message" Title="Message" />
                             </Columns>
                         </RadzenDataGrid>
-                    </RadzenStack>
-                </RadzenTabsItem>
-
-                <RadzenTabsItem Text="Code" Icon="code">
-                    @* Code Tab Content *@
-                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenStack Gap="0.5rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Existing Code file</RadzenText>
-                            <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
-                                @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
-                            </RadzenText>
-                        </RadzenStack>
-
-                        <RadzenStack Gap="0.5rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
-                                @if (IsUploading)
-                                {
-                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                                    <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
-                                }
-                            </RadzenStack>
-                        </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
 
@@ -247,6 +223,30 @@ Content-Type: application/json
                                 Enable the webhook to generate a unique URL for triggering this job from external systems.
                             </RadzenAlert>
                         }
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="Code" Icon="code">
+                    @* Code Tab Content *@
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Existing Code file</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
+                                @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
+                            </RadzenText>
+                        </RadzenStack>
+
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
+                                @if (IsUploading)
+                                {
+                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
+                                }
+                            </RadzenStack>
+                        </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>

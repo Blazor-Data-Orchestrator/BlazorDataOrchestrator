@@ -407,7 +407,7 @@
         {
                 <RadzenDataGrid Data="@logs" TItem="LogDisplayEntry"
                                 AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
-                                AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                     <Columns>
                         <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Level" Title="Level" Width="100px">
                             <Template Context="log">
