@@ -898,6 +898,12 @@ namespace BlazorDataOrchestrator.Core
         /// <returns>The created JobInstance ID</returns>
         public async Task<int> RunJobNowWithWebhookAsync(int jobId, string? webhookParameters)
         {
+            // Update webhookParameters to remove "webAPIParameter="
+            if (!string.IsNullOrEmpty(webhookParameters) && webhookParameters.StartsWith("webAPIParameter="))
+            {
+                webhookParameters = Uri.UnescapeDataString(webhookParameters.Substring("webAPIParameter=".Length));
+            }
+
             using var context = CreateDbContext();
             await LogAsync("WebhookTrigger", $"Webhook triggered for Job {jobId}", jobId: jobId);
 
