@@ -109,7 +109,6 @@
 
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
                                 <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@(() => OpenJobDetailsDialog(job.Id))" />
-                                <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small" />
                                 @if (job.IsRunning)
                                 {
                                     <RadzenButton Text="Stop" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" Size="ButtonSize.Small" />

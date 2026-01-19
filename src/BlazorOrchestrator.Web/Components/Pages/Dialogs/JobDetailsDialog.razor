@@ -100,17 +100,17 @@ else
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobSchedule" Property="ScheduleName" Title="Schedule Name" />
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="80px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="100px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.Enabled" Disabled="true" />
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Once" Width="80px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Every Hour" Width="200px">
                                     <Template Context="schedule">
                                         <RadzenText>@(schedule.RunEveryHour == null ? "True" : "False")</RadzenText>
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="90px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="150px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.InProcess" Disabled="true" />
                                     </Template>
