@@ -408,7 +408,6 @@
                                     AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
                                     AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                         <Columns>
-                            <RadzenDataGridColumn TItem="LogDisplayEntry" Property="JobInstanceId" Title="Instance" Width="70px" />
                             <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Level" Title="Level" Width="100px">
                                 <Template Context="log">
                                     <RadzenBadge BadgeStyle="@GetLogBadgeStyle(log.Level)" Text="@log.Level" />
@@ -423,7 +422,8 @@
                         </Columns>
                     </RadzenDataGrid>
                 }
-                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Style="margin-top: 0.5rem;">
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" Style="margin-top: 0.5rem;">
+                    <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small" Click="@(async () => { ds.Close(); await OpenLogsDialog(jobId, jobName); })" />
                     <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => ds.Close())" />
                 </RadzenStack>
             </RadzenStack>,

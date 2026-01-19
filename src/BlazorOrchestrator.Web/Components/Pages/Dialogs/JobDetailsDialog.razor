@@ -152,11 +152,12 @@ else
                 <RadzenTabsItem Text="Logs" Icon="list_alt">
                     @* Logs Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Secondary" 
+                                      Size="ButtonSize.Small" Click="@RefreshLogs" Style="align-self: flex-end;" />
                         <RadzenDataGrid @ref="LogsGrid" Data="@Logs" TItem="LogEntry" 
                                         AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
                                         AllowSorting="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="LogEntry" Property="JobInstanceId" Title="Instance" Width="70px" />
                                 <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
                                     <Template Context="log">
                                         <RadzenBadge BadgeStyle="@GetLogLevelStyle(log.Level)" Text="@log.Level" />
@@ -328,6 +329,12 @@ else
         
         // Sort all logs by date descending
         Logs = allLogs.OrderByDescending(l => l.CreatedDate).ToList();
+    }
+
+    private async Task RefreshLogs()
+    {
+        await LoadLogs();
+        StateHasChanged();
     }
 
     private async Task SaveJob()
