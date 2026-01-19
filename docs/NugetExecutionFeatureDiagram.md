@@ -24,7 +24,7 @@ graph TB
     
     subgraph "Azure Storage"
         BLOB[(Blob Storage<br/>jobs container)]
-        QUEUE[(Queue Storage<br/>job-queue)]
+        QUEUE[(Queue Storage<br/>default)]
         TABLE[(Table Storage<br/>JobLogs)]
     end
     
@@ -83,7 +83,7 @@ sequenceDiagram
     participant UI as JobDetails.razor
     participant JM as JobManager
     participant DB as SQL Database
-    participant QUEUE as Azure Queue<br/>(job-queue)
+    participant QUEUE as Azure Queue<br/>(default)
 
     User->>UI: Click "Run Job Now"
     UI->>JM: RunJobNowAsync(jobId)
@@ -111,7 +111,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant QUEUE as Azure Queue<br/>(job-queue)
+    participant QUEUE as Azure Queue<br/>(default)
     participant AW as Agent Worker
     participant JM as JobManager
     participant PPS as PackageProcessorService

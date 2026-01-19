@@ -52,7 +52,7 @@ public class Worker : BackgroundService
             return;
         }
 
-        var queueClient = _queueServiceClient.GetQueueClient("job-queue");
+        var queueClient = _queueServiceClient.GetQueueClient("default");
         await queueClient.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
 
         _logger.LogInformation("Agent {AgentId} connected to queue: {QueueUri}", _agentId, queueClient.Uri);

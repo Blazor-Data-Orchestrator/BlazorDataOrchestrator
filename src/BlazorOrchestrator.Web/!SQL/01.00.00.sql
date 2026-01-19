@@ -1,4 +1,4 @@
-/****** Object:  Table [dbo].[AspNetRoleClaims]    Script Date: 1/17/2026 7:50:01 AM ******/
+/****** Object:  Table [dbo].[AspNetRoleClaims]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -17,7 +17,7 @@ CREATE TABLE [dbo].[AspNetRoleClaims](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetRoles]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetRoles]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -36,7 +36,7 @@ CREATE TABLE [dbo].[AspNetRoles](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetUserClaims]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetUserClaims]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -55,7 +55,7 @@ CREATE TABLE [dbo].[AspNetUserClaims](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetUserLogins]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetUserLogins]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -75,7 +75,7 @@ CREATE TABLE [dbo].[AspNetUserLogins](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetUserRoles]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetUserRoles]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -93,7 +93,7 @@ CREATE TABLE [dbo].[AspNetUserRoles](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetUsers]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetUsers]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -123,7 +123,7 @@ CREATE TABLE [dbo].[AspNetUsers](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[AspNetUserTokens]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[AspNetUserTokens]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -144,7 +144,7 @@ CREATE TABLE [dbo].[AspNetUserTokens](
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[Job_JobGroup]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[Job_JobGroup]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -162,7 +162,7 @@ CREATE TABLE [dbo].[Job_JobGroup](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobData]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobData]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -187,7 +187,7 @@ CREATE TABLE [dbo].[JobData](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobGroups]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobGroups]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -209,7 +209,7 @@ CREATE TABLE [dbo].[JobGroups](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobInstance]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobInstance]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -233,7 +233,7 @@ CREATE TABLE [dbo].[JobInstance](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobOrganizations]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobOrganizations]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -254,7 +254,7 @@ CREATE TABLE [dbo].[JobOrganizations](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobOrganizations_AspNetUsers]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobOrganizations_AspNetUsers]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -277,7 +277,26 @@ CREATE TABLE [dbo].[JobOrganizations_AspNetUsers](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[Jobs]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobQueue]    Script Date: 1/19/2026 8:05:51 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[JobQueue]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[JobQueue](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[QueueName] [nvarchar](250) NOT NULL,
+	[CreatedDate] [datetime] NOT NULL,
+	[CreatedBy] [nvarchar](500) NOT NULL,
+ CONSTRAINT [PK_JobQueue] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+END
+GO
+/****** Object:  Table [dbo].[Jobs]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -294,6 +313,7 @@ CREATE TABLE [dbo].[Jobs](
 	[JobInProcess] [bit] NOT NULL,
 	[JobInError] [bit] NOT NULL,
 	[JobCodeFile] [nvarchar](1000) NOT NULL,
+	[JobQueue] [int] NULL,
 	[WebhookGUID] [nvarchar](500) NULL,
 	[CreatedDate] [datetime] NOT NULL,
 	[CreatedBy] [nvarchar](500) NOT NULL,
@@ -306,7 +326,7 @@ CREATE TABLE [dbo].[Jobs](
 ) ON [PRIMARY]
 END
 GO
-/****** Object:  Table [dbo].[JobSchedule]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Table [dbo].[JobSchedule]    Script Date: 1/19/2026 8:05:51 AM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -344,7 +364,7 @@ END
 GO
 SET ANSI_PADDING ON
 GO
-/****** Object:  Index [IX_AspNetRoleClaims_RoleId]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Index [IX_AspNetRoleClaims_RoleId]    Script Date: 1/19/2026 8:05:51 AM ******/
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[AspNetRoleClaims]') AND name = N'IX_AspNetRoleClaims_RoleId')
 CREATE NONCLUSTERED INDEX [IX_AspNetRoleClaims_RoleId] ON [dbo].[AspNetRoleClaims]
 (
@@ -353,7 +373,7 @@ CREATE NONCLUSTERED INDEX [IX_AspNetRoleClaims_RoleId] ON [dbo].[AspNetRoleClaim
 GO
 SET ANSI_PADDING ON
 GO
-/****** Object:  Index [IX_AspNetUserClaims_UserId]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Index [IX_AspNetUserClaims_UserId]    Script Date: 1/19/2026 8:05:51 AM ******/
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[AspNetUserClaims]') AND name = N'IX_AspNetUserClaims_UserId')
 CREATE NONCLUSTERED INDEX [IX_AspNetUserClaims_UserId] ON [dbo].[AspNetUserClaims]
 (
@@ -362,7 +382,7 @@ CREATE NONCLUSTERED INDEX [IX_AspNetUserClaims_UserId] ON [dbo].[AspNetUserClaim
 GO
 SET ANSI_PADDING ON
 GO
-/****** Object:  Index [IX_AspNetUserLogins_UserId]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Index [IX_AspNetUserLogins_UserId]    Script Date: 1/19/2026 8:05:51 AM ******/
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[AspNetUserLogins]') AND name = N'IX_AspNetUserLogins_UserId')
 CREATE NONCLUSTERED INDEX [IX_AspNetUserLogins_UserId] ON [dbo].[AspNetUserLogins]
 (
@@ -371,7 +391,7 @@ CREATE NONCLUSTERED INDEX [IX_AspNetUserLogins_UserId] ON [dbo].[AspNetUserLogin
 GO
 SET ANSI_PADDING ON
 GO
-/****** Object:  Index [IX_AspNetUserRoles_RoleId]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Index [IX_AspNetUserRoles_RoleId]    Script Date: 1/19/2026 8:05:51 AM ******/
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[AspNetUserRoles]') AND name = N'IX_AspNetUserRoles_RoleId')
 CREATE NONCLUSTERED INDEX [IX_AspNetUserRoles_RoleId] ON [dbo].[AspNetUserRoles]
 (
@@ -380,7 +400,7 @@ CREATE NONCLUSTERED INDEX [IX_AspNetUserRoles_RoleId] ON [dbo].[AspNetUserRoles]
 GO
 SET ANSI_PADDING ON
 GO
-/****** Object:  Index [EmailIndex]    Script Date: 1/17/2026 7:50:02 AM ******/
+/****** Object:  Index [EmailIndex]    Script Date: 1/19/2026 8:05:51 AM ******/
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[AspNetUsers]') AND name = N'EmailIndex')
 CREATE NONCLUSTERED INDEX [EmailIndex] ON [dbo].[AspNetUsers]
 (
@@ -485,6 +505,13 @@ REFERENCES [dbo].[JobOrganizations] ([Id])
 GO
 IF  EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_Jobs_JobOrganizations]') AND parent_object_id = OBJECT_ID(N'[dbo].[Jobs]'))
 ALTER TABLE [dbo].[Jobs] CHECK CONSTRAINT [FK_Jobs_JobOrganizations]
+GO
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_Jobs_JobQueue]') AND parent_object_id = OBJECT_ID(N'[dbo].[Jobs]'))
+ALTER TABLE [dbo].[Jobs]  WITH CHECK ADD  CONSTRAINT [FK_Jobs_JobQueue] FOREIGN KEY([JobQueue])
+REFERENCES [dbo].[JobQueue] ([Id])
+GO
+IF  EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_Jobs_JobQueue]') AND parent_object_id = OBJECT_ID(N'[dbo].[Jobs]'))
+ALTER TABLE [dbo].[Jobs] CHECK CONSTRAINT [FK_Jobs_JobQueue]
 GO
 IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_JobSchedule_Jobs]') AND parent_object_id = OBJECT_ID(N'[dbo].[JobSchedule]'))
 ALTER TABLE [dbo].[JobSchedule]  WITH CHECK ADD  CONSTRAINT [FK_JobSchedule_Jobs] FOREIGN KEY([JobId])

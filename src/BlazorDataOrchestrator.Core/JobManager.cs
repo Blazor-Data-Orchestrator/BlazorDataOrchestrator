@@ -54,7 +54,7 @@ namespace BlazorDataOrchestrator.Core
             _logTableClient.CreateIfNotExists();
 
             var queueServiceClient = new QueueServiceClient(_queueConnectionString);
-            _jobQueueClient = queueServiceClient.GetQueueClient("job-queue");
+            _jobQueueClient = queueServiceClient.GetQueueClient("default");
             _jobQueueClient.CreateIfNotExists();
 
             var blobServiceClient = new BlobServiceClient(_blobConnectionString);
