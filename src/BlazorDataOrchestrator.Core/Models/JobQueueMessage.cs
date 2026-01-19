@@ -31,4 +31,10 @@ public class JobQueueMessage
     /// Used by agents to verify they are processing the correct queue.
     /// </summary>
     public string? JobQueueName { get; set; }
+
+    /// <summary>
+    /// Optional webhook parameters passed when the job is triggered via webhook.
+    /// Contains the query string or request body from the webhook call.
+    /// </summary>
+    public string? WebhookParameters { get; set; }
 }

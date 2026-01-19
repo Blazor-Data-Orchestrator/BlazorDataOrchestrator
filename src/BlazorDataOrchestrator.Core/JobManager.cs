@@ -889,6 +889,105 @@ namespace BlazorDataOrchestrator.Core
             return instance.Id;
         }
 
+        /// <summary>
+        /// Triggers immediate execution of a job via webhook, passing webhook parameters to the queue message.
+        /// Dynamically routes to the appropriate Azure Queue based on job configuration.
+        /// </summary>
+        /// <param name="jobId">The job ID to run</param>
+        /// <param name="webhookParameters">Optional parameters passed via webhook query string or body</param>
+        /// <returns>The created JobInstance ID</returns>
+        public async Task<int> RunJobNowWithWebhookAsync(int jobId, string? webhookParameters)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("WebhookTrigger", $"Webhook triggered for Job {jobId}", jobId: jobId);
+
+            var job = await context.Jobs
+                .Include(j => j.JobSchedules)
+                .Include(j => j.JobQueueNavigation)
+                .FirstOrDefaultAsync(j => j.Id == jobId);
+
+            if (job == null)
+            {
+                throw new InvalidOperationException($"Job {jobId} not found.");
+            }
+
+            if (!job.JobEnabled)
+            {
+                throw new InvalidOperationException($"Job {jobId} is disabled.");
+            }
+
+            // Get or create a schedule for webhook-triggered runs
+            var schedule = job.JobSchedules.FirstOrDefault();
+            if (schedule == null)
+            {
+                schedule = new JobSchedule
+                {
+                    JobId = jobId,
+                    ScheduleName = "Webhook Trigger",
+                    Enabled = true,
+                    InProcess = false,
+                    HadError = false,
+                    Monday = true,
+                    Tuesday = true,
+                    Wednesday = true,
+                    Thursday = true,
+                    Friday = true,
+                    Saturday = true,
+                    Sunday = true,
+                    StartTime = 0,
+                    StopTime = 23,
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "Webhook"
+                };
+                context.JobSchedules.Add(schedule);
+                await context.SaveChangesAsync();
+                await LogAsync("WebhookTrigger", $"Created webhook schedule for Job {jobId}", jobId: jobId);
+            }
+
+            // Create JobInstance
+            var instance = new JobInstance
+            {
+                JobScheduleId = schedule.Id,
+                InProcess = false,
+                HasError = false,
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "Webhook"
+            };
+            context.JobInstances.Add(instance);
+            await context.SaveChangesAsync();
+
+            await LogAsync("WebhookTrigger", $"Created JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Determine target queue name
+            var targetQueueName = job.JobQueueNavigation?.QueueName ?? "default";
+            await LogAsync("WebhookTrigger", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Get or create the target queue client
+            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
+            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            await targetQueueClient.CreateIfNotExistsAsync();
+
+            // Create and send queue message with webhook parameters
+            var queueMessage = new JobQueueMessage
+            {
+                JobInstanceId = instance.Id,
+                JobId = jobId,
+                QueuedAt = DateTime.UtcNow,
+                JobEnvironment = job.JobEnvironment,
+                JobQueueName = targetQueueName,
+                WebhookParameters = webhookParameters
+            };
+
+            var messageJson = JsonSerializer.Serialize(queueMessage);
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
+            var base64Message = Convert.ToBase64String(messageBytes);
+
+            await targetQueueClient.SendMessageAsync(base64Message);
+
+            await LogAsync("WebhookTrigger", $"Queue message sent with webhook parameters: {webhookParameters ?? "(none)"}", jobId: jobId, jobInstanceId: instance.Id);
+            return instance.Id;
+        }
+
         // #10 Process Job Instance (called by Agent)
         /// <summary>
         /// Processes a job instance: downloads package, validates, executes code, logs results.
@@ -899,12 +998,14 @@ namespace BlazorDataOrchestrator.Core
         /// <param name="codeExecutor">The code executor service</param>
         /// <param name="agentId">Optional agent identifier</param>
         /// <param name="jobEnvironment">Optional environment override from queue message</param>
+        /// <param name="webhookParameters">Optional webhook parameters passed when triggered via webhook</param>
         public async Task ProcessJobInstanceAsync(
             int jobInstanceId,
             PackageProcessorService packageProcessor,
             CodeExecutorService codeExecutor,
             string? agentId = null,
-            string? jobEnvironment = null)
+            string? jobEnvironment = null,
+            string? webhookParameters = null)
         {
             using var context = CreateDbContext();
             await LogAsync("ProcessJobInstance", $"Processing JobInstance {jobInstanceId}", jobInstanceId: jobInstanceId);
@@ -981,6 +1082,12 @@ namespace BlazorDataOrchestrator.Core
                 // Merge/override connection strings with agent-configured values
                 appSettingsJson = MergeConnectionStrings(appSettingsJson, _sqlConnectionString, _tableConnectionString);
 
+                // Log webhook parameters if present
+                if (!string.IsNullOrEmpty(webhookParameters))
+                {
+                    await LogAsync("ProcessJobInstance", $"Webhook parameters: {webhookParameters}", jobId: jobId, jobInstanceId: jobInstanceId);
+                }
+
                 // Create execution context
                 var executionContext = new JobExecutionContext
                 {
@@ -992,7 +1099,8 @@ namespace BlazorDataOrchestrator.Core
                     SqlConnectionString = _sqlConnectionString,
                     TableConnectionString = _tableConnectionString,
                     AgentId = agentId,
-                    Environment = effectiveEnvironment
+                    Environment = effectiveEnvironment,
+                    WebAPIParameter = webhookParameters ?? string.Empty
                 };
 
                 // Execute code

@@ -112,6 +112,13 @@ public class Worker : BackgroundService
                         queueMessage.JobInstanceId, queueMessage.JobId, 
                         queueMessage.JobEnvironment ?? "N/A", queueMessage.JobQueueName ?? _queueName);
 
+                    // Log webhook parameters if present
+                    if (!string.IsNullOrEmpty(queueMessage.WebhookParameters))
+                    {
+                        _logger.LogInformation("Job triggered via webhook with parameters: {WebhookParameters}", 
+                            queueMessage.WebhookParameters);
+                    }
+
                     // Start the visibility renewal task to keep the message hidden during long-running jobs
                     renewalTask = RenewMessageVisibilityAsync(
                         queueClient, 
@@ -119,13 +126,14 @@ public class Worker : BackgroundService
                         currentPopReceipt, 
                         renewalCts.Token);
 
-                    // Delegate all processing to Core's JobManager, passing the environment from the queue message
+                    // Delegate all processing to Core's JobManager, passing the environment and webhook parameters from the queue message
                     await _jobManager.ProcessJobInstanceAsync(
                         queueMessage.JobInstanceId,
                         _packageProcessor,
                         _codeExecutor,
                         _agentId,
-                        queueMessage.JobEnvironment);
+                        queueMessage.JobEnvironment,
+                        queueMessage.WebhookParameters);
 
                     _logger.LogInformation("Successfully processed JobInstance {JobInstanceId}", queueMessage.JobInstanceId);
 

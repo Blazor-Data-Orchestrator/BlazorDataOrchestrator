@@ -8,6 +8,8 @@
 @inject JobGroupService JobGroupService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
+@inject AppSettingsService AppSettingsService
+@inject TimeDisplayService TimeDisplayService
 
 <PageTitle>Administration</PageTitle>
 
@@ -75,7 +77,7 @@
                                 <RadzenDataGridColumn TItem="JobGroup" Property="JobGroupName" Title="Group Name" />
                                 <RadzenDataGridColumn TItem="JobGroup" Property="CreatedDate" Title="Created Date" Width="180px">
                                     <Template Context="group">
-                                        @group.CreatedDate.ToString("g")
+                                        @TimeDisplayService.FormatDateTime(group.CreatedDate)
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobGroup" Title="Jobs" Width="100px">
@@ -142,7 +144,7 @@
                                 <RadzenDataGridColumn TItem="JobQueue" Property="QueueName" Title="Queue Name" />
                                 <RadzenDataGridColumn TItem="JobQueue" Property="CreatedDate" Title="Created Date" Width="180px">
                                     <Template Context="queue">
-                                        @queue.CreatedDate.ToString("g")
+                                        @TimeDisplayService.FormatDateTime(queue.CreatedDate)
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobQueue" Property="CreatedBy" Title="Created By" Width="150px" />
@@ -154,6 +156,63 @@
                             </Columns>
                         </RadzenDataGrid>
                     }
+                </RadzenStack>
+            </RadzenTabsItem>
+            <RadzenTabsItem Text="Settings" Icon="settings">
+                <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Application Settings</RadzenText>
+                    </RadzenStack>
+
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                            Configure application-wide settings. The timezone setting affects how dates and times are displayed throughout the application.
+                        </RadzenText>
+                    </RadzenAlert>
+
+                    <RadzenCard Style="padding: 1.5rem;">
+                        <RadzenStack Gap="1.5rem">
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenLabel Text="Display Timezone" Component="TimezoneOffset" Style="font-weight: 600;" />
+                                <RadzenDropDown @bind-Value="@SelectedTimezoneOffset" 
+                                                Data="@AvailableTimezones" 
+                                                TextProperty="Label" 
+                                                ValueProperty="Value"
+                                                Style="width: 100%; max-width: 400px;" 
+                                                Name="TimezoneOffset"
+                                                Change="@OnTimezoneChanged" />
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                    Select the timezone for displaying dates and times in logs and other views.
+                                </RadzenText>
+                            </RadzenStack>
+
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenLabel Text="Preview" Style="font-weight: 600;" />
+                                <RadzenCard Style="background: #f8fafc; padding: 1rem;">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="2rem" AlignItems="AlignItems.Center">
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">Current UTC Time</RadzenText>
+                                            <RadzenText TextStyle="TextStyle.Body1" Style="font-family: monospace;">@DateTime.UtcNow.ToString("g")</RadzenText>
+                                        </RadzenStack>
+                                        <RadzenIcon Icon="arrow_forward" Style="color: #6b7280;" />
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">Display Time (@SelectedTimezoneOffset)</RadzenText>
+                                            <RadzenText TextStyle="TextStyle.Body1" Style="font-family: monospace;">@TimeDisplayService.FormatCurrentTime()</RadzenText>
+                                        </RadzenStack>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
+                                <RadzenButton Text="Save Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
+                                              Click="@SaveSettings" Disabled="@IsSavingSettings" />
+                                @if (IsSavingSettings)
+                                {
+                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                }
+                            </RadzenStack>
+                        </RadzenStack>
+                    </RadzenCard>
                 </RadzenStack>
             </RadzenTabsItem>
         </Tabs>
@@ -169,12 +228,57 @@
     private RadzenDataGrid<JobQueue>? QueueGrid;
     private RadzenDataGrid<JobGroup>? JobGroupGrid;
 
+    // Settings fields
+    private string SelectedTimezoneOffset { get; set; } = "-08:00";
+    private List<TimezoneOption> AvailableTimezones { get; set; } = new();
+    private bool IsSavingSettings { get; set; } = false;
+
     protected override async Task OnInitializedAsync()
     {
+        // Load settings
+        LoadSettings();
+        
         // Run sequentially to avoid DbContext concurrency issues
         await LoadJobGroups();
         await LoadJobQueues();
     }
+
+    #region Settings
+
+    private void LoadSettings()
+    {
+        AvailableTimezones = AppSettingsService.GetAvailableTimezones();
+        SelectedTimezoneOffset = AppSettingsService.GetTimezoneOffsetString();
+    }
+
+    private void OnTimezoneChanged()
+    {
+        // Trigger UI refresh to update the preview
+        StateHasChanged();
+    }
+
+    private async Task SaveSettings()
+    {
+        IsSavingSettings = true;
+        StateHasChanged();
+
+        try
+        {
+            await AppSettingsService.SetTimezoneOffsetAsync(SelectedTimezoneOffset);
+            NotificationService.Notify(NotificationSeverity.Success, "Success", "Settings saved successfully. Please refresh the page for changes to take full effect.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to save settings: {ex.Message}");
+        }
+        finally
+        {
+            IsSavingSettings = false;
+            StateHasChanged();
+        }
+    }
+
+    #endregion
 
     #region Job Groups
 

@@ -8,8 +8,12 @@
 @inject JobGroupService JobGroupService
 @inject JobQueueService JobQueueService
 @inject JobManager JobManager
+@inject WebhookService WebhookService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
+@inject TimeDisplayService TimeDisplayService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 
 @if (IsLoading)
 {
@@ -141,7 +145,7 @@ else
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobIntValue" Title="Int Value" Width="80px" />
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobDateValue" Title="Date Value" Width="120px">
                                     <Template Context="param">
-                                        @(param.JobDateValue?.ToString("g") ?? "-")
+                                        @TimeDisplayService.FormatDateTime(param.JobDateValue)
                                     </Template>
                                 </RadzenDataGridColumn>
                             </Columns>
@@ -165,7 +169,7 @@ else
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="LogEntry" Property="CreatedDate" Title="Created Date" Width="150px">
                                     <Template Context="log">
-                                        @log.CreatedDate.ToString("g")
+                                        @TimeDisplayService.FormatDateTime(log.CreatedDate)
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="LogEntry" Property="Message" Title="Message" />
@@ -195,6 +199,54 @@ else
                                 }
                             </RadzenStack>
                         </RadzenStack>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="Webhook" Icon="link">
+                    @* Webhook Tab Content *@
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" AlignItems="AlignItems.Center">
+                            <RadzenLabel Text="Enable Webhook" Style="font-weight: 500;" />
+                            <RadzenSwitch Value="@IsWebhookEnabled" Change="@OnWebhookToggle" />
+                        </RadzenStack>
+
+                        @if (IsWebhookEnabled && !string.IsNullOrEmpty(Job.WebhookGuid))
+                        {
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Webhook URL</RadzenText>
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                    <RadzenTextBox Value="@WebhookUrl" ReadOnly="true" Style="width: 100%; font-family: monospace;" />
+                                    <RadzenButton Icon="content_copy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                  Click="@CopyWebhookUrl" title="Copy to clipboard" />
+                                </RadzenStack>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                    Use this URL to trigger the job from external systems. Query parameters will be passed to the job.
+                                </RadzenText>
+                            </RadzenStack>
+
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Example Usage</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="font-family: monospace; background: #f1f5f9; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap;">
+GET @WebhookUrl?webAPIParameter=value
+
+POST @WebhookUrl
+Content-Type: application/json
+{"key": "value"}</RadzenText>
+                            </RadzenStack>
+
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Webhook GUID</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
+                                    @Job.WebhookGuid
+                                </RadzenText>
+                            </RadzenStack>
+                        }
+                        else if (!IsWebhookEnabled)
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                Enable the webhook to generate a unique URL for triggering this job from external systems.
+                            </RadzenAlert>
+                        }
                     </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>
@@ -246,6 +298,10 @@ else
     private RadzenDataGrid<JobSchedule>? ScheduleGrid;
     private RadzenDataGrid<JobDatum>? ParameterGrid;
     private RadzenDataGrid<LogEntry>? LogsGrid;
+
+    // Webhook properties
+    private bool IsWebhookEnabled => !string.IsNullOrEmpty(Job?.WebhookGuid);
+    private string WebhookUrl => $"{NavigationManager.BaseUri}webhook/{Job?.WebhookGuid}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -633,5 +689,74 @@ else
         public DateTime CreatedDate { get; set; }
         public string Message { get; set; } = string.Empty;
         public string Source { get; set; } = string.Empty; // "Instance" or "AzureTable"
+    }
+
+    // Webhook methods
+    private async Task OnWebhookToggle(bool enabled)
+    {
+        if (Job == null) return;
+
+        if (enabled)
+        {
+            // Enable webhook - generate new GUID
+            try
+            {
+                var guid = await WebhookService.EnableWebhookAsync(Job.Id);
+                Job.WebhookGuid = guid;
+                NotificationService.Notify(NotificationSeverity.Success, "Webhook Enabled", 
+                    "A new webhook URL has been generated.");
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                    $"Failed to enable webhook: {ex.Message}");
+            }
+        }
+        else
+        {
+            // Disable webhook - show confirmation if GUID exists
+            if (!string.IsNullOrEmpty(Job.WebhookGuid))
+            {
+                var confirmed = await DialogService.Confirm(
+                    "Are you sure you want to disable the webhook? The unique GUID will be deleted and any integrations using this webhook URL will stop working.",
+                    "Disable Webhook",
+                    new ConfirmOptions 
+                    { 
+                        OkButtonText = "Disable", 
+                        CancelButtonText = "Cancel" 
+                    });
+
+                if (confirmed == true)
+                {
+                    try
+                    {
+                        await WebhookService.DisableWebhookAsync(Job.Id);
+                        Job.WebhookGuid = null;
+                        NotificationService.Notify(NotificationSeverity.Warning, "Webhook Disabled", 
+                            "The webhook has been disabled and the GUID has been deleted.");
+                        StateHasChanged();
+                    }
+                    catch (Exception ex)
+                    {
+                        NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                            $"Failed to disable webhook: {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task CopyWebhookUrl()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", WebhookUrl);
+            NotificationService.Notify(NotificationSeverity.Info, "Copied", "Webhook URL copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to copy: {ex.Message}");
+        }
     }
 }

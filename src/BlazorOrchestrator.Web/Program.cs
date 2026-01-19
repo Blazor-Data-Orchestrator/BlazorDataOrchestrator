@@ -41,6 +41,14 @@ builder.Services.AddScoped<ProjectCreatorService>();
 builder.Services.AddScoped<JobService>();
 builder.Services.AddScoped<JobGroupService>();
 builder.Services.AddScoped<JobQueueService>();
+builder.Services.AddScoped<WebhookService>();
+
+// Add controllers for webhook API
+builder.Services.AddControllers();
+
+// Register settings and display services
+builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddScoped<TimeDisplayService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
 builder.Services.AddScoped<JobStorageService>(sp =>
@@ -90,6 +98,9 @@ app.UseAntiforgery();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Map webhook API controllers
+app.MapControllers();
 
 app.MapDefaultEndpoints();
 
