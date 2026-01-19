@@ -40,6 +40,7 @@ builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
 builder.Services.AddScoped<ProjectCreatorService>();
 builder.Services.AddScoped<JobService>();
 builder.Services.AddScoped<JobGroupService>();
+builder.Services.AddScoped<JobQueueService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
 builder.Services.AddScoped<JobStorageService>(sp =>

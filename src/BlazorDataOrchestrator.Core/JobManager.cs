@@ -807,6 +807,7 @@ namespace BlazorDataOrchestrator.Core
         // #9 Run Job Now
         /// <summary>
         /// Triggers immediate execution of a job by creating a JobInstance and sending a queue message.
+        /// Dynamically routes to the appropriate Azure Queue based on job configuration.
         /// </summary>
         /// <param name="jobId">The job ID to run</param>
         /// <returns>The created JobInstance ID</returns>
@@ -817,6 +818,7 @@ namespace BlazorDataOrchestrator.Core
 
             var job = await context.Jobs
                 .Include(j => j.JobSchedules)
+                .Include(j => j.JobQueueNavigation)
                 .FirstOrDefaultAsync(j => j.Id == jobId);
 
             if (job == null)
@@ -858,21 +860,32 @@ namespace BlazorDataOrchestrator.Core
 
             await LogAsync("RunJobNow", $"Created JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
 
-            // Create and send queue message
+            // Determine target queue name
+            var targetQueueName = job.JobQueueNavigation?.QueueName ?? "default";
+            await LogAsync("RunJobNow", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Get or create the target queue client
+            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
+            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            await targetQueueClient.CreateIfNotExistsAsync();
+
+            // Create and send queue message with environment and queue name
             var queueMessage = new JobQueueMessage
             {
                 JobInstanceId = instance.Id,
                 JobId = jobId,
-                QueuedAt = DateTime.UtcNow
+                QueuedAt = DateTime.UtcNow,
+                JobEnvironment = job.JobEnvironment,
+                JobQueueName = targetQueueName
             };
 
             var messageJson = JsonSerializer.Serialize(queueMessage);
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
             var base64Message = Convert.ToBase64String(messageBytes);
 
-            await _jobQueueClient.SendMessageAsync(base64Message);
+            await targetQueueClient.SendMessageAsync(base64Message);
 
-            await LogAsync("RunJobNow", $"Queue message sent for JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+            await LogAsync("RunJobNow", $"Queue message sent to '{targetQueueName}' for JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
             return instance.Id;
         }
 
@@ -885,11 +898,13 @@ namespace BlazorDataOrchestrator.Core
         /// <param name="packageProcessor">The package processor service</param>
         /// <param name="codeExecutor">The code executor service</param>
         /// <param name="agentId">Optional agent identifier</param>
+        /// <param name="jobEnvironment">Optional environment override from queue message</param>
         public async Task ProcessJobInstanceAsync(
             int jobInstanceId,
             PackageProcessorService packageProcessor,
             CodeExecutorService codeExecutor,
-            string? agentId = null)
+            string? agentId = null,
+            string? jobEnvironment = null)
         {
             using var context = CreateDbContext();
             await LogAsync("ProcessJobInstance", $"Processing JobInstance {jobInstanceId}", jobInstanceId: jobInstanceId);
@@ -913,7 +928,9 @@ namespace BlazorDataOrchestrator.Core
             }
 
             var jobId = job.Id;
-            await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId})", jobId: jobId, jobInstanceId: jobInstanceId);
+            // Use the environment from queue message, or fall back to job configuration
+            var effectiveEnvironment = jobEnvironment ?? job.JobEnvironment ?? "Development";
+            await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId}) with Environment: {effectiveEnvironment}", jobId: jobId, jobInstanceId: jobInstanceId);
 
             // Mark as in process
             instance.InProcess = true;
@@ -958,16 +975,11 @@ namespace BlazorDataOrchestrator.Core
                 var config = await packageProcessor.GetConfigurationAsync(tempDir);
                 await LogAsync("ProcessJobInstance", $"Selected language: {config.SelectedLanguage}", jobId: jobId, jobInstanceId: jobInstanceId);
 
-                // Build app settings JSON with connection strings
-                var appSettings = new
-                {
-                    ConnectionStrings = new Dictionary<string, string>
-                    {
-                        { "blazororchestratordb", _sqlConnectionString },
-                        { "tables", _tableConnectionString }
-                    }
-                };
-                var appSettingsJson = JsonSerializer.Serialize(appSettings);
+                // Read appsettings from the package based on environment
+                var appSettingsJson = await ReadPackagedAppSettingsAsync(tempDir, effectiveEnvironment, jobId, jobInstanceId);
+
+                // Merge/override connection strings with agent-configured values
+                appSettingsJson = MergeConnectionStrings(appSettingsJson, _sqlConnectionString, _tableConnectionString);
 
                 // Create execution context
                 var executionContext = new JobExecutionContext
@@ -979,7 +991,8 @@ namespace BlazorDataOrchestrator.Core
                     AppSettingsJson = appSettingsJson,
                     SqlConnectionString = _sqlConnectionString,
                     TableConnectionString = _tableConnectionString,
-                    AgentId = agentId
+                    AgentId = agentId,
+                    Environment = effectiveEnvironment
                 };
 
                 // Execute code
@@ -1067,6 +1080,134 @@ namespace BlazorDataOrchestrator.Core
                 job.UpdatedBy = "System";
                 await context.SaveChangesAsync();
                 await LogAsync("UpdateJobCodeFile", $"Updated JobCodeFile to {codeFileName}", jobId: jobId);
+            }
+        }
+
+        // #13 Read Packaged AppSettings
+        /// <summary>
+        /// Reads the appropriate appsettings file from the extracted NuGet package based on environment.
+        /// Uses naming convention: appsettings{Environment}.json (e.g., appsettingsProduction.json)
+        /// Falls back to appsettings.json if environment-specific file is not found.
+        /// </summary>
+        /// <param name="tempDir">The temporary directory where the package was extracted</param>
+        /// <param name="environment">The target environment (Production, Staging, Development)</param>
+        /// <param name="jobId">The job ID for logging</param>
+        /// <param name="jobInstanceId">The job instance ID for logging</param>
+        /// <returns>The appsettings JSON content, or "{}" if no file is found</returns>
+        private async Task<string> ReadPackagedAppSettingsAsync(string tempDir, string environment, int jobId, int jobInstanceId)
+        {
+            // Determine the environment-specific file name
+            var environmentFileName = environment?.ToLower() switch
+            {
+                "production" => "appsettingsProduction.json",
+                "staging" => "appsettingsStaging.json",
+                _ => "appsettings.json" // Development, Local, or any other
+            };
+
+            // Search for the environment-specific file in the package
+            var environmentFiles = Directory.GetFiles(tempDir, environmentFileName, SearchOption.AllDirectories);
+            
+            if (environmentFiles.Length > 0)
+            {
+                var filePath = environmentFiles[0];
+                await LogAsync("ProcessJobInstance", $"Found environment-specific appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
+                return await File.ReadAllTextAsync(filePath);
+            }
+
+            // Fall back to appsettings.json if environment-specific file not found
+            if (environmentFileName != "appsettings.json")
+            {
+                await LogAsync("ProcessJobInstance", $"Environment-specific file '{environmentFileName}' not found, falling back to appsettings.json", "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
+            }
+
+            var fallbackFiles = Directory.GetFiles(tempDir, "appsettings.json", SearchOption.AllDirectories);
+            
+            if (fallbackFiles.Length > 0)
+            {
+                var filePath = fallbackFiles[0];
+                await LogAsync("ProcessJobInstance", $"Using fallback appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
+                return await File.ReadAllTextAsync(filePath);
+            }
+
+            // No appsettings file found - this is an error condition
+            await LogAsync("ProcessJobInstance", "No appsettings.json file found in the package. Job execution will proceed with default configuration.", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+            
+            // Return empty JSON object with just connection strings placeholder
+            return "{}";
+        }
+
+        // #14 Merge Connection Strings
+        /// <summary>
+        /// Merges the agent-configured connection strings into the packaged appsettings JSON.
+        /// Agent connection strings override any values from the package.
+        /// </summary>
+        /// <param name="appSettingsJson">The original appsettings JSON from the package</param>
+        /// <param name="sqlConnectionString">The agent's SQL connection string</param>
+        /// <param name="tableConnectionString">The agent's Table Storage connection string</param>
+        /// <returns>The merged appsettings JSON with updated connection strings</returns>
+        private string MergeConnectionStrings(string appSettingsJson, string sqlConnectionString, string tableConnectionString)
+        {
+            try
+            {
+                // Parse the existing JSON
+                var jsonDoc = JsonDocument.Parse(appSettingsJson);
+                var root = jsonDoc.RootElement;
+
+                // Create a dictionary to hold the merged configuration
+                var config = new Dictionary<string, object>();
+
+                // Copy existing properties
+                foreach (var property in root.EnumerateObject())
+                {
+                    if (property.Name == "ConnectionStrings")
+                    {
+                        // Get existing connection strings and merge with agent values
+                        var connectionStrings = new Dictionary<string, string>();
+                        
+                        if (property.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var cs in property.Value.EnumerateObject())
+                            {
+                                connectionStrings[cs.Name] = cs.Value.GetString() ?? "";
+                            }
+                        }
+
+                        // Override with agent connection strings
+                        connectionStrings["blazororchestratordb"] = sqlConnectionString;
+                        connectionStrings["tables"] = tableConnectionString;
+                        
+                        config["ConnectionStrings"] = connectionStrings;
+                    }
+                    else
+                    {
+                        // Copy other properties as raw JSON
+                        config[property.Name] = JsonSerializer.Deserialize<object>(property.Value.GetRawText())!;
+                    }
+                }
+
+                // Ensure ConnectionStrings section exists even if not in original
+                if (!config.ContainsKey("ConnectionStrings"))
+                {
+                    config["ConnectionStrings"] = new Dictionary<string, string>
+                    {
+                        { "blazororchestratordb", sqlConnectionString },
+                        { "tables", tableConnectionString }
+                    };
+                }
+
+                return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = false });
+            }
+            catch (JsonException)
+            {
+                // If JSON parsing fails, return a basic config with connection strings
+                return JsonSerializer.Serialize(new
+                {
+                    ConnectionStrings = new Dictionary<string, string>
+                    {
+                        { "blazororchestratordb", sqlConnectionString },
+                        { "tables", tableConnectionString }
+                    }
+                });
             }
         }
     }

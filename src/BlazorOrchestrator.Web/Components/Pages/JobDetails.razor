@@ -7,6 +7,7 @@
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
+@inject JobQueueService JobQueueService
 @inject JobManager JobManager
 @inject NavigationManager NavigationManager
 @inject NotificationService NotificationService
@@ -63,6 +64,17 @@ else
                                                     TextProperty="JobGroupName" ValueProperty="Id"
                                                     AllowClear="true" Placeholder="Select a job group..."
                                                     Name="JobGroup" Style="width: 100%; max-width: 400px;" />
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Queue Name" Component="QueueName" Style="font-weight: 500;" />
+                                    <RadzenDropDown @bind-Value="@Job.JobQueue" Data="@AvailableJobQueues" 
+                                                    TextProperty="QueueName" ValueProperty="Id"
+                                                    AllowClear="true" Placeholder="Default queue (optional)"
+                                                    Name="QueueName" Style="width: 100%; max-width: 400px;" />
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                        Select a queue to route this job to a specific Azure Queue for execution.
+                                    </RadzenText>
                                 </RadzenStack>
 
                                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
@@ -231,6 +243,9 @@ else
     private List<JobGroup> AvailableJobGroups { get; set; } = new();
     private int? selectedJobGroupId = null;
 
+    // Job Queues
+    private List<JobQueue> AvailableJobQueues { get; set; } = new();
+
     private bool IsLoading { get; set; } = true;
     private bool IsUploading { get; set; } = false;
     private bool IsRunningJob { get; set; } = false;
@@ -258,6 +273,9 @@ else
             
             // Load available job groups
             AvailableJobGroups = await JobGroupService.GetActiveJobGroupsAsync();
+            
+            // Load available job queues
+            AvailableJobQueues = await JobQueueService.GetActiveJobQueuesAsync();
             
             if (Job != null)
             {

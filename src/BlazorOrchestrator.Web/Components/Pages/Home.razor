@@ -238,7 +238,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage);
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage ?? "");
             }
         }
         catch (Exception ex)

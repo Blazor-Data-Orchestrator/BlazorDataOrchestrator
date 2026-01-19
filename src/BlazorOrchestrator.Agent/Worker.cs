@@ -13,6 +13,7 @@ namespace BlazorOrchestrator.Agent;
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
+    private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private readonly QueueServiceClient? _queueServiceClient;
     private readonly BlobServiceClient? _blobServiceClient;
@@ -20,20 +21,26 @@ public class Worker : BackgroundService
     private readonly PackageProcessorService _packageProcessor;
     private readonly CodeExecutorService _codeExecutor;
     private readonly string _agentId;
+    private readonly string _queueName;
 
     public Worker(
         ILogger<Worker> logger, 
+        IConfiguration configuration,
         IServiceProvider serviceProvider,
         JobManager jobManager,
         PackageProcessorService packageProcessor,
         CodeExecutorService codeExecutor)
     {
         _logger = logger;
+        _configuration = configuration;
         _serviceProvider = serviceProvider;
         _jobManager = jobManager;
         _packageProcessor = packageProcessor;
         _codeExecutor = codeExecutor;
         _agentId = $"Agent-{Environment.MachineName}-{Guid.NewGuid():N}".Substring(0, 50);
+        
+        // Get queue name from configuration, default to "default"
+        _queueName = _configuration.GetValue<string>("QueueName") ?? "default";
         
         // Optionally resolve Azure services if available
         _queueServiceClient = serviceProvider.GetService<QueueServiceClient>();
@@ -43,6 +50,7 @@ public class Worker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Agent {AgentId} starting...", _agentId);
+        _logger.LogInformation("Agent configured to monitor queue: {QueueName}", _queueName);
 
         // Get queue client
         if (_queueServiceClient == null)
@@ -52,10 +60,10 @@ public class Worker : BackgroundService
             return;
         }
 
-        var queueClient = _queueServiceClient.GetQueueClient("default");
+        var queueClient = _queueServiceClient.GetQueueClient(_queueName);
         await queueClient.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
 
-        _logger.LogInformation("Agent {AgentId} connected to queue: {QueueUri}", _agentId, queueClient.Uri);
+        _logger.LogInformation("Agent {AgentId} connected to queue '{QueueName}': {QueueUri}", _agentId, _queueName, queueClient.Uri);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -74,7 +82,7 @@ public class Worker : BackgroundService
                 }
 
                 var message = response.Value;
-                _logger.LogInformation("Received message: {MessageId}", message.MessageId);
+                _logger.LogInformation("Received message: {MessageId} from queue '{QueueName}'", message.MessageId, _queueName);
 
                 try
                 {
@@ -89,15 +97,17 @@ public class Worker : BackgroundService
                         continue;
                     }
 
-                    _logger.LogInformation("Processing JobInstance {JobInstanceId} for Job {JobId}", 
-                        queueMessage.JobInstanceId, queueMessage.JobId);
+                    _logger.LogInformation("Processing JobInstance {JobInstanceId} for Job {JobId} (Environment: {Environment}, Queue: {QueueName})", 
+                        queueMessage.JobInstanceId, queueMessage.JobId, 
+                        queueMessage.JobEnvironment ?? "N/A", queueMessage.JobQueueName ?? _queueName);
 
-                    // Delegate all processing to Core's JobManager
+                    // Delegate all processing to Core's JobManager, passing the environment from the queue message
                     await _jobManager.ProcessJobInstanceAsync(
                         queueMessage.JobInstanceId,
                         _packageProcessor,
                         _codeExecutor,
-                        _agentId);
+                        _agentId,
+                        queueMessage.JobEnvironment);
 
                     _logger.LogInformation("Successfully processed JobInstance {JobInstanceId}", queueMessage.JobInstanceId);
 
@@ -137,6 +147,7 @@ public class Worker : BackgroundService
             if (_logger.IsEnabled(LogLevel.Information))
             {
                 _logger.LogInformation("Agent running at: {time}", DateTimeOffset.Now);
+                _logger.LogInformation("Agent configured for queue: {QueueName}", _queueName);
                 
                 if (_queueServiceClient != null)
                     _logger.LogInformation("Queue service endpoint: {endpoint}", _queueServiceClient.Uri);

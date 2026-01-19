@@ -49,4 +49,11 @@ public class JobExecutionContext
     /// The WebAPI parameter passed to the job (optional).
     /// </summary>
     public string WebAPIParameter { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The environment the job is running under (e.g., Production, Staging, Development).
+    /// Used to determine which appsettings file was loaded from the NuGet package.
+    /// </summary>
+    public string Environment { get; set; } = "Development";
 }
+
