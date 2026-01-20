@@ -77,12 +77,27 @@ public class JobService
 
     public async Task DeleteJobAsync(int jobId)
     {
-        var job = await _dbContext.Jobs.FindAsync(jobId);
+        var job = await _dbContext.Jobs
+            .Include(j => j.JobSchedules)
+                .ThenInclude(s => s.JobInstances)
+            .Include(j => j.JobData)
+            .Include(j => j.JobJobGroups)
+            .FirstOrDefaultAsync(j => j.Id == jobId);
+            
         if (job != null)
         {
+            // Remove related entities explicitly (belt and suspenders with cascade delete)
+            foreach (var schedule in job.JobSchedules.ToList())
+            {
+                _dbContext.JobInstances.RemoveRange(schedule.JobInstances);
+                _dbContext.JobSchedules.Remove(schedule);
+            }
+            _dbContext.JobData.RemoveRange(job.JobData);
+            _dbContext.JobJobGroups.RemoveRange(job.JobJobGroups);
+            
             _dbContext.Jobs.Remove(job);
             await _dbContext.SaveChangesAsync();
-            _logger.LogInformation("Deleted job with ID {JobId}", jobId);
+            _logger.LogInformation("Deleted job with ID {JobId} and all related entities", jobId);
         }
     }
 

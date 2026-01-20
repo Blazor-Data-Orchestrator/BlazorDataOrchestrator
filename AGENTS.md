@@ -59,3 +59,7 @@ IMPORTANT! Always prefer official documentation when available. The following si
 1. https://aspire.dev
 2. https://learn.microsoft.com/dotnet/aspire
 3. https://nuget.org (for specific integration package details)
+
+## Additional instructions
+- See .github\instructions\csharp.instructions.md
+- See .github\instructions\azure.instructions.md

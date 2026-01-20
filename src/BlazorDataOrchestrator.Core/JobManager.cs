@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using BlazorDataOrchestrator.Core.Data;
+using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services;
 using CSScriptLib;
 using Microsoft.EntityFrameworkCore;
 
@@ -55,7 +58,7 @@ namespace BlazorDataOrchestrator.Core
             _jobQueueClient.CreateIfNotExists();
 
             var blobServiceClient = new BlobServiceClient(_blobConnectionString);
-            _packageContainerClient = blobServiceClient.GetBlobContainerClient("job-packages");
+            _packageContainerClient = blobServiceClient.GetBlobContainerClient("jobs");
             _packageContainerClient.CreateIfNotExists();
         }
 
@@ -696,6 +699,334 @@ namespace BlazorDataOrchestrator.Core
             else
             {
                 await LogAsync("CompleteJobInstance", $"Instance {jobInstanceId} not found", "Warning");
+            }
+        }
+
+        // #8 Upload Job Package
+        /// <summary>
+        /// Uploads a NuGet package for a job to Azure Blob Storage.
+        /// Updates the Job.JobCodeFile with the unique blob name.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="fileStream">The file stream to upload</param>
+        /// <param name="fileName">The original filename</param>
+        /// <returns>The unique blob name stored in Job.JobCodeFile</returns>
+        public async Task<string> UploadJobPackageAsync(int jobId, Stream fileStream, string fileName)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("UploadJobPackage", $"Uploading package for Job {jobId}: {fileName}", jobId: jobId);
+
+            var job = await context.Jobs.FirstOrDefaultAsync(j => j.Id == jobId);
+            if (job == null)
+            {
+                throw new ArgumentException($"Job {jobId} not found.");
+            }
+
+            // Delete existing package if present
+            if (!string.IsNullOrEmpty(job.JobCodeFile))
+            {
+                var existingBlob = _packageContainerClient.GetBlobClient(job.JobCodeFile);
+                await existingBlob.DeleteIfExistsAsync();
+                await LogAsync("UploadJobPackage", $"Deleted existing package: {job.JobCodeFile}", jobId: jobId);
+            }
+
+            // Generate unique filename: {JobId}_{Guid}_{timestamp}.nupkg
+            var extension = Path.GetExtension(fileName);
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = ".nupkg";
+            }
+
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            var uniqueName = $"{jobId}_{Guid.NewGuid():N}_{timestamp}{extension}";
+
+            // Upload to blob
+            var blobClient = _packageContainerClient.GetBlobClient(uniqueName);
+            
+            // Reset stream position if possible
+            if (fileStream.CanSeek)
+            {
+                fileStream.Position = 0;
+            }
+
+            await blobClient.UploadAsync(fileStream, new Azure.Storage.Blobs.Models.BlobHttpHeaders
+            {
+                ContentType = "application/octet-stream"
+            });
+
+            // Update job record
+            job.JobCodeFile = uniqueName;
+            job.UpdatedDate = DateTime.UtcNow;
+            job.UpdatedBy = "System";
+            await context.SaveChangesAsync();
+
+            await LogAsync("UploadJobPackage", $"Package uploaded: {uniqueName}", jobId: jobId);
+            return uniqueName;
+        }
+
+        // #9 Run Job Now
+        /// <summary>
+        /// Triggers immediate execution of a job by creating a JobInstance and sending a queue message.
+        /// </summary>
+        /// <param name="jobId">The job ID to run</param>
+        /// <returns>The created JobInstance ID</returns>
+        public async Task<int> RunJobNowAsync(int jobId)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("RunJobNow", $"Triggering immediate run for Job {jobId}", jobId: jobId);
+
+            var job = await context.Jobs
+                .Include(j => j.JobSchedules)
+                .FirstOrDefaultAsync(j => j.Id == jobId);
+
+            if (job == null)
+            {
+                throw new ArgumentException($"Job {jobId} not found.");
+            }
+
+            // Get or create a schedule
+            var schedule = job.JobSchedules.FirstOrDefault();
+            if (schedule == null)
+            {
+                // Create a default "Run Now" schedule
+                schedule = new JobSchedule
+                {
+                    JobId = jobId,
+                    ScheduleName = "RunNow",
+                    Enabled = false, // Not a recurring schedule
+                    InProcess = false,
+                    HadError = false,
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "System"
+                };
+                context.JobSchedules.Add(schedule);
+                await context.SaveChangesAsync();
+                await LogAsync("RunJobNow", $"Created default schedule for Job {jobId}", jobId: jobId);
+            }
+
+            // Create JobInstance
+            var instance = new JobInstance
+            {
+                JobScheduleId = schedule.Id,
+                InProcess = false, // Will be set to true when agent picks it up
+                HasError = false,
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "System"
+            };
+            context.JobInstances.Add(instance);
+            await context.SaveChangesAsync();
+
+            await LogAsync("RunJobNow", $"Created JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Create and send queue message
+            var queueMessage = new JobQueueMessage
+            {
+                JobInstanceId = instance.Id,
+                JobId = jobId,
+                QueuedAt = DateTime.UtcNow
+            };
+
+            var messageJson = JsonSerializer.Serialize(queueMessage);
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
+            var base64Message = Convert.ToBase64String(messageBytes);
+
+            await _jobQueueClient.SendMessageAsync(base64Message);
+
+            await LogAsync("RunJobNow", $"Queue message sent for JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+            return instance.Id;
+        }
+
+        // #10 Process Job Instance (called by Agent)
+        /// <summary>
+        /// Processes a job instance: downloads package, validates, executes code, logs results.
+        /// This is the main entry point called by the Agent worker.
+        /// </summary>
+        /// <param name="jobInstanceId">The job instance ID to process</param>
+        /// <param name="packageProcessor">The package processor service</param>
+        /// <param name="codeExecutor">The code executor service</param>
+        /// <param name="agentId">Optional agent identifier</param>
+        public async Task ProcessJobInstanceAsync(
+            int jobInstanceId,
+            PackageProcessorService packageProcessor,
+            CodeExecutorService codeExecutor,
+            string? agentId = null)
+        {
+            using var context = CreateDbContext();
+            await LogAsync("ProcessJobInstance", $"Processing JobInstance {jobInstanceId}", jobInstanceId: jobInstanceId);
+
+            var instance = await context.JobInstances
+                .Include(i => i.JobSchedule)
+                .ThenInclude(s => s.Job)
+                .FirstOrDefaultAsync(i => i.Id == jobInstanceId);
+
+            if (instance == null)
+            {
+                await LogAsync("ProcessJobInstance", $"JobInstance {jobInstanceId} not found", "Error", jobInstanceId: jobInstanceId);
+                return;
+            }
+
+            var job = instance.JobSchedule?.Job;
+            if (job == null)
+            {
+                await LogAsync("ProcessJobInstance", $"Job not found for JobInstance {jobInstanceId}", "Error", jobInstanceId: jobInstanceId);
+                return;
+            }
+
+            var jobId = job.Id;
+            await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId})", jobId: jobId, jobInstanceId: jobInstanceId);
+
+            // Mark as in process
+            instance.InProcess = true;
+            instance.AgentId = agentId;
+            await context.SaveChangesAsync();
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "BlazorDataOrchestrator", Guid.NewGuid().ToString());
+
+            try
+            {
+                // Check if job has a package
+                if (string.IsNullOrEmpty(job.JobCodeFile))
+                {
+                    throw new InvalidOperationException($"Job {jobId} has no code package uploaded.");
+                }
+
+                await LogAsync("ProcessJobInstance", $"Downloading package: {job.JobCodeFile}", jobId: jobId, jobInstanceId: jobInstanceId);
+
+                // Download and extract package
+                var downloaded = await packageProcessor.DownloadAndExtractPackageAsync(job.JobCodeFile, tempDir);
+                if (!downloaded)
+                {
+                    throw new FileNotFoundException($"Package {job.JobCodeFile} not found in blob storage.");
+                }
+
+                await LogAsync("ProcessJobInstance", $"Package extracted to {tempDir}", jobId: jobId, jobInstanceId: jobInstanceId);
+
+                // Validate package structure
+                var validation = await packageProcessor.ValidateNuSpecAsync(tempDir);
+                if (!validation.IsValid)
+                {
+                    var errors = string.Join("; ", validation.Errors);
+                    throw new InvalidOperationException($"Package validation failed: {errors}");
+                }
+
+                foreach (var warning in validation.Warnings)
+                {
+                    await LogAsync("ProcessJobInstance", $"Warning: {warning}", "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
+                }
+
+                // Get configuration
+                var config = await packageProcessor.GetConfigurationAsync(tempDir);
+                await LogAsync("ProcessJobInstance", $"Selected language: {config.SelectedLanguage}", jobId: jobId, jobInstanceId: jobInstanceId);
+
+                // Build app settings JSON with connection strings
+                var appSettings = new
+                {
+                    ConnectionStrings = new Dictionary<string, string>
+                    {
+                        { "blazororchestratordb", _sqlConnectionString },
+                        { "tables", _tableConnectionString }
+                    }
+                };
+                var appSettingsJson = JsonSerializer.Serialize(appSettings);
+
+                // Create execution context
+                var executionContext = new JobExecutionContext
+                {
+                    JobId = jobId,
+                    JobInstanceId = jobInstanceId,
+                    JobScheduleId = instance.JobScheduleId,
+                    SelectedLanguage = config.SelectedLanguage,
+                    AppSettingsJson = appSettingsJson,
+                    SqlConnectionString = _sqlConnectionString,
+                    TableConnectionString = _tableConnectionString,
+                    AgentId = agentId
+                };
+
+                // Execute code
+                await LogAsync("ProcessJobInstance", "Starting code execution...", jobId: jobId, jobInstanceId: jobInstanceId);
+                var result = await codeExecutor.ExecuteAsync(tempDir, executionContext);
+
+                // Log execution results
+                foreach (var log in result.Logs)
+                {
+                    await LogAsync("JobExecution", log, jobId: jobId, jobInstanceId: jobInstanceId);
+                }
+
+                if (result.Success)
+                {
+                    await LogAsync("ProcessJobInstance", $"Job completed successfully in {result.Duration.TotalSeconds:F2} seconds", jobId: jobId, jobInstanceId: jobInstanceId);
+                    instance.HasError = false;
+                }
+                else
+                {
+                    await LogAsync("ProcessJobInstance", $"Job failed: {result.ErrorMessage}", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+                    if (!string.IsNullOrEmpty(result.StackTrace))
+                    {
+                        await LogAsync("ProcessJobInstance", $"Stack trace: {result.StackTrace}", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+                    }
+                    instance.HasError = true;
+                }
+
+                instance.InProcess = false;
+                instance.UpdatedDate = DateTime.UtcNow;
+                instance.UpdatedBy = agentId ?? "Agent";
+                await context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                await LogAsync("ProcessJobInstance", $"Error: {ex.Message}", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+                
+                instance.InProcess = false;
+                instance.HasError = true;
+                instance.UpdatedDate = DateTime.UtcNow;
+                instance.UpdatedBy = agentId ?? "Agent";
+                await context.SaveChangesAsync();
+
+                throw; // Re-throw so caller can handle
+            }
+            finally
+            {
+                // Clean up temp directory
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        // #11 Get Job Details
+        /// <summary>
+        /// Gets a job with its schedules and parameters.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <returns>The job with related data, or null if not found</returns>
+        public async Task<Job?> GetJobAsync(int jobId)
+        {
+            using var context = CreateDbContext();
+            return await context.Jobs
+                .Include(j => j.JobSchedules)
+                .Include(j => j.JobData)
+                .Include(j => j.JobOrganization)
+                .FirstOrDefaultAsync(j => j.Id == jobId);
+        }
+
+        // #12 Update Job Code File
+        /// <summary>
+        /// Updates just the JobCodeFile field for a job.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="codeFileName">The new code file name (blob name)</param>
+        public async Task UpdateJobCodeFileAsync(int jobId, string codeFileName)
+        {
+            using var context = CreateDbContext();
+            var job = await context.Jobs.FirstOrDefaultAsync(j => j.Id == jobId);
+            if (job != null)
+            {
+                job.JobCodeFile = codeFileName;
+                job.UpdatedDate = DateTime.UtcNow;
+                job.UpdatedBy = "System";
+                await context.SaveChangesAsync();
+                await LogAsync("UpdateJobCodeFile", $"Updated JobCodeFile to {codeFileName}", jobId: jobId);
             }
         }
     }
