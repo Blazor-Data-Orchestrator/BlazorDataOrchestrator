@@ -71,6 +71,10 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[JobQueue]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[Jobs]",
          "ObjectType": 0
       },

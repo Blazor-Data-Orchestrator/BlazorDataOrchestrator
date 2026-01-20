@@ -10,6 +10,8 @@ using Radzen.Blazor;
 using Microsoft.AspNetCore.Hosting;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using RadzenChatMessage = Radzen.Blazor.ChatMessage;
+using BlazorDataOrchestrator.Core.Services;
+using BlazorDataOrchestrator.Core.Models;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 

@@ -19,4 +19,22 @@ public class JobQueueMessage
     /// The timestamp when the message was queued.
     /// </summary>
     public DateTime QueuedAt { get; set; }
+
+    /// <summary>
+    /// The environment the job should run in (e.g., Production, Staging, Development).
+    /// Used to determine which appsettings file to load from the NuGet package.
+    /// </summary>
+    public string? JobEnvironment { get; set; }
+
+    /// <summary>
+    /// The name of the queue this message was sent to.
+    /// Used by agents to verify they are processing the correct queue.
+    /// </summary>
+    public string? JobQueueName { get; set; }
+
+    /// <summary>
+    /// Optional webhook parameters passed when the job is triggered via webhook.
+    /// Contains the query string or request body from the webhook call.
+    /// </summary>
+    public string? WebhookParameters { get; set; }
 }

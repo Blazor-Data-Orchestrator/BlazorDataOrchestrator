@@ -25,6 +25,13 @@ public partial class Job
 
     public string JobCodeFile { get; set; }
 
+    /// <summary>
+    /// Optional FK to JobQueue for routing job execution to a specific Azure Queue.
+    /// </summary>
+    public int? JobQueue { get; set; }
+
+    public string WebhookGuid { get; set; }
+
     public DateTime CreatedDate { get; set; }
 
     public string CreatedBy { get; set; }
@@ -38,6 +45,11 @@ public partial class Job
     public virtual ICollection<JobJobGroup> JobJobGroups { get; set; } = new List<JobJobGroup>();
 
     public virtual JobOrganization JobOrganization { get; set; }
+
+    /// <summary>
+    /// The queue configuration for this job (optional).
+    /// </summary>
+    public virtual JobQueue JobQueueNavigation { get; set; }
 
     public virtual ICollection<JobSchedule> JobSchedules { get; set; } = new List<JobSchedule>();
 }

@@ -39,6 +39,8 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<JobOrganizationsAspNetUser> JobOrganizationsAspNetUsers { get; set; }
 
+    public virtual DbSet<JobQueue> JobQueues { get; set; }
+
     public virtual DbSet<JobSchedule> JobSchedules { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -129,11 +131,18 @@ public partial class ApplicationDbContext : DbContext
                 .HasMaxLength(250);
             entity.Property(e => e.UpdatedBy).HasMaxLength(500);
             entity.Property(e => e.UpdatedDate).HasColumnType("datetime");
+            entity.Property(e => e.WebhookGuid)
+                .HasMaxLength(500)
+                .HasColumnName("WebhookGUID");
 
             entity.HasOne(d => d.JobOrganization).WithMany(p => p.Jobs)
                 .HasForeignKey(d => d.JobOrganizationId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Jobs_JobOrganizations");
+
+            entity.HasOne(d => d.JobQueueNavigation).WithMany(p => p.Jobs)
+                .HasForeignKey(d => d.JobQueue)
+                .HasConstraintName("FK_Jobs_JobQueue");
         });
 
         modelBuilder.Entity<JobDatum>(entity =>
@@ -239,6 +248,19 @@ public partial class ApplicationDbContext : DbContext
             entity.HasOne(d => d.Organization).WithMany(p => p.JobOrganizationsAspNetUsers)
                 .HasForeignKey(d => d.OrganizationId)
                 .HasConstraintName("FK_JobOrganizations_AspNetUsers_JobOrganizations");
+        });
+
+        modelBuilder.Entity<JobQueue>(entity =>
+        {
+            entity.ToTable("JobQueue");
+
+            entity.Property(e => e.CreatedBy)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(e => e.CreatedDate).HasColumnType("datetime");
+            entity.Property(e => e.QueueName)
+                .IsRequired()
+                .HasMaxLength(250);
         });
 
         modelBuilder.Entity<JobSchedule>(entity =>

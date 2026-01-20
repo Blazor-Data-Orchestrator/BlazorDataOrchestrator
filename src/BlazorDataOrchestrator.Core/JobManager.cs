@@ -54,7 +54,7 @@ namespace BlazorDataOrchestrator.Core
             _logTableClient.CreateIfNotExists();
 
             var queueServiceClient = new QueueServiceClient(_queueConnectionString);
-            _jobQueueClient = queueServiceClient.GetQueueClient("job-queue");
+            _jobQueueClient = queueServiceClient.GetQueueClient("default");
             _jobQueueClient.CreateIfNotExists();
 
             var blobServiceClient = new BlobServiceClient(_blobConnectionString);
@@ -183,6 +183,46 @@ namespace BlazorDataOrchestrator.Core
                 return new List<JobLogEntry>();
             }
             return await GetLogsForJobInstanceAsync(jobId, latestInstanceId.Value, maxResults);
+        }
+
+        /// <summary>
+        /// Gets all logs for a job across all its instances from Azure Table Storage.
+        /// Partition keys follow the format {JobId}-{JobInstanceId}.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <param name="maxResults">Maximum number of results to return (default 500)</param>
+        /// <returns>List of log entries sorted by timestamp descending</returns>
+        public async Task<List<JobLogEntry>> GetAllLogsForJobAsync(int jobId, int maxResults = 500)
+        {
+            var allLogs = new List<JobLogEntry>();
+            try
+            {
+                // Query for all partition keys that start with the jobId
+                // This will match {JobId}-0, {JobId}-1, {JobId}-{anyInstanceId}, etc.
+                var queryResults = _logTableClient.QueryAsync<TableEntity>(
+                    filter: $"JobId eq {jobId}",
+                    maxPerPage: maxResults);
+
+                await foreach (var entity in queryResults)
+                {
+                    allLogs.Add(new JobLogEntry
+                    {
+                        PartitionKey = entity.PartitionKey,
+                        RowKey = entity.RowKey,
+                        Action = entity.GetString("Action"),
+                        Details = entity.GetString("Details"),
+                        Level = entity.GetString("Level"),
+                        Timestamp = entity.GetDateTime("Timestamp") ?? DateTime.UtcNow,
+                        JobId = entity.GetInt32("JobId") ?? 0,
+                        JobInstanceId = entity.GetInt32("JobInstanceId") ?? 0
+                    });
+                }
+            }
+            catch
+            {
+                // Return empty list on error
+            }
+            return allLogs.OrderByDescending(l => l.Timestamp).Take(maxResults).ToList();
         }
 
         // #1 Create New Job
@@ -645,18 +685,18 @@ namespace BlazorDataOrchestrator.Core
             }
 
             // 2. Ensure Schedule exists
-            var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "Designer");
+            var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "RunNow");
             if (schedule == null)
             {
                 schedule = new JobSchedule
                 {
                     JobId = job.Id,
-                    ScheduleName = "Designer",
-                    Enabled = false,
+                    ScheduleName = "RunNow",
+                    Enabled = false, // Not a recurring schedule
                     InProcess = false,
                     HadError = false,
                     CreatedDate = DateTime.UtcNow,
-                    CreatedBy = "Designer"
+                    CreatedBy = "System"
                 };
                 context.JobSchedules.Add(schedule);
                 await context.SaveChangesAsync();
@@ -767,6 +807,7 @@ namespace BlazorDataOrchestrator.Core
         // #9 Run Job Now
         /// <summary>
         /// Triggers immediate execution of a job by creating a JobInstance and sending a queue message.
+        /// Dynamically routes to the appropriate Azure Queue based on job configuration.
         /// </summary>
         /// <param name="jobId">The job ID to run</param>
         /// <returns>The created JobInstance ID</returns>
@@ -777,6 +818,7 @@ namespace BlazorDataOrchestrator.Core
 
             var job = await context.Jobs
                 .Include(j => j.JobSchedules)
+                .Include(j => j.JobQueueNavigation)
                 .FirstOrDefaultAsync(j => j.Id == jobId);
 
             if (job == null)
@@ -785,7 +827,7 @@ namespace BlazorDataOrchestrator.Core
             }
 
             // Get or create a schedule
-            var schedule = job.JobSchedules.FirstOrDefault();
+            var schedule = job.JobSchedules.Where(x => x.ScheduleName == "RunNow").FirstOrDefault();
             if (schedule == null)
             {
                 // Create a default "Run Now" schedule
@@ -818,21 +860,128 @@ namespace BlazorDataOrchestrator.Core
 
             await LogAsync("RunJobNow", $"Created JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
 
-            // Create and send queue message
+            // Determine target queue name
+            var targetQueueName = job.JobQueueNavigation?.QueueName ?? "default";
+            await LogAsync("RunJobNow", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Get or create the target queue client
+            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
+            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            await targetQueueClient.CreateIfNotExistsAsync();
+
+            // Create and send queue message with environment and queue name
             var queueMessage = new JobQueueMessage
             {
                 JobInstanceId = instance.Id,
                 JobId = jobId,
-                QueuedAt = DateTime.UtcNow
+                QueuedAt = DateTime.UtcNow,
+                JobEnvironment = job.JobEnvironment,
+                JobQueueName = targetQueueName
             };
 
             var messageJson = JsonSerializer.Serialize(queueMessage);
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
             var base64Message = Convert.ToBase64String(messageBytes);
 
-            await _jobQueueClient.SendMessageAsync(base64Message);
+            await targetQueueClient.SendMessageAsync(base64Message);
 
-            await LogAsync("RunJobNow", $"Queue message sent for JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+            await LogAsync("RunJobNow", $"Queue message sent to '{targetQueueName}' for JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+            return instance.Id;
+        }
+
+        /// <summary>
+        /// Triggers immediate execution of a job via webhook, passing webhook parameters to the queue message.
+        /// Dynamically routes to the appropriate Azure Queue based on job configuration.
+        /// </summary>
+        /// <param name="jobId">The job ID to run</param>
+        /// <param name="webhookParameters">Optional parameters passed via webhook query string or body</param>
+        /// <returns>The created JobInstance ID</returns>
+        public async Task<int> RunJobNowWithWebhookAsync(int jobId, string? webhookParameters)
+        {
+            // Update webhookParameters to remove "webAPIParameter="
+            if (!string.IsNullOrEmpty(webhookParameters) && webhookParameters.StartsWith("webAPIParameter="))
+            {
+                webhookParameters = Uri.UnescapeDataString(webhookParameters.Substring("webAPIParameter=".Length));
+            }
+
+            using var context = CreateDbContext();
+            await LogAsync("WebhookTrigger", $"Webhook triggered for Job {jobId}", jobId: jobId);
+
+            var job = await context.Jobs
+                .Include(j => j.JobSchedules)
+                .Include(j => j.JobQueueNavigation)
+                .FirstOrDefaultAsync(j => j.Id == jobId);
+
+            if (job == null)
+            {
+                throw new InvalidOperationException($"Job {jobId} not found.");
+            }
+
+            if (!job.JobEnabled)
+            {
+                throw new InvalidOperationException($"Job {jobId} is disabled.");
+            }
+
+            // Get or create a schedule for webhook-triggered runs
+            var schedule = job.JobSchedules.Where(x => x.ScheduleName == "RunNow").FirstOrDefault();
+            if (schedule == null)
+            {
+                schedule = new JobSchedule
+                {
+                    JobId = jobId,
+                    ScheduleName = "RunNow",
+                    Enabled = false, // Not a recurring schedule
+                    InProcess = false,
+                    HadError = false,
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "System"
+                };
+                context.JobSchedules.Add(schedule);
+                await context.SaveChangesAsync();
+                await LogAsync("WebhookTrigger", $"Created webhook schedule for Job {jobId}", jobId: jobId);
+            }
+
+            // Create JobInstance
+            var instance = new JobInstance
+            {
+                JobScheduleId = schedule.Id,
+                InProcess = false,
+                HasError = false,
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "Webhook"
+            };
+            context.JobInstances.Add(instance);
+            await context.SaveChangesAsync();
+
+            await LogAsync("WebhookTrigger", $"Created JobInstance {instance.Id}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Determine target queue name
+            var targetQueueName = job.JobQueueNavigation?.QueueName ?? "default";
+            await LogAsync("WebhookTrigger", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
+
+            // Get or create the target queue client
+            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
+            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            await targetQueueClient.CreateIfNotExistsAsync();
+
+            // Create and send queue message with webhook parameters
+            var queueMessage = new JobQueueMessage
+            {
+                JobInstanceId = instance.Id,
+                JobId = jobId,
+                QueuedAt = DateTime.UtcNow,
+                JobEnvironment = job.JobEnvironment,
+                JobQueueName = targetQueueName,
+                WebhookParameters = webhookParameters
+            };
+
+            var messageJson = JsonSerializer.Serialize(queueMessage);
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
+            var base64Message = Convert.ToBase64String(messageBytes);
+
+            await targetQueueClient.SendMessageAsync(base64Message);
+
+            await LogAsync("WebhookTrigger", $"Queue message sent with webhook parameters: {webhookParameters ?? "(none)"}", jobId: jobId, jobInstanceId: instance.Id);
             return instance.Id;
         }
 
@@ -845,11 +994,15 @@ namespace BlazorDataOrchestrator.Core
         /// <param name="packageProcessor">The package processor service</param>
         /// <param name="codeExecutor">The code executor service</param>
         /// <param name="agentId">Optional agent identifier</param>
+        /// <param name="jobEnvironment">Optional environment override from queue message</param>
+        /// <param name="webhookParameters">Optional webhook parameters passed when triggered via webhook</param>
         public async Task ProcessJobInstanceAsync(
             int jobInstanceId,
             PackageProcessorService packageProcessor,
             CodeExecutorService codeExecutor,
-            string? agentId = null)
+            string? agentId = null,
+            string? jobEnvironment = null,
+            string? webhookParameters = null)
         {
             using var context = CreateDbContext();
             await LogAsync("ProcessJobInstance", $"Processing JobInstance {jobInstanceId}", jobInstanceId: jobInstanceId);
@@ -873,7 +1026,9 @@ namespace BlazorDataOrchestrator.Core
             }
 
             var jobId = job.Id;
-            await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId})", jobId: jobId, jobInstanceId: jobInstanceId);
+            // Use the environment from queue message, or fall back to job configuration
+            var effectiveEnvironment = jobEnvironment ?? job.JobEnvironment ?? "Development";
+            await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId}) with Environment: {effectiveEnvironment}", jobId: jobId, jobInstanceId: jobInstanceId);
 
             // Mark as in process
             instance.InProcess = true;
@@ -918,16 +1073,17 @@ namespace BlazorDataOrchestrator.Core
                 var config = await packageProcessor.GetConfigurationAsync(tempDir);
                 await LogAsync("ProcessJobInstance", $"Selected language: {config.SelectedLanguage}", jobId: jobId, jobInstanceId: jobInstanceId);
 
-                // Build app settings JSON with connection strings
-                var appSettings = new
+                // Read appsettings from the package based on environment
+                var appSettingsJson = await ReadPackagedAppSettingsAsync(tempDir, effectiveEnvironment, jobId, jobInstanceId);
+
+                // Merge/override connection strings with agent-configured values
+                appSettingsJson = MergeConnectionStrings(appSettingsJson, _sqlConnectionString, _tableConnectionString);
+
+                // Log webhook parameters if present
+                if (!string.IsNullOrEmpty(webhookParameters))
                 {
-                    ConnectionStrings = new Dictionary<string, string>
-                    {
-                        { "blazororchestratordb", _sqlConnectionString },
-                        { "tables", _tableConnectionString }
-                    }
-                };
-                var appSettingsJson = JsonSerializer.Serialize(appSettings);
+                    await LogAsync("ProcessJobInstance", $"Webhook parameters: {webhookParameters}", jobId: jobId, jobInstanceId: jobInstanceId);
+                }
 
                 // Create execution context
                 var executionContext = new JobExecutionContext
@@ -939,7 +1095,9 @@ namespace BlazorDataOrchestrator.Core
                     AppSettingsJson = appSettingsJson,
                     SqlConnectionString = _sqlConnectionString,
                     TableConnectionString = _tableConnectionString,
-                    AgentId = agentId
+                    AgentId = agentId,
+                    Environment = effectiveEnvironment,
+                    WebAPIParameter = webhookParameters ?? string.Empty
                 };
 
                 // Execute code
@@ -1027,6 +1185,134 @@ namespace BlazorDataOrchestrator.Core
                 job.UpdatedBy = "System";
                 await context.SaveChangesAsync();
                 await LogAsync("UpdateJobCodeFile", $"Updated JobCodeFile to {codeFileName}", jobId: jobId);
+            }
+        }
+
+        // #13 Read Packaged AppSettings
+        /// <summary>
+        /// Reads the appropriate appsettings file from the extracted NuGet package based on environment.
+        /// Uses naming convention: appsettings{Environment}.json (e.g., appsettingsProduction.json)
+        /// Falls back to appsettings.json if environment-specific file is not found.
+        /// </summary>
+        /// <param name="tempDir">The temporary directory where the package was extracted</param>
+        /// <param name="environment">The target environment (Production, Staging, Development)</param>
+        /// <param name="jobId">The job ID for logging</param>
+        /// <param name="jobInstanceId">The job instance ID for logging</param>
+        /// <returns>The appsettings JSON content, or "{}" if no file is found</returns>
+        private async Task<string> ReadPackagedAppSettingsAsync(string tempDir, string environment, int jobId, int jobInstanceId)
+        {
+            // Determine the environment-specific file name
+            var environmentFileName = environment?.ToLower() switch
+            {
+                "production" => "appsettingsProduction.json",
+                "staging" => "appsettingsStaging.json",
+                _ => "appsettings.json" // Development, Local, or any other
+            };
+
+            // Search for the environment-specific file in the package
+            var environmentFiles = Directory.GetFiles(tempDir, environmentFileName, SearchOption.AllDirectories);
+            
+            if (environmentFiles.Length > 0)
+            {
+                var filePath = environmentFiles[0];
+                await LogAsync("ProcessJobInstance", $"Found environment-specific appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
+                return await File.ReadAllTextAsync(filePath);
+            }
+
+            // Fall back to appsettings.json if environment-specific file not found
+            if (environmentFileName != "appsettings.json")
+            {
+                await LogAsync("ProcessJobInstance", $"Environment-specific file '{environmentFileName}' not found, falling back to appsettings.json", "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
+            }
+
+            var fallbackFiles = Directory.GetFiles(tempDir, "appsettings.json", SearchOption.AllDirectories);
+            
+            if (fallbackFiles.Length > 0)
+            {
+                var filePath = fallbackFiles[0];
+                await LogAsync("ProcessJobInstance", $"Using fallback appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
+                return await File.ReadAllTextAsync(filePath);
+            }
+
+            // No appsettings file found - this is an error condition
+            await LogAsync("ProcessJobInstance", "No appsettings.json file found in the package. Job execution will proceed with default configuration.", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+            
+            // Return empty JSON object with just connection strings placeholder
+            return "{}";
+        }
+
+        // #14 Merge Connection Strings
+        /// <summary>
+        /// Merges the agent-configured connection strings into the packaged appsettings JSON.
+        /// Agent connection strings override any values from the package.
+        /// </summary>
+        /// <param name="appSettingsJson">The original appsettings JSON from the package</param>
+        /// <param name="sqlConnectionString">The agent's SQL connection string</param>
+        /// <param name="tableConnectionString">The agent's Table Storage connection string</param>
+        /// <returns>The merged appsettings JSON with updated connection strings</returns>
+        private string MergeConnectionStrings(string appSettingsJson, string sqlConnectionString, string tableConnectionString)
+        {
+            try
+            {
+                // Parse the existing JSON
+                var jsonDoc = JsonDocument.Parse(appSettingsJson);
+                var root = jsonDoc.RootElement;
+
+                // Create a dictionary to hold the merged configuration
+                var config = new Dictionary<string, object>();
+
+                // Copy existing properties
+                foreach (var property in root.EnumerateObject())
+                {
+                    if (property.Name == "ConnectionStrings")
+                    {
+                        // Get existing connection strings and merge with agent values
+                        var connectionStrings = new Dictionary<string, string>();
+                        
+                        if (property.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var cs in property.Value.EnumerateObject())
+                            {
+                                connectionStrings[cs.Name] = cs.Value.GetString() ?? "";
+                            }
+                        }
+
+                        // Override with agent connection strings
+                        connectionStrings["blazororchestratordb"] = sqlConnectionString;
+                        connectionStrings["tables"] = tableConnectionString;
+                        
+                        config["ConnectionStrings"] = connectionStrings;
+                    }
+                    else
+                    {
+                        // Copy other properties as raw JSON
+                        config[property.Name] = JsonSerializer.Deserialize<object>(property.Value.GetRawText())!;
+                    }
+                }
+
+                // Ensure ConnectionStrings section exists even if not in original
+                if (!config.ContainsKey("ConnectionStrings"))
+                {
+                    config["ConnectionStrings"] = new Dictionary<string, string>
+                    {
+                        { "blazororchestratordb", sqlConnectionString },
+                        { "tables", tableConnectionString }
+                    };
+                }
+
+                return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = false });
+            }
+            catch (JsonException)
+            {
+                // If JSON parsing fails, return a basic config with connection strings
+                return JsonSerializer.Serialize(new
+                {
+                    ConnectionStrings = new Dictionary<string, string>
+                    {
+                        { "blazororchestratordb", sqlConnectionString },
+                        { "tables", tableConnectionString }
+                    }
+                });
             }
         }
     }

@@ -27,6 +27,18 @@ public class JobGroupService
     }
 
     /// <summary>
+    /// Gets all job groups with their job associations loaded.
+    /// </summary>
+    public async Task<List<JobGroup>> GetJobGroupsWithJobsAsync()
+    {
+        return await _dbContext.JobGroups
+            .Include(g => g.JobJobGroups)
+                .ThenInclude(jjg => jjg.Job)
+            .OrderBy(g => g.JobGroupName)
+            .ToListAsync();
+    }
+
+    /// <summary>
     /// Gets only active job groups (for filtering and selection purposes).
     /// </summary>
     public async Task<List<JobGroup>> GetActiveJobGroupsAsync()

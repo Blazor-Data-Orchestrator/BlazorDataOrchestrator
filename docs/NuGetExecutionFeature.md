@@ -83,7 +83,7 @@ public class JobQueueMessage
 - Creates a default `JobSchedule` (if none exists) or uses first existing schedule
 - Creates new `JobInstance` record with `InProcess = false`
 - Serializes queue message with `JobInstanceId`
-- Sends message to Azure Queue Storage (`job-queue`)
+- Sends message to Azure Queue Storage (`default`)
 - Returns the created `JobInstanceId`
 
 ### 2.3 Update JobDetails.razor - Run Now Button

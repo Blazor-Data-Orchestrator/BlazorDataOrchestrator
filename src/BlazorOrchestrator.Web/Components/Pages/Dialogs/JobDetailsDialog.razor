@@ -6,9 +6,14 @@
 @using Radzen.Blazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
+@inject JobQueueService JobQueueService
 @inject JobManager JobManager
+@inject WebhookService WebhookService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
+@inject TimeDisplayService TimeDisplayService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 
 @if (IsLoading)
 {
@@ -36,35 +41,43 @@ else
                 <RadzenTabsItem Text="Details" Icon="info">
                     @* Details Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                      Size="ButtonSize.Small" Style="align-self: flex-start;" 
-                                      Click="@RunJobNow" Disabled="@IsRunningJob" />
+                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                            <RadzenButton Text="@(IsRunningJob ? "Running..." : "Run Job Now")" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
+                                          Size="ButtonSize.Small" Click="@RunJobNow" Disabled="@IsRunningJob" />
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
+                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                            </RadzenStack>
+                        </RadzenStack>
 
                         <RadzenStack Gap="1rem">
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
-                                    <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
-                                    <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
-                                </RadzenStack>
+                            <RadzenStack Gap="0.5rem" Style="max-width: 400px;">
+                                <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
+                                <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
+                            </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Environment" Component="Environment" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@Job.JobEnvironment" Data="@Environments" 
                                                     Name="Environment" Style="width: 100%;" />
                                 </RadzenStack>
 
-                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 200px;">
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Job Group" Component="JobGroup" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@selectedJobGroupId" Data="@AvailableJobGroups" 
                                                     TextProperty="JobGroupName" ValueProperty="Id"
                                                     AllowClear="true" Placeholder="Select a job group..."
                                                     Name="JobGroup" Style="width: 100%;" />
                                 </RadzenStack>
-                            </RadzenStack>
 
-                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
-                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                                <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
+                                    <RadzenLabel Text="Job Queue" Component="JobQueue" Style="font-weight: 500;" />
+                                    <RadzenDropDown @bind-Value="@Job.JobQueue" Data="@AvailableJobQueues" 
+                                                    TextProperty="QueueName" ValueProperty="Id"
+                                                    AllowClear="true" Placeholder="Select ..."
+                                                    Name="JobQueue" Style="width: 100%;" />
+                                </RadzenStack>
                             </RadzenStack>
                         </RadzenStack>
                     </RadzenStack>
@@ -78,7 +91,7 @@ else
 
                         <RadzenDataGrid @ref="ScheduleGrid" Data="@Schedules" TItem="JobSchedule" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobSchedule" Width="60px" Title="">
                                     <Template Context="schedule">
@@ -87,17 +100,17 @@ else
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobSchedule" Property="ScheduleName" Title="Schedule Name" />
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="80px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="Enabled" Title="Enabled" Width="100px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.Enabled" Disabled="true" />
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Once" Width="80px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Title="Run Every Hour" Width="200px">
                                     <Template Context="schedule">
                                         <RadzenText>@(schedule.RunEveryHour == null ? "True" : "False")</RadzenText>
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="90px">
+                                <RadzenDataGridColumn TItem="JobSchedule" Property="InProcess" Title="In Process" Width="150px">
                                     <Template Context="schedule">
                                         <RadzenCheckBox Value="@schedule.InProcess" Disabled="true" />
                                     </Template>
@@ -115,7 +128,7 @@ else
 
                         <RadzenDataGrid @ref="ParameterGrid" Data="@Parameters" TItem="JobDatum" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobDatum" Width="80px" Title="">
                                     <Template Context="param">
@@ -132,7 +145,7 @@ else
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobIntValue" Title="Int Value" Width="80px" />
                                 <RadzenDataGridColumn TItem="JobDatum" Property="JobDateValue" Title="Date Value" Width="120px">
                                     <Template Context="param">
-                                        @(param.JobDateValue?.ToString("g") ?? "-")
+                                        @TimeDisplayService.FormatDateTime(param.JobDateValue)
                                     </Template>
                                 </RadzenDataGridColumn>
                             </Columns>
@@ -143,24 +156,73 @@ else
                 <RadzenTabsItem Text="Logs" Icon="list_alt">
                     @* Logs Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Secondary" 
+                                      Size="ButtonSize.Small" Click="@RefreshLogs" Style="align-self: flex-end;" />
                         <RadzenDataGrid @ref="LogsGrid" Data="@Logs" TItem="LogEntry" 
-                                        AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
-                                        AllowSorting="true" Style="height: auto;" Density="Density.Compact">
+                                        AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Id" Title="Id" Width="60px" />
-                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="80px">
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
                                     <Template Context="log">
                                         <RadzenBadge BadgeStyle="@GetLogLevelStyle(log.Level)" Text="@log.Level" />
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="LogEntry" Property="CreatedDate" Title="Created Date" Width="150px">
                                     <Template Context="log">
-                                        @log.CreatedDate.ToString("g")
+                                        @TimeDisplayService.FormatDateTime(log.CreatedDate)
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="LogEntry" Property="Message" Title="Message" />
                             </Columns>
                         </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="Webhook" Icon="link">
+                    @* Webhook Tab Content *@
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" AlignItems="AlignItems.Center">
+                            <RadzenLabel Text="Enable Webhook" Style="font-weight: 500;" />
+                            <RadzenSwitch Value="@IsWebhookEnabled" Change="@OnWebhookToggle" />
+                        </RadzenStack>
+
+                        @if (IsWebhookEnabled && !string.IsNullOrEmpty(Job.WebhookGuid))
+                        {
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Webhook URL</RadzenText>
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                    <RadzenTextBox Value="@WebhookUrl" ReadOnly="true" Style="width: 100%; font-family: monospace;" />
+                                    <RadzenButton Icon="content_copy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                  Click="@CopyWebhookUrl" title="Copy to clipboard" />
+                                </RadzenStack>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                    Use this URL to trigger the job from external systems. Query parameters will be passed to the job.
+                                </RadzenText>
+                            </RadzenStack>
+
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Example Usage</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="font-family: monospace; background: #f1f5f9; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap;">
+GET @WebhookUrl?webAPIParameter=value
+
+POST @WebhookUrl
+Content-Type: application/json
+{"key": "value"}</RadzenText>
+                            </RadzenStack>
+
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Webhook GUID</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
+                                    @Job.WebhookGuid
+                                </RadzenText>
+                            </RadzenStack>
+                        }
+                        else if (!IsWebhookEnabled)
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                Enable the webhook to generate a unique URL for triggering this job from external systems.
+                            </RadzenAlert>
+                        }
                     </RadzenStack>
                 </RadzenTabsItem>
 
@@ -177,23 +239,13 @@ else
                         <RadzenStack Gap="0.5rem">
                             <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" />
-                                @if (SelectedFile != null)
+                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
+                                @if (IsUploading)
                                 {
-                                    <RadzenText TextStyle="TextStyle.Body2">@SelectedFile.Name</RadzenText>
-                                }
-                                else
-                                {
-                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280;">No file chosen</RadzenText>
+                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
                                 }
                             </RadzenStack>
-                            <RadzenButton Text="Upload nuget package file" Icon="upload" ButtonStyle="ButtonStyle.Primary" 
-                                          Size="ButtonSize.Small" Click="@UploadCodeFile" Disabled="@(SelectedFile == null || IsUploading)" 
-                                          Style="align-self: flex-start;" />
-                            @if (IsUploading)
-                            {
-                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                            }
                         </RadzenStack>
                     </RadzenStack>
                 </RadzenTabsItem>
@@ -234,14 +286,22 @@ else
     private List<JobGroup> AvailableJobGroups { get; set; } = new();
     private int? selectedJobGroupId = null;
 
+    // Job Queues
+    private List<JobQueue> AvailableJobQueues { get; set; } = new();
+
     private bool IsLoading { get; set; } = true;
     private bool IsUploading { get; set; } = false;
+    private bool IsRunningJob { get; set; } = false;
     private int SelectedTabIndex { get; set; } = 0;
     private IBrowserFile? SelectedFile { get; set; }
 
     private RadzenDataGrid<JobSchedule>? ScheduleGrid;
     private RadzenDataGrid<JobDatum>? ParameterGrid;
     private RadzenDataGrid<LogEntry>? LogsGrid;
+
+    // Webhook properties
+    private bool IsWebhookEnabled => !string.IsNullOrEmpty(Job?.WebhookGuid);
+    private string WebhookUrl => $"{NavigationManager.BaseUri}webhook/{Job?.WebhookGuid}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -260,6 +320,9 @@ else
             
             // Load available job groups
             AvailableJobGroups = await JobGroupService.GetActiveJobGroupsAsync();
+            
+            // Load available job queues
+            AvailableJobQueues = await JobQueueService.GetActiveJobQueuesAsync();
             
             if (Job != null)
             {
@@ -285,15 +348,49 @@ else
 
     private async Task LoadLogs()
     {
+        var allLogs = new List<LogEntry>();
+        
         // Load job instances as log entries
         var instances = await JobService.GetJobInstancesAsync(JobId);
-        Logs = instances.Select(i => new LogEntry
+        var instanceLogs = instances.Select(i => new LogEntry
         {
             Id = i.Id,
+            JobInstanceId = i.Id,
             Level = i.HasError ? "Error" : (i.InProcess ? "Info" : "Success"),
             CreatedDate = i.CreatedDate,
-            Message = $"Job instance {i.Id} - Agent: {i.AgentId ?? "N/A"}"
-        }).ToList();
+            Message = $"Job instance {i.Id} - Agent: {i.AgentId ?? "N/A"}",
+            Source = "Instance"
+        });
+        allLogs.AddRange(instanceLogs);
+        
+        // Also load logs from Azure Table Storage (JobLogs table)
+        try
+        {
+            var azureLogs = await JobManager.GetAllLogsForJobAsync(JobId);
+            var tableLogEntries = azureLogs.Select(l => new LogEntry
+            {
+                Id = 0, // Azure table logs don't have an Id in the same sense
+                JobInstanceId = l.JobInstanceId,
+                Level = l.Level ?? "Info",
+                CreatedDate = l.Timestamp,
+                Message = $"[{l.Action}] {l.Details}",
+                Source = "AzureTable"
+            });
+            allLogs.AddRange(tableLogEntries);
+        }
+        catch
+        {
+            // If Azure Table logs fail, still show instance logs
+        }
+        
+        // Sort all logs by date descending
+        Logs = allLogs.OrderByDescending(l => l.CreatedDate).ToList();
+    }
+
+    private async Task RefreshLogs()
+    {
+        await LoadLogs();
+        StateHasChanged();
     }
 
     private async Task SaveJob()
@@ -492,10 +589,13 @@ else
         }
     }
 
-    private void OnFileSelected(InputFileChangeEventArgs e)
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
         SelectedFile = e.File;
-        StateHasChanged();
+        if (SelectedFile != null)
+        {
+            await UploadCodeFile();
+        }
     }
 
     private async Task UploadCodeFile()
@@ -532,8 +632,6 @@ else
             StateHasChanged();
         }
     }
-
-    private bool IsRunningJob { get; set; } = false;
 
     private async Task RunJobNow()
     {
@@ -586,8 +684,79 @@ else
     private class LogEntry
     {
         public int Id { get; set; }
+        public int JobInstanceId { get; set; }
         public string Level { get; set; } = string.Empty;
         public DateTime CreatedDate { get; set; }
         public string Message { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty; // "Instance" or "AzureTable"
+    }
+
+    // Webhook methods
+    private async Task OnWebhookToggle(bool enabled)
+    {
+        if (Job == null) return;
+
+        if (enabled)
+        {
+            // Enable webhook - generate new GUID
+            try
+            {
+                var guid = await WebhookService.EnableWebhookAsync(Job.Id);
+                Job.WebhookGuid = guid;
+                NotificationService.Notify(NotificationSeverity.Success, "Webhook Enabled", 
+                    "A new webhook URL has been generated.");
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                    $"Failed to enable webhook: {ex.Message}");
+            }
+        }
+        else
+        {
+            // Disable webhook - show confirmation if GUID exists
+            if (!string.IsNullOrEmpty(Job.WebhookGuid))
+            {
+                var confirmed = await DialogService.Confirm(
+                    "Are you sure you want to disable the webhook? The unique GUID will be deleted and any integrations using this webhook URL will stop working.",
+                    "Disable Webhook",
+                    new ConfirmOptions 
+                    { 
+                        OkButtonText = "Disable", 
+                        CancelButtonText = "Cancel" 
+                    });
+
+                if (confirmed == true)
+                {
+                    try
+                    {
+                        await WebhookService.DisableWebhookAsync(Job.Id);
+                        Job.WebhookGuid = null;
+                        NotificationService.Notify(NotificationSeverity.Warning, "Webhook Disabled", 
+                            "The webhook has been disabled and the GUID has been deleted.");
+                        StateHasChanged();
+                    }
+                    catch (Exception ex)
+                    {
+                        NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                            $"Failed to disable webhook: {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task CopyWebhookUrl()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", WebhookUrl);
+            NotificationService.Notify(NotificationSeverity.Info, "Copied", "Webhook URL copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to copy: {ex.Message}");
+        }
     }
 }

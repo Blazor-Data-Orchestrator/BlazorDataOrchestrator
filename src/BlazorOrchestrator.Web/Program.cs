@@ -67,6 +67,15 @@ else
 builder.Services.AddScoped<ProjectCreatorService>();
 builder.Services.AddScoped<JobService>();
 builder.Services.AddScoped<JobGroupService>();
+builder.Services.AddScoped<JobQueueService>();
+builder.Services.AddScoped<WebhookService>();
+
+// Add controllers for webhook API
+builder.Services.AddControllers();
+
+// Register settings and display services
+builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddScoped<TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
@@ -118,6 +127,10 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+// Map webhook API controllers
+app.MapControllers();
+
+app.MapDefaultEndpoints();
 // Note: Not using Aspire's MapDefaultEndpoints - this project runs standalone
 // app.MapDefaultEndpoints();
 

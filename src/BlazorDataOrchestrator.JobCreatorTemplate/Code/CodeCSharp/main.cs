@@ -115,8 +115,8 @@ public class BlazorDataOrchestratorJob
             }
 
             // Fetch weather data for webAPIParameter
-            await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
-            colLogs.Add("Fetching weather data for Los Angeles, CA");
+            await JobManager.LogProgress(dbContext, jobInstanceId, $"Fetching weather data for {webAPIParameter}", "Info", tableConnectionString);
+            colLogs.Add($"Fetching weather data for {webAPIParameter}");
 
             // Set up HTTP client                
             using var httpClient = new HttpClient();
