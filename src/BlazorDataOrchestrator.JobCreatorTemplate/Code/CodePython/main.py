@@ -246,16 +246,18 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             except Exception as e:
                 print(f"Warning: Failed to read Last Job Run Time: {e}")
         
-        # Fetch weather data for Los Angeles, CA
-        logger.log_progress("Fetching weather data for Los Angeles, CA")
-        logs.append("Fetching weather data for Los Angeles, CA")
-        
         # Set default weather API parameter
         weather_api_param = "Los+Angeles,CA"
+        weather_location = "Los Angeles,CA"
         
         # If web_api_parameter is passed, use it to fetch weather data
         if web_api_parameter:
             weather_api_param = web_api_parameter.replace(" ", "+")
+            weather_location = web_api_parameter
+        
+        # Fetch weather data for the specified location
+        logger.log_progress(f"Fetching weather data for {weather_location}")
+        logs.append(f"Fetching weather data for {weather_location}")
         
         # Using wttr.in as a free weather API (weather.com requires API key)
         weather_url = f"https://wttr.in/{weather_api_param}?format=j1"
@@ -275,7 +277,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 humidity = current_condition["humidity"]
                 weather_desc = current_condition["weatherDesc"][0]["value"]
                 
-                weather_info = f"Los Angeles, CA - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
+                weather_info = f"{weather_location} - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
                 print(weather_info)
                 logger.log_progress(weather_info)
                 logs.append(weather_info)
