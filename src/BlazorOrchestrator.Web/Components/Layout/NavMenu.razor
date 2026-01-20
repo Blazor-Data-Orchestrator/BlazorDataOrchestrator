@@ -20,17 +20,6 @@
             Main
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="admin">
-                <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> Administration
-            </NavLink>
-        </div>
         @if (WizardState.IsInstalling)
         {
             @foreach (var step in WizardSteps)
@@ -57,6 +46,12 @@
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
                     <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin">
+                    <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> Administration
                 </NavLink>
             </div>
         }
