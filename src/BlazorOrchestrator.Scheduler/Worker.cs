@@ -18,6 +18,9 @@ public class Worker : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Determine what jobs need to be scheduled
+            // Read the JobQueue from the Job that is being scheduled adn if it is null then use the 'default' queue
+
             if (_logger.IsEnabled(LogLevel.Information))
             {
                 _logger.LogInformation("Scheduler running at: {time}", DateTimeOffset.Now);
