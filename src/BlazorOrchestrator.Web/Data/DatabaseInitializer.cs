@@ -6,35 +6,96 @@ namespace BlazorOrchestrator.Web.Data;
 
 public static class DatabaseInitializer
 {
-    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger)
+    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger, Action<string>? onProgress = null)
     {
         var connStr = configuration.GetConnectionString("blazororchestratordb");
         if (string.IsNullOrWhiteSpace(connStr))
         {
-            logger.LogWarning("No blazororchestratordb connection string found; skipping database initialization.");
+            var msg = "No blazororchestratordb connection string found; skipping database initialization.";
+            logger.LogWarning(msg);
+            onProgress?.Invoke($"⚠️ {msg}");
             return;
         }
 
         try
         {
+            onProgress?.Invoke("📋 Parsing connection string...");
+            
+            // First, ensure the database exists
+            var builder = new SqlConnectionStringBuilder(connStr);
+            var databaseName = builder.InitialCatalog;
+            
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                var msg = "Connection string does not contain a database name (Initial Catalog).";
+                logger.LogError(msg);
+                onProgress?.Invoke($"❌ {msg}");
+                throw new InvalidOperationException(msg);
+            }
+
+            onProgress?.Invoke($"🔍 Checking if database '{databaseName}' exists...");
+
+            // Connect to master to check/create database
+            builder.InitialCatalog = "master";
+            var masterConnStr = builder.ConnectionString;
+
+            await using (var masterConnection = new SqlConnection(masterConnStr))
+            {
+                await masterConnection.OpenAsync();
+                onProgress?.Invoke("✅ Connected to SQL Server (master database).");
+
+                // Check if database exists
+                var dbExistsQuery = "SELECT database_id FROM sys.databases WHERE name = @dbName";
+                var dbExists = await masterConnection.ExecuteScalarAsync<int?>(dbExistsQuery, new { dbName = databaseName });
+
+                if (dbExists == null)
+                {
+                    onProgress?.Invoke($"📦 Creating database '{databaseName}'...");
+                    await masterConnection.ExecuteAsync($"CREATE DATABASE [{databaseName}]");
+                    logger.LogInformation("Database '{DatabaseName}' created successfully.", databaseName);
+                    onProgress?.Invoke($"✅ Database '{databaseName}' created successfully!");
+                }
+                else
+                {
+                    onProgress?.Invoke($"✅ Database '{databaseName}' already exists.");
+                }
+            }
+
+            // Now connect to the actual database and run scripts
+            onProgress?.Invoke($"🔌 Connecting to database '{databaseName}'...");
             await using var connection = new SqlConnection(connStr);
             await connection.OpenAsync();
+            onProgress?.Invoke($"✅ Connected to database '{databaseName}'.");
 
             // Read embedded SQL script
+            onProgress?.Invoke("📄 Loading SQL initialization script...");
             var script = await GetSqlScriptAsync();
+            onProgress?.Invoke("✅ SQL script loaded.");
 
             // Split on GO batches (simple parser)
-            var batches = SplitSqlBatches(script);
+            var batches = SplitSqlBatches(script).ToList();
+            onProgress?.Invoke($"📊 Found {batches.Count} SQL batches to execute.");
+
+            int batchIndex = 0;
             foreach (var batch in batches)
             {
                 if (string.IsNullOrWhiteSpace(batch)) continue;
+                batchIndex++;
+                onProgress?.Invoke($"⚡ Executing batch {batchIndex}/{batches.Count}...");
                 await connection.ExecuteAsync(batch);
             }
-            logger.LogInformation("Database initialization script executed successfully.");
+            
+            var successMsg = "Database initialization script executed successfully.";
+            logger.LogInformation(successMsg);
+            onProgress?.Invoke($"✅ {successMsg}");
+            onProgress?.Invoke("🎉 Database setup complete!");
         }
         catch (Exception ex)
         {
+            var errorMsg = $"Failed to initialize database: {ex.Message}";
             logger.LogError(ex, "Failed to initialize database schema.");
+            onProgress?.Invoke($"❌ {errorMsg}");
+            throw;
         }
     }
 

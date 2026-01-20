@@ -6,6 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Exclude Mockups folder from compilation - these are reference files only -->
+  <ItemGroup>
+    <Compile Remove="Mockups\**" />
+    <Content Remove="Mockups\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Remove="JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip" />
   </ItemGroup>

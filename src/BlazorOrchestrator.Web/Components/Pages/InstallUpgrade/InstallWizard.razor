@@ -1,0 +1,344 @@
+@using BlazorOrchestrator.Web.Data
+@using BlazorOrchestrator.Web.Data.Data
+@using BlazorOrchestrator.Web.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@inject WizardStateService WizardState
+@inject IServiceProvider ServiceProvider
+@inject IConfiguration Configuration
+
+<RadzenDialog />
+<RadzenNotification />
+<RadzenTooltip />
+<RadzenContextMenu />
+
+<div class="rz-p-4" style="min-height: calc(100vh - 120px); background-color: #f4f6f8;">
+    <RadzenCard Class="rz-mb-4 rz-shadow-3">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <RadzenIcon Icon="build" IconColor="@Colors.Primary" />
+                <RadzenText TextStyle="TextStyle.H5" TagName="TagName.H1" Class="rz-m-0">
+                    <strong>BlazorOrchestrator</strong> <span style="font-weight: 300;">Installation Wizard</span>
+                </RadzenText>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">Step @CurrentStep of 4</RadzenText>
+                <RadzenProgressBar Value="@(CurrentStep * 25)" ShowValue="false" Style="width: 100px; height: 8px;" />
+            </div>
+        </div>
+    </RadzenCard>
+
+    <RadzenCard Class="rz-p-5 rz-shadow-5" Style="min-height: 500px; display: flex; flex-direction: column;">
+        <div style="flex: 1;">
+            <RadzenText TextStyle="TextStyle.H4" Class="rz-mb-4">@GetCurrentStepTitle()</RadzenText>
+            
+            @if (IsInstalling)
+            {
+                @* Show console-like installation log *@
+                <div class="installation-console" style="background-color: #1e1e1e; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; padding: 1rem; border-radius: 8px; height: 350px; overflow-y: auto; font-size: 0.85rem;">
+                    <div style="color: #569cd6; margin-bottom: 0.5rem;">BlazorOrchestrator Installation Console</div>
+                    <div style="color: #666; margin-bottom: 1rem;">========================================</div>
+                    @foreach (var log in InstallationLogs)
+                    {
+                        <div style="margin-bottom: 0.25rem; white-space: pre-wrap;">@log</div>
+                    }
+                    @if (IsLoading)
+                    {
+                        <div style="color: #dcdcaa;">▌</div>
+                    }
+                </div>
+                
+                @if (InstallationComplete)
+                {
+                    <div class="rz-mt-4">
+                        <RadzenAlert AlertStyle="@(InstallationSuccess ? AlertStyle.Success : AlertStyle.Danger)" ShowIcon="true" Variant="Variant.Flat">
+                            @if (InstallationSuccess)
+                            {
+                                <span>Installation completed successfully! Click "Finish" to continue.</span>
+                            }
+                            else
+                            {
+                                <span>Installation failed. Please check the logs above for details.</span>
+                            }
+                        </RadzenAlert>
+                    </div>
+                }
+            }
+            else if (CurrentStep == 1)
+            {
+                <StepDatabase Model="@Model" />
+            }
+            else if (CurrentStep == 2)
+            {
+                <StepStorage Model="@Model" />
+            }
+            else if (CurrentStep == 3)
+            {
+                <StepAdmin Model="@Model" />
+            }
+            else if (CurrentStep == 4)
+            {
+                <StepSummary Model="@Model" OnInstallComplete="OnInstallComplete" />
+            }
+        </div>
+        <div class="d-flex justify-content-between rz-mt-5 rz-pt-3" style="border-top: 1px solid #e0e0e0;">
+            <RadzenButton Variant="Variant.Text" Click="PrevStep" Text="Back" Disabled="@(CurrentStep == 1 || IsLoading || IsInstalling)" ButtonStyle="ButtonStyle.Light" />
+            @if (InstallationComplete)
+            {
+                <RadzenButton Click="FinishInstallation" Text="Finish" Icon="check_circle" ButtonStyle="ButtonStyle.Success" />
+            }
+            else
+            {
+                <RadzenButton Click="NextStep" Text="@(CurrentStep == 4 ? "Install System" : "Next Step")" Icon="@(CurrentStep == 4 ? "save" : "arrow_forward")" IsBusy="@IsLoading" BusyText="Installing..." ButtonStyle="@(CurrentStep == 4 ? ButtonStyle.Success : ButtonStyle.Primary)" Disabled="@IsInstalling" />
+            }
+        </div>
+    </RadzenCard>
+</div>
+
+@code {
+    [Parameter]
+    public string WizardMode { get; set; } = "INSTALL";
+
+    [Parameter]
+    public EventCallback OnInstallComplete { get; set; }
+
+    public int CurrentStep { get; set; } = 1;
+    public int StepIndex { get; set; } = 0;
+    public bool IsLoading { get; set; } = false;
+    public bool IsInstalling { get; set; } = false;
+    public bool InstallationComplete { get; set; } = false;
+    public bool InstallationSuccess { get; set; } = false;
+    public List<string> InstallationLogs { get; set; } = new();
+    public InstallationModel Model { get; set; } = new InstallationModel();
+
+    public class WizardStep { public int Id { get; set; } public string Label { get; set; } = string.Empty; public string Icon { get; set; } = string.Empty; }
+
+    public List<WizardStep> Steps = new List<WizardStep> {
+        new WizardStep { Id = 1, Label = "Database", Icon = "dns" },
+        new WizardStep { Id = 2, Label = "Storage", Icon = "storage" },
+        new WizardStep { Id = 3, Label = "Admin Account", Icon = "account_circle" },
+        new WizardStep { Id = 4, Label = "Installation", Icon = "verified" }
+    };
+
+    protected override void OnParametersSet()
+    {
+        // Adjust starting step based on wizard mode
+        if (WizardMode == "CreateAdministrator")
+        {
+            // Database and storage are already configured, skip directly to Admin (step 3)
+            CurrentStep = 3;
+            StepIndex = 2;
+        }
+        else if (WizardMode == "RUNSCRIPTS")
+        {
+            // Database exists but tables need to be created, start at step 1 but skip to summary
+            CurrentStep = 4; // Go directly to summary/install to run scripts
+            StepIndex = 3;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Sync with the WizardStateService
+        WizardState.SetInstalling(true);
+        WizardState.SetStep(CurrentStep);
+    }
+
+    private string GetStepClass(int stepId)
+    {
+        if (CurrentStep == stepId) return "rz-background-color-primary-light rz-color-primary";
+        if (CurrentStep > stepId) return "rz-color-success";
+        return "rz-color-base-400";
+    }
+
+    private string GetCurrentStepTitle() => CurrentStep switch
+    {
+        1 => "Connect Database",
+        2 => "Configure Storage",
+        3 => "Setup Administrator",
+        4 => "Review & Install",
+        _ => string.Empty
+    };
+
+    private async Task NextStep()
+    {
+        // Validate admin fields on step 3 before proceeding
+        if (CurrentStep == 3)
+        {
+            if (string.IsNullOrWhiteSpace(Model.AdminUser) || Model.AdminUser.Length < 3)
+            {
+                return; // Don't proceed - username invalid
+            }
+            if (string.IsNullOrWhiteSpace(Model.AdminEmail) || !Model.AdminEmail.Contains("@"))
+            {
+                return; // Don't proceed - email invalid
+            }
+            if (string.IsNullOrWhiteSpace(Model.AdminPassword) || Model.AdminPassword.Length < 8)
+            {
+                return; // Don't proceed - password invalid
+            }
+        }
+
+        if (CurrentStep < 4)
+        {
+            IsLoading = true;
+            await Task.Delay(300);
+            CurrentStep++;
+            StepIndex++;
+            WizardState.SetStep(CurrentStep);
+            IsLoading = false;
+        }
+        else
+        {
+            // Final installation step - trigger the install with console view
+            await PerformInstallation();
+        }
+    }
+
+    private void PrevStep()
+    {
+        if (CurrentStep > 1 && !IsInstalling)
+        {
+            CurrentStep--;
+            StepIndex--;
+            WizardState.SetStep(CurrentStep);
+        }
+    }
+
+    private void AddLog(string message)
+    {
+        var timestamp = DateTime.Now.ToString("HH:mm:ss");
+        InstallationLogs.Add($"[{timestamp}] {message}");
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PerformInstallation()
+    {
+        IsInstalling = true;
+        IsLoading = true;
+        InstallationLogs.Clear();
+        InstallationComplete = false;
+        InstallationSuccess = false;
+        StateHasChanged();
+
+        try
+        {
+            AddLog("🚀 Starting BlazorOrchestrator installation...");
+            await Task.Delay(500);
+
+            using var scope = ServiceProvider.CreateScope();
+            var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger("InstallWizard");
+
+            // Step 1: Run database initialization scripts to create tables
+            if (WizardMode == "INSTALL" || WizardMode == "RUNSCRIPTS")
+            {
+                AddLog("📦 Phase 1: Database Setup");
+                AddLog("─────────────────────────────");
+                
+                try
+                {
+                    // Use the progress callback to show real-time logs
+                    await DatabaseInitializer.EnsureDatabaseAsync(Configuration, logger, (msg) =>
+                    {
+                        AddLog(msg);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"❌ Database initialization failed: {ex.Message}");
+                    throw;
+                }
+            }
+            else
+            {
+                AddLog("⏭️ Skipping database setup (already configured).");
+            }
+
+            await Task.Delay(300);
+
+            // Step 2: Create admin user if it doesn't exist
+            AddLog("");
+            AddLog("👤 Phase 2: Administrator Setup");
+            AddLog("─────────────────────────────────");
+
+            if (!string.IsNullOrEmpty(Model.AdminUser) && !string.IsNullOrEmpty(Model.AdminEmail))
+            {
+                AddLog($"🔍 Checking if user '{Model.AdminUser}' exists...");
+                
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var existingUser = await context.AspNetUsers
+                    .FirstOrDefaultAsync(u => u.UserName == Model.AdminUser || u.Email == Model.AdminEmail);
+
+                if (existingUser == null)
+                {
+                    AddLog($"📝 Creating admin user '{Model.AdminUser}'...");
+                    
+                    var passwordHasher = new PasswordHasher<AspNetUser>();
+                    var newUser = new AspNetUser
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        UserName = Model.AdminUser,
+                        NormalizedUserName = Model.AdminUser?.ToUpperInvariant(),
+                        Email = Model.AdminEmail,
+                        NormalizedEmail = Model.AdminEmail?.ToUpperInvariant(),
+                        EmailConfirmed = true,
+                        SecurityStamp = Guid.NewGuid().ToString(),
+                        ConcurrencyStamp = Guid.NewGuid().ToString(),
+                        PhoneNumberConfirmed = false,
+                        TwoFactorEnabled = false,
+                        LockoutEnabled = false,
+                        AccessFailedCount = 0
+                    };
+                    newUser.PasswordHash = passwordHasher.HashPassword(newUser, Model.AdminPassword ?? "Admin@123");
+
+                    context.AspNetUsers.Add(newUser);
+                    await context.SaveChangesAsync();
+                    AddLog($"✅ Admin user '{Model.AdminUser}' created successfully!");
+                }
+                else
+                {
+                    AddLog($"✅ Admin user '{Model.AdminUser}' already exists.");
+                }
+            }
+            else
+            {
+                AddLog("⚠️ Admin username/email not provided, skipping admin creation.");
+            }
+
+            await Task.Delay(300);
+
+            // Final success
+            AddLog("");
+            AddLog("════════════════════════════════════════");
+            AddLog("🎉 INSTALLATION COMPLETED SUCCESSFULLY!");
+            AddLog("════════════════════════════════════════");
+            
+            InstallationSuccess = true;
+            InstallationComplete = true;
+        }
+        catch (Exception ex)
+        {
+            AddLog("");
+            AddLog("════════════════════════════════════════");
+            AddLog($"❌ INSTALLATION FAILED: {ex.Message}");
+            AddLog("════════════════════════════════════════");
+            
+            InstallationSuccess = false;
+            InstallationComplete = true;
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task FinishInstallation()
+    {
+        if (OnInstallComplete.HasDelegate)
+        {
+            await OnInstallComplete.InvokeAsync();
+        }
+    }
+}

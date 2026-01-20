@@ -1,9 +1,6 @@
-﻿@using System.Data
-@using Dapper
-@using Radzen
+﻿@using Radzen
 @using Radzen.Blazor
 @inherits LayoutComponentBase
-@inject IDbConnection Db // Or your actual DbContext/service
 <RadzenComponents @rendermode="InteractiveServer" />
 <div class="page">
     <div class="sidebar">
@@ -25,7 +22,7 @@
 </div>
 
 <footer class="footer px-4">
-    @footerText
+    Version: @CurrentVersion
 </footer>
 
 <div id="blazor-error-ui">
@@ -35,43 +32,6 @@
 </div>
 
 @code {
-    private string footerText = "Loading...";
-
-    protected override async Task OnInitializedAsync()
-    {
-        string? githubVersion = null;
-        string? dbVersion = null;
-
-        try
-        {
-            var httpClient = new HttpClient();
-            githubVersion = (await httpClient.GetStringAsync("https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion")).Trim();
-        }
-        catch
-        {
-            footerText = "Unable to fetch SQL Version from GitHub";
-            return;
-        }
-
-        try
-        {
-            // Dapper example, adapt to your data access
-            var result = await Db.QueryFirstOrDefaultAsync<string>("SELECT [Version] FROM [Version] WHERE [Type] = 'SQL'");
-            dbVersion = result?.Trim();
-        }
-        catch
-        {
-            footerText = "Unable to fetch SQL Version from database";
-            return;
-        }
-
-        if (githubVersion == dbVersion)
-        {
-            footerText = $"SQL Version: {dbVersion}";
-        }
-        else
-        {
-            footerText = "SQL Version not up to date";
-        }
-    }
+    // This should match the CurrentVersion constant in Home.razor
+    private const string CurrentVersion = "1.0";
 }

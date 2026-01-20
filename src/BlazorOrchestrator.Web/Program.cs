@@ -8,15 +8,16 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Radzen;
 using System.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add service defaults & Aspire components.
-builder.AddServiceDefaults();
+// Note: Not using Aspire service defaults - this project uses its own connection strings from appsettings.json
+// builder.AddServiceDefaults();
 
-// Add Azure clients
+// Add Azure clients using local connection strings from appsettings.json
 builder.AddAzureBlobServiceClient("blobs");
 builder.AddAzureTableServiceClient("tables");
 builder.AddAzureQueueServiceClient("queues");
@@ -25,16 +26,42 @@ builder.AddAzureQueueServiceClient("queues");
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-var connectionString = builder.Configuration.GetConnectionString("blazororchestratordb") ?? throw new InvalidOperationException("Connection string 'blazororchestratordb' not found.");
+// Check if a database connection string is available
+var connectionString = builder.Configuration.GetConnectionString("blazororchestratordb");
+var hasDatabaseConnection = !string.IsNullOrWhiteSpace(connectionString);
 
-// Add Aspire integrations - use the correct database name from AppHost
-builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
+if (hasDatabaseConnection)
+{
+    // Use standard EF Core registration with connection string from appsettings.json
+    // This ensures the project uses its own connection string, not one passed from Aspire
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    {
+        options.UseSqlServer(connectionString);
+    });
 
-// Register IDbConnection before building the app
-builder.Services.AddScoped<IDbConnection>(sp => new SqlConnection(connectionString));
+    // Register IDbConnection using the local connection string from appsettings.json
+    builder.Services.AddScoped<IDbConnection>(sp =>
+    {
+        // Use the connection string from local appsettings.json
+        return new SqlConnection(connectionString);
+    });
 
-// Run the database initialization script at startup
-builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
+    // Run the database initialization script at startup
+    builder.Services.AddHostedService(sp => new BackgroundInitializer(sp));
+}
+else
+{
+    // No database configured - register a placeholder DbContext that will fail gracefully
+    // The Install Wizard will guide the user to configure the database
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    {
+        // Use an in-memory placeholder - actual connection will be configured via Install Wizard
+        options.UseSqlServer("Server=localhost;Database=placeholder;Integrated Security=false;TrustServerCertificate=true;");
+    });
+
+    // Register IDbConnection that returns null - services should handle this gracefully
+    builder.Services.AddScoped<IDbConnection>(sp => null!);
+}
 
 // Register custom services
 builder.Services.AddScoped<ProjectCreatorService>();
@@ -49,6 +76,7 @@ builder.Services.AddControllers();
 // Register settings and display services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddScoped<TimeDisplayService>();
+builder.Services.AddScoped<WizardStateService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
 builder.Services.AddScoped<JobStorageService>(sp =>
@@ -103,6 +131,8 @@ app.MapRazorComponents<App>()
 app.MapControllers();
 
 app.MapDefaultEndpoints();
+// Note: Not using Aspire's MapDefaultEndpoints - this project runs standalone
+// app.MapDefaultEndpoints();
 
 app.Run();
 
@@ -124,8 +154,17 @@ public class BackgroundInitializer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
-        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-        await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+        try
+        {
+            // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
+            await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+        }
+        catch (Exception ex)
+        {
+            // Don't let database initialization failure crash the app
+            // The Home.razor page will detect the issue and show the install wizard
+            _logger.LogWarning(ex, "Database initialization skipped - will be handled by install wizard.");
+        }
     }
 }

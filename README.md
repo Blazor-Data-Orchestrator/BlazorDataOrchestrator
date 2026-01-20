@@ -38,6 +38,8 @@ A Microsoft Aspire .NET 10 solution that demonstrates a distributed application 
 
 <img width="1087" height="524" alt="image" src="https://github.com/user-attachments/assets/4cdb903f-9c7a-4d7f-8ce5-a8941edbf959" />
 
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/8612e004-a968-46ba-9c3e-3ecc90e07656" />
+
 ## Configuration
 
 The solution is configured to:
