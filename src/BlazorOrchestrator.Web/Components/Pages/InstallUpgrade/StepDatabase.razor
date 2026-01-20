@@ -1,0 +1,303 @@
+@using BlazorOrchestrator.Web.Data
+@using Microsoft.Data.SqlClient
+@using Microsoft.EntityFrameworkCore
+@using BlazorOrchestrator.Web.Data.Data
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject IServiceProvider ServiceProvider
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
+
+@code {
+    [Parameter] 
+    public InstallationModel Model { get; set; } = new();
+
+    private bool IsTesting { get; set; } = false;
+    private bool IsCreatingDatabase { get; set; } = false;
+    private bool IsSavingSettings { get; set; } = false;
+    private string? TestResultMessage { get; set; }
+    private bool? TestResultSuccess { get; set; }
+    private string? CreateDbResultMessage { get; set; }
+    private bool? CreateDbResultSuccess { get; set; }
+    private string? SaveSettingsMessage { get; set; }
+    private bool? SaveSettingsSuccess { get; set; }
+
+    class Option { public string Label { get; set; } = string.Empty; public string Value { get; set; } = string.Empty; }
+    
+    List<Option> connectionOptions = new() {
+        new Option { Label = "Manual Connection String", Value = "manual" },
+        new Option { Label = "Azure SQL (Managed Identity)", Value = "managed" }
+    };
+
+    protected override void OnInitialized()
+    {
+        // Pre-populate with existing connection string from appsettings if available
+        if (string.IsNullOrEmpty(Model.DbConnectionString))
+        {
+            var existingConnectionString = Configuration.GetConnectionString("blazororchestratordb");
+            if (!string.IsNullOrEmpty(existingConnectionString))
+            {
+                Model.DbConnectionString = existingConnectionString;
+            }
+        }
+    }
+
+    private async Task SaveConnectionStringToAppSettings()
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
+            
+            if (!File.Exists(appSettingsPath))
+            {
+                SaveSettingsMessage = "appsettings.json file not found.";
+                SaveSettingsSuccess = false;
+                return;
+            }
+
+            var json = await File.ReadAllTextAsync(appSettingsPath);
+            var jsonNode = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
+            
+            if (jsonNode == null)
+            {
+                SaveSettingsMessage = "Failed to parse appsettings.json.";
+                SaveSettingsSuccess = false;
+                return;
+            }
+
+            // Ensure ConnectionStrings section exists
+            if (jsonNode["ConnectionStrings"] == null)
+            {
+                jsonNode["ConnectionStrings"] = new JsonObject();
+            }
+
+            // Update the connection string
+            jsonNode["ConnectionStrings"]!["blazororchestratordb"] = Model.DbConnectionString;
+
+            // Write back to file with proper formatting
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = jsonNode.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            SaveSettingsMessage = "Connection string saved to appsettings.json successfully!";
+            SaveSettingsSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            SaveSettingsMessage = $"Failed to save settings: {ex.Message}";
+            SaveSettingsSuccess = false;
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(Model.DbConnectionString))
+        {
+            TestResultMessage = "Please enter a connection string.";
+            TestResultSuccess = false;
+            return;
+        }
+
+        IsTesting = true;
+        TestResultMessage = null;
+        TestResultSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            using var connection = new SqlConnection(Model.DbConnectionString);
+            await connection.OpenAsync();
+            
+            TestResultMessage = "Connection successful!";
+            TestResultSuccess = true;
+            Model.DbConnectionVerified = true;
+
+            // Save connection string to appsettings.json on successful connection
+            await SaveConnectionStringToAppSettings();
+        }
+        catch (Exception ex)
+        {
+            TestResultMessage = $"Connection failed: {ex.Message}";
+            TestResultSuccess = false;
+            Model.DbConnectionVerified = false;
+        }
+        finally
+        {
+            IsTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateDatabase()
+    {
+        if (string.IsNullOrWhiteSpace(Model.DbConnectionString))
+        {
+            CreateDbResultMessage = "Please enter a connection string first.";
+            CreateDbResultSuccess = false;
+            return;
+        }
+
+        IsCreatingDatabase = true;
+        CreateDbResultMessage = null;
+        CreateDbResultSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            // Parse the connection string to get the database name
+            var builder = new SqlConnectionStringBuilder(Model.DbConnectionString);
+            var databaseName = builder.InitialCatalog;
+            
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                CreateDbResultMessage = "Connection string must include a database name (Initial Catalog or Database).";
+                CreateDbResultSuccess = false;
+                return;
+            }
+
+            // Connect to master database to create the target database
+            builder.InitialCatalog = "master";
+            var masterConnectionString = builder.ConnectionString;
+
+            using var connection = new SqlConnection(masterConnectionString);
+            await connection.OpenAsync();
+
+            // Check if database already exists
+            var checkCmd = new SqlCommand($"SELECT database_id FROM sys.databases WHERE name = @dbName", connection);
+            checkCmd.Parameters.AddWithValue("@dbName", databaseName);
+            var exists = await checkCmd.ExecuteScalarAsync();
+
+            if (exists != null)
+            {
+                CreateDbResultMessage = $"Database '{databaseName}' already exists. You can proceed.";
+                CreateDbResultSuccess = true;
+                Model.DbCreated = true;
+            }
+            else
+            {
+                // Create the database
+                var createCmd = new SqlCommand($"CREATE DATABASE [{databaseName}]", connection);
+                await createCmd.ExecuteNonQueryAsync();
+
+                CreateDbResultMessage = $"Database '{databaseName}' created successfully!";
+                CreateDbResultSuccess = true;
+                Model.DbCreated = true;
+            }
+
+            // Now test connection to the actual database
+            await TestConnection();
+        }
+        catch (Exception ex)
+        {
+            CreateDbResultMessage = $"Failed to create database: {ex.Message}";
+            CreateDbResultSuccess = false;
+            Model.DbCreated = false;
+        }
+        finally
+        {
+            IsCreatingDatabase = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+        Configure the primary SQL Server database connection for BlazorOrchestrator.
+    </RadzenAlert>
+
+    <div class="row rz-mb-4">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">Connection Method</RadzenText>
+            <RadzenDropDown @bind-Value="Model.DbConnectionType" Data="@connectionOptions" TextProperty="Label" ValueProperty="Value" Style="width: 100%;" Name="ConnType" />
+        </div>
+    </div>
+
+    @if (Model.DbConnectionType == "managed")
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-base-100 d-flex align-items-center gap-3">
+            <RadzenIcon Icon="check_circle" IconColor="@Colors.Success" />
+            <div>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    Will attempt auto-discovery via <strong>Azure Managed Identity</strong>.
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400 rz-m-0">
+                    Ensure your Azure App Service has the correct role assignments.
+                </RadzenText>
+            </div>
+        </RadzenCard>
+    }
+    else
+    {
+        <div class="row animate__animated animate__fadeIn rz-mb-4">
+            <div class="col-md-12">
+                <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">SQL Connection String</RadzenText>
+                <RadzenTextArea @bind-Value="Model.DbConnectionString" Placeholder="Server=myServer;Database=myDB;User Id=myUser;Password=myPassword;TrustServerCertificate=true;..." Style="width: 100%; min-height: 100px;" />
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">
+                    Enter a complete SQL Server connection string including the database name.
+                </RadzenText>
+            </div>
+        </div>
+
+        <div class="row rz-mb-4">
+            <div class="col-md-12">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Test Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary" 
+                                  Click="@TestConnection" IsBusy="@IsTesting" BusyText="Testing..." 
+                                  Disabled="@(string.IsNullOrWhiteSpace(Model.DbConnectionString))" />
+                    <RadzenButton Text="Create Database" Icon="add_circle" ButtonStyle="ButtonStyle.Primary" 
+                                  Click="@CreateDatabase" IsBusy="@IsCreatingDatabase" BusyText="Creating..." 
+                                  Disabled="@(string.IsNullOrWhiteSpace(Model.DbConnectionString))" />
+                </RadzenStack>
+            </div>
+        </div>
+
+        @if (TestResultMessage != null)
+        {
+            <div class="row rz-mb-3">
+                <div class="col-md-12">
+                    <RadzenAlert AlertStyle="@(TestResultSuccess == true ? AlertStyle.Success : AlertStyle.Danger)" 
+                                 ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                        @TestResultMessage
+                    </RadzenAlert>
+                </div>
+            </div>
+        }
+
+        @if (CreateDbResultMessage != null)
+        {
+            <div class="row rz-mb-3">
+                <div class="col-md-12">
+                    <RadzenAlert AlertStyle="@(CreateDbResultSuccess == true ? AlertStyle.Success : AlertStyle.Danger)" 
+                                 ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                        @CreateDbResultMessage
+                    </RadzenAlert>
+                </div>
+            </div>
+        }
+
+        @if (SaveSettingsMessage != null)
+        {
+            <div class="row rz-mb-3">
+                <div class="col-md-12">
+                    <RadzenAlert AlertStyle="@(SaveSettingsSuccess == true ? AlertStyle.Success : AlertStyle.Warning)" 
+                                 ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                        @SaveSettingsMessage
+                    </RadzenAlert>
+                </div>
+            </div>
+        }
+
+        @if (Model.DbConnectionVerified)
+        {
+            <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3">
+                <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+                <div>
+                    <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                        <strong>Database connection verified!</strong> You can proceed to the next step.
+                    </RadzenText>
+                </div>
+            </RadzenCard>
+        }
+    }
+</div>

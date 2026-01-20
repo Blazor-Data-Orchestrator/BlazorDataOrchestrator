@@ -1,0 +1,70 @@
+@using BlazorOrchestrator.Web.Data
+
+@code {
+    [Parameter] 
+    public InstallationModel Model { get; set; } = new();
+
+    private bool IsUsernameValid => !string.IsNullOrWhiteSpace(Model.AdminUser) && Model.AdminUser.Length >= 3;
+    private bool IsEmailValid => !string.IsNullOrWhiteSpace(Model.AdminEmail) && Model.AdminEmail.Contains("@");
+    private bool IsPasswordValid => !string.IsNullOrWhiteSpace(Model.AdminPassword) && Model.AdminPassword.Length >= 8;
+    public bool IsValid => IsUsernameValid && IsEmailValid && IsPasswordValid;
+}
+
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
+        Create the super administrator account for BlazorOrchestrator. All fields are required.
+    </RadzenAlert>
+
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2"><span style="color: red;">*</span> Username</RadzenText>
+            <RadzenTextBox @bind-Value="Model.AdminUser" Style="width: 100%;" Name="AdminUser" />
+            @if (!IsUsernameValid && !string.IsNullOrEmpty(Model.AdminUser))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-danger">Username must be at least 3 characters.</RadzenText>
+            }
+            else
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">This will be your login username.</RadzenText>
+            }
+        </div>
+    </div>
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2"><span style="color: red;">*</span> Email Address</RadzenText>
+            <RadzenTextBox @bind-Value="Model.AdminEmail" Style="width: 100%;" Name="AdminEmail" />
+            @if (!IsEmailValid && !string.IsNullOrEmpty(Model.AdminEmail))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-danger">Please enter a valid email address.</RadzenText>
+            }
+            else
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">Used for password recovery and notifications.</RadzenText>
+            }
+        </div>
+    </div>
+    <div class="row rz-mb-3">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2"><span style="color: red;">*</span> Password</RadzenText>
+            <RadzenPassword @bind-Value="Model.AdminPassword" Style="width: 100%;" Name="AdminPassword" />
+            @if (!IsPasswordValid && !string.IsNullOrEmpty(Model.AdminPassword))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-danger">Password must be at least 8 characters.</RadzenText>
+            }
+            else
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">Must be at least 8 characters with uppercase, lowercase, and numbers.</RadzenText>
+            }
+        </div>
+    </div>
+
+    @if (IsValid)
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3 rz-mt-4">
+            <RadzenIcon Icon="verified" IconColor="@Colors.Success" />
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                <strong>Administrator account is ready!</strong> You can proceed to the next step.
+            </RadzenText>
+        </RadzenCard>
+    }
+</div>

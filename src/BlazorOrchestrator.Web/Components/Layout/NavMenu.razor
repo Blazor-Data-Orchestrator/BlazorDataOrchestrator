@@ -1,5 +1,8 @@
 ﻿@using Radzen
 @using Radzen.Blazor
+@using BlazorOrchestrator.Web.Services
+@inject WizardStateService WizardState
+@implements IDisposable
 
 <div class="top-row ps-3 navbar navbar-light">
     <div class="container-fluid">
@@ -13,21 +16,70 @@
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="flex-column">
-        <div class="nav-item-header px-3" style="color: #6b7280; font-size: 0.75rem; text-transform: uppercase; padding-top: 1rem; padding-bottom: 0.5rem;">
-            Main
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="upgrades">
-                <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> Upgrades
-            </NavLink>
-        </div>
+        @if (WizardState.IsInstalling)
+        {
+            @foreach (var step in WizardSteps)
+            {
+                <div class="nav-item px-3">
+                    <a class="nav-link @GetStepClass(step.Id)" style="cursor: default;">
+                        <RadzenIcon Icon="@GetStepIcon(step.Id, step.Icon)" Style="margin-right: 8px; vertical-align: middle; font-size: 1.1rem;" />
+                        @step.Label
+                    </a>
+                </div>
+            }
+        }
+        else if (WizardState.IsUpgrading)
+        {
+            <div class="nav-item px-3">
+                <a class="nav-link active" style="cursor: default;">
+                    <RadzenIcon Icon="system_update" Style="margin-right: 8px; vertical-align: middle; font-size: 1.1rem;" />
+                    System Upgrade
+                </a>
+            </div>
+        }
+        else
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
+                </NavLink>
+            </div>
+        }
     </nav>
 </div>
+
+@code {
+    private class WizardStep { public int Id { get; set; } public string Label { get; set; } = string.Empty; public string Icon { get; set; } = string.Empty; }
+
+    private List<WizardStep> WizardSteps = new()
+    {
+        new WizardStep { Id = 1, Label = "Database", Icon = "dns" },
+        new WizardStep { Id = 2, Label = "Storage", Icon = "storage" },
+        new WizardStep { Id = 3, Label = "Admin Account", Icon = "account_circle" },
+        new WizardStep { Id = 4, Label = "Installation", Icon = "verified" }
+    };
+
+    protected override void OnInitialized()
+    {
+        WizardState.OnChange += StateHasChanged;
+    }
+
+    private string GetStepClass(int stepId)
+    {
+        if (WizardState.CurrentStep == stepId) return "active";
+        if (WizardState.CurrentStep > stepId) return "text-success";
+        return "text-muted";
+    }
+
+    private string GetStepIcon(int stepId, string defaultIcon)
+    {
+        if (WizardState.CurrentStep > stepId) return "check_circle";
+        return defaultIcon;
+    }
+
+    public void Dispose()
+    {
+        WizardState.OnChange -= StateHasChanged;
+    }
+}
 

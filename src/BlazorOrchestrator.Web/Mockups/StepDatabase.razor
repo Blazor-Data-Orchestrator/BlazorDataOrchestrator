@@ -1,0 +1,34 @@
+@using BlazorApp1.Components.Pages
+@code {
+    [Parameter] public InstallationModel Model { get; set; }
+    class Option { public string Label { get; set; } public string Value { get; set; } }
+    List<Option> connectionOptions = new() {
+        new Option { Label = "Local SQL Server (Managed Identity)", Value = "managed" },
+        new Option { Label = "Manual Connection String", Value = "manual" }
+    };
+}
+<div class="rz-p-2">
+    <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">Configure the primary SQL Server connection.</RadzenAlert>
+    <div class="row rz-mb-4">
+        <div class="col-md-12">
+            <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">Connection Method</RadzenText>
+            <RadzenDropDown @bind-Value="Model.DbConnectionType" Data="@connectionOptions" TextProperty="Label" ValueProperty="Value" Style="width: 100%;" Name="ConnType" />
+        </div>
+    </div>
+    @if (Model.DbConnectionType == "managed")
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-base-100 d-flex align-items-center gap-3">
+            <RadzenIcon Icon="check_circle" IconColor="@Colors.Success" />
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">Will attempt auto-discovery via <strong>Azure Managed Identity</strong>.</RadzenText>
+        </RadzenCard>
+    }
+    else
+    {
+        <div class="row animate__animated animate__fadeIn">
+            <div class="col-md-12">
+                <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">SQL Connection String</RadzenText>
+                <RadzenTextBox @bind-Value="Model.DbConnectionString" Placeholder="Server=myServer;Database=myDB;..." Style="width: 100%;" />
+            </div>
+        </div>
+    }
+</div>
