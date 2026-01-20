@@ -2,10 +2,10 @@ namespace BlazorOrchestrator.Web.Data;
 
 public class InstallationModel
 {
-    // Admin Account
-    public string AdminUser { get; set; } = string.Empty;
-    public string AdminEmail { get; set; } = string.Empty;
-    public string AdminPassword { get; set; } = string.Empty;
+    // Admin Account - pre-filled with defaults
+    public string AdminUser { get; set; } = "admin";
+    public string AdminEmail { get; set; } = "admin@localhost";
+    public string AdminPassword { get; set; } = "Admin@123";
 
     // Database
     public string DbConnectionType { get; set; } = "manual"; // "managed" or "manual"
