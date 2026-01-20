@@ -520,3 +520,11 @@ GO
 IF  EXISTS (SELECT * FROM sys.foreign_keys WHERE object_id = OBJECT_ID(N'[dbo].[FK_JobSchedule_Jobs]') AND parent_object_id = OBJECT_ID(N'[dbo].[JobSchedule]'))
 ALTER TABLE [dbo].[JobSchedule] CHECK CONSTRAINT [FK_JobSchedule_Jobs]
 GO
+
+/****** Insert Default Organization Record ******/
+IF NOT EXISTS (SELECT * FROM [dbo].[JobOrganizations] WHERE [OrganizationName] = N'Default')
+BEGIN
+    INSERT INTO [dbo].[JobOrganizations] ([OrganizationName], [CreatedDate], [CreatedBy])
+    VALUES (N'Default', GETDATE(), N'System')
+END
+GO
