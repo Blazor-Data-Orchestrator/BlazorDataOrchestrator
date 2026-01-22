@@ -19,6 +19,7 @@
 @inject NuGetPackageService PackageService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
+@inject JobManager InjectedJobManager
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -505,7 +506,34 @@
             var currentCode = await codeEditor.GetCodeAsync();
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Code retrieved ({currentCode?.Length ?? 0} characters)\n";
 
-            // 1. Get AppSettings
+            // 1. Create NuGet package
+            MemoryStream? packageStream = null;
+            string? packageFileName = null;
+            try
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Creating NuGet package...\n";
+                StateHasChanged();
+                
+                // Extract dependencies first
+                await PackageService.ExtractAndSaveDependenciesFromProjectAsync();
+                
+                // Create package as stream
+                var packageResult = await PackageService.CreatePackageAsStreamAsync(
+                    packageId: "BlazorDataOrchestrator.Job",
+                    description: $"Job package from Job Creator - {environment}");
+                packageStream = packageResult.PackageStream;
+                packageFileName = packageResult.FileName;
+                
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Package created: {packageFileName}\n";
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to create package: {ex.Message}\n";
+                // Continue with execution even if package creation fails
+            }
+
+            // 2. Get AppSettings
             string appSettingsFileName = environment == "Production" ? "appsettingsProduction.json" : "appsettings.json";
             string appSettingsContent = "{}";
             string appSettingsFile = Path.Combine(Environment.ContentRootPath, appSettingsFileName);
@@ -553,24 +581,48 @@
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to patch connection strings: {ex.Message}\n";
             }
 
-            // 2. Create Job Instance
+            // 3. Create Job Instance
             int jobInstanceId = 0;
-            if (jobManager != null)
+            var activeJobManager = jobManager ?? InjectedJobManager;
+            if (activeJobManager != null)
             {
                 try
                 {
                     string jobName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "DesignerJob";
-                    jobInstanceId = await jobManager.CreateDesignerJobInstanceAsync(jobName);
+                    jobInstanceId = await activeJobManager.CreateDesignerJobInstanceAsync(jobName);
                     currentJobInstanceId = jobInstanceId;
                     
                     // Resolve and update currentJobId from the newly created instance
-                    var resolvedJobId = await jobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
+                    var resolvedJobId = await activeJobManager.GetJobIdFromInstanceIdAsync(currentJobInstanceId);
                     if (resolvedJobId.HasValue)
                     {
                         currentJobId = resolvedJobId.Value;
                     }
                     
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Created Job Instance ID: {jobInstanceId} for Job ID: {currentJobId}\n";
+                    
+                    // 4. Upload package and associate with Job
+                    if (packageStream != null && !string.IsNullOrEmpty(packageFileName) && currentJobId > 0)
+                    {
+                        try
+                        {
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Uploading package to Azure Storage...\n";
+                            StateHasChanged();
+                            
+                            packageStream.Position = 0;
+                            var blobName = await activeJobManager.UploadJobPackageAsync(currentJobId, packageStream, packageFileName);
+                            
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Package uploaded as: {blobName}\n";
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Job.JobCodeFile updated for Job ID: {currentJobId}\n";
+                            StateHasChanged();
+                        }
+                        catch (Exception ex)
+                        {
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to upload package: {ex.Message}\n";
+                            // Continue with local execution even if upload fails
+                        }
+                    }
+                    
                     SaveConfiguration(); // Persist the updated IDs
                 }
                 catch (Exception ex)
@@ -578,10 +630,21 @@
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Error creating job instance: {ex.Message}\n";
                     return;
                 }
+                finally
+                {
+                    if (packageStream != null)
+                    {
+                        await packageStream.DisposeAsync();
+                    }
+                }
             }
             else
             {
-                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: JobManager not initialized. Skipping logging.\n";
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: JobManager not initialized. Skipping job instance creation and package upload.\n";
+                if (packageStream != null)
+                {
+                    await packageStream.DisposeAsync();
+                }
             }
 
             // 3. Execute Code
@@ -672,9 +735,9 @@ except Exception as e:
 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Execution complete.\n";
 
-                if (jobManager != null && currentJobInstanceId > 0)
+                if (activeJobManager != null && currentJobInstanceId > 0)
                 {
-                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, false);
+                    await activeJobManager.CompleteJobInstanceAsync(currentJobInstanceId, false);
                 }
 
                 if (_disposed) return;
@@ -702,9 +765,9 @@ except Exception as e:
                     logOutput += $"[{DateTime.Now:HH:mm:ss}] Inner Error: {ex.InnerException.Message}\n";
                 }
 
-                if (jobManager != null && currentJobInstanceId > 0)
+                if (activeJobManager != null && currentJobInstanceId > 0)
                 {
-                    await jobManager.CompleteJobInstanceAsync(currentJobInstanceId, true);
+                    await activeJobManager.CompleteJobInstanceAsync(currentJobInstanceId, true);
                 }
             }
             finally

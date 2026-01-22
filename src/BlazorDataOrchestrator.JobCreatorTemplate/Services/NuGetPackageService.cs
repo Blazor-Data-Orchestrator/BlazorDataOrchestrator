@@ -427,6 +427,45 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
         }
 
         /// <summary>
+        /// Creates a NuGet package and returns it as a MemoryStream along with metadata.
+        /// </summary>
+        /// <param name="packageId">The package identifier.</param>
+        /// <param name="version">The package version (auto-generated if not provided).</param>
+        /// <param name="description">The package description.</param>
+        /// <param name="authors">The package authors.</param>
+        /// <returns>Tuple containing the package stream, full filename, and version.</returns>
+        public async Task<(MemoryStream PackageStream, string FileName, string Version)> CreatePackageAsStreamAsync(
+            string packageId = "BlazorDataOrchestrator.Job",
+            string? version = null,
+            string? description = null,
+            string? authors = null)
+        {
+            // Generate unique version if not provided
+            version ??= $"1.0.{DateTime.Now:yyyyMMddHHmmss}";
+            
+            // Create package to temp location
+            var packagePath = await CreatePackageAsync(packageId, version, description, authors);
+            
+            // Read into memory stream
+            var memoryStream = new MemoryStream();
+            await using (var fileStream = File.OpenRead(packagePath))
+            {
+                await fileStream.CopyToAsync(memoryStream);
+            }
+            memoryStream.Position = 0;
+            
+            // Get filename
+            var fileName = Path.GetFileName(packagePath);
+            
+            _logger.LogInformation("Created package as stream: {FileName} (version {Version})", fileName, version);
+            
+            // Cleanup temp file
+            CleanupPackage(packagePath);
+            
+            return (memoryStream, fileName, version);
+        }
+
+        /// <summary>
         /// Cleans up old package files.
         /// </summary>
         /// <param name="packagePath">The path to the package file to delete.</param>
