@@ -145,6 +145,142 @@ public class PackageProcessorService
     }
 
     /// <summary>
+    /// Parses NuGet dependencies from the .nuspec file.
+    /// </summary>
+    /// <param name="extractedPath">The path where the package was extracted</param>
+    /// <returns>List of dependency groups with their dependencies</returns>
+    public async Task<List<NuGetDependencyGroup>> GetDependenciesFromNuSpecAsync(string extractedPath)
+    {
+        var result = new List<NuGetDependencyGroup>();
+
+        // Check for .nuspec file
+        var nuspecFiles = Directory.GetFiles(extractedPath, "*.nuspec", SearchOption.TopDirectoryOnly);
+        if (nuspecFiles.Length == 0)
+        {
+            return result;
+        }
+
+        try
+        {
+            var nuspecPath = nuspecFiles[0];
+            var nuspecXml = await File.ReadAllTextAsync(nuspecPath);
+            var doc = XDocument.Parse(nuspecXml);
+
+            var ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+            var metadata = doc.Root?.Element(ns + "metadata");
+            var dependencies = metadata?.Element(ns + "dependencies");
+
+            if (dependencies == null)
+            {
+                return result;
+            }
+
+            // Handle dependency groups (framework-specific)
+            var groups = dependencies.Elements(ns + "group");
+            foreach (var group in groups)
+            {
+                var dependencyGroup = new NuGetDependencyGroup
+                {
+                    TargetFramework = group.Attribute("targetFramework")?.Value
+                };
+
+                foreach (var dep in group.Elements(ns + "dependency"))
+                {
+                    var nugetDep = new NuGetDependency
+                    {
+                        PackageId = dep.Attribute("id")?.Value ?? string.Empty,
+                        Version = dep.Attribute("version")?.Value ?? string.Empty,
+                        Exclude = dep.Attribute("exclude")?.Value
+                    };
+
+                    if (!string.IsNullOrEmpty(nugetDep.PackageId))
+                    {
+                        dependencyGroup.Dependencies.Add(nugetDep);
+                    }
+                }
+
+                if (dependencyGroup.Dependencies.Count > 0)
+                {
+                    result.Add(dependencyGroup);
+                }
+            }
+
+            // Handle top-level dependencies (not in a group - older format)
+            var topLevelDeps = dependencies.Elements(ns + "dependency")
+                .Where(d => d.Parent?.Name.LocalName == "dependencies");
+            
+            if (topLevelDeps.Any())
+            {
+                var defaultGroup = new NuGetDependencyGroup();
+                foreach (var dep in topLevelDeps)
+                {
+                    var nugetDep = new NuGetDependency
+                    {
+                        PackageId = dep.Attribute("id")?.Value ?? string.Empty,
+                        Version = dep.Attribute("version")?.Value ?? string.Empty,
+                        Exclude = dep.Attribute("exclude")?.Value
+                    };
+
+                    if (!string.IsNullOrEmpty(nugetDep.PackageId))
+                    {
+                        defaultGroup.Dependencies.Add(nugetDep);
+                    }
+                }
+
+                if (defaultGroup.Dependencies.Count > 0)
+                {
+                    result.Add(defaultGroup);
+                }
+            }
+        }
+        catch
+        {
+            // Return empty list on parse errors
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the best matching target framework from available dependency groups.
+    /// </summary>
+    /// <param name="groups">Available dependency groups</param>
+    /// <param name="preferredFramework">Preferred target framework (e.g., "net10.0")</param>
+    /// <returns>The best matching dependency group, or null if none found</returns>
+    public NuGetDependencyGroup? GetBestMatchingDependencyGroup(
+        List<NuGetDependencyGroup> groups,
+        string preferredFramework)
+    {
+        if (groups == null || groups.Count == 0)
+            return null;
+
+        // Try exact match first
+        var exactMatch = groups.FirstOrDefault(g =>
+            g.TargetFramework?.Equals(preferredFramework, StringComparison.OrdinalIgnoreCase) == true);
+        if (exactMatch != null)
+            return exactMatch;
+
+        // Try to find a compatible framework (prefer newer)
+        // Common frameworks in order of preference for net10.0
+        var compatibleFrameworks = new[]
+        {
+            "net10.0", "net9.0", "net8.0", "net7.0", "net6.0",
+            "netstandard2.1", "netstandard2.0"
+        };
+
+        foreach (var fw in compatibleFrameworks)
+        {
+            var match = groups.FirstOrDefault(g =>
+                g.TargetFramework?.Equals(fw, StringComparison.OrdinalIgnoreCase) == true);
+            if (match != null)
+                return match;
+        }
+
+        // Fall back to first group (may be framework-agnostic)
+        return groups.FirstOrDefault(g => g.Dependencies.Count > 0);
+    }
+
+    /// <summary>
     /// Reads the configuration.json file from an extracted package.
     /// </summary>
     /// <param name="extractedPath">The path where the package was extracted</param>

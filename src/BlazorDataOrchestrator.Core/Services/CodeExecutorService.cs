@@ -19,10 +19,12 @@ namespace BlazorDataOrchestrator.Core.Services;
 public class CodeExecutorService
 {
     private readonly PackageProcessorService _packageProcessor;
+    private readonly NuGetResolverService _nugetResolver;
 
     public CodeExecutorService(PackageProcessorService packageProcessor)
     {
         _packageProcessor = packageProcessor;
+        _nugetResolver = new NuGetResolverService();
     }
 
     /// <summary>
@@ -119,6 +121,61 @@ public class CodeExecutorService
             var evaluator = CSScript.Evaluator;
             evaluator.Reset();
 
+            // Track resolved assemblies for runtime loading
+            var resolvedAssemblyPaths = new List<string>();
+
+            // Resolve NuGet dependencies from .nuspec
+            var dependencyGroups = await _packageProcessor.GetDependenciesFromNuSpecAsync(extractedPath);
+            if (dependencyGroups.Any())
+            {
+                // Determine target framework (default to net10.0)
+                var targetFramework = "net10.0";
+                var bestGroup = _packageProcessor.GetBestMatchingDependencyGroup(dependencyGroups, targetFramework);
+                
+                if (bestGroup != null && bestGroup.Dependencies.Count > 0)
+                {
+                    result.Logs.Add($"Found {bestGroup.Dependencies.Count} NuGet dependencies for {bestGroup.TargetFramework ?? "any"} framework:");
+                    foreach (var dep in bestGroup.Dependencies)
+                    {
+                        result.Logs.Add($"  - {dep.PackageId} {dep.Version}");
+                    }
+
+                    // Use the target framework from the dependency group if available
+                    if (!string.IsNullOrEmpty(bestGroup.TargetFramework))
+                    {
+                        targetFramework = bestGroup.TargetFramework;
+                    }
+
+                    // Resolve and download dependencies
+                    var resolution = await _nugetResolver.ResolveAsync(
+                        bestGroup.Dependencies, 
+                        targetFramework, 
+                        result.Logs);
+
+                    if (resolution.Success && resolution.AssemblyPaths.Count > 0)
+                    {
+                        result.Logs.Add($"Resolved {resolution.AssemblyPaths.Count} assemblies from NuGet packages:");
+                        foreach (var assemblyPath in resolution.AssemblyPaths)
+                        {
+                            try
+                            {
+                                evaluator.ReferenceAssembly(assemblyPath);
+                                resolvedAssemblyPaths.Add(assemblyPath);
+                                result.Logs.Add($"  + {Path.GetFileName(assemblyPath)}");
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Logs.Add($"  ! Failed to load {Path.GetFileName(assemblyPath)}: {ex.Message}");
+                            }
+                        }
+                    }
+                    else if (!resolution.Success)
+                    {
+                        result.Logs.Add($"Warning: NuGet resolution failed: {resolution.ErrorMessage}");
+                    }
+                }
+            }
+
             // Add references to DLLs found in the package
             var dlls = Directory.GetFiles(extractedPath, "*.dll", SearchOption.AllDirectories);
             foreach (var dll in dlls)
@@ -146,82 +203,144 @@ public class CodeExecutorService
             // Compile and load the assembly
             var assembly = evaluator.CompileCode(code);
 
-            // Find the BlazorDataOrchestratorJob class
-            var jobType = assembly.GetTypes()
-                .FirstOrDefault(t => t.Name == "BlazorDataOrchestratorJob");
-
-            if (jobType == null)
+            // Pre-load all resolved assemblies into the current AppDomain
+            // This is required so that GetTypes() can resolve dependencies
+            var loadedAssemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+            foreach (var assemblyPath in resolvedAssemblyPaths)
             {
-                result.Success = false;
-                result.ErrorMessage = "Class 'BlazorDataOrchestratorJob' not found. Code must define a class named 'BlazorDataOrchestratorJob'.";
-                return result;
+                try
+                {
+                    var loadedAsm = Assembly.LoadFrom(assemblyPath);
+                    var asmName = loadedAsm.GetName().Name;
+                    if (asmName != null && !loadedAssemblies.ContainsKey(asmName))
+                    {
+                        loadedAssemblies[asmName] = loadedAsm;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.Logs.Add($"Warning: Could not pre-load {Path.GetFileName(assemblyPath)}: {ex.Message}");
+                }
             }
 
-            // Find the ExecuteJob method - try 6-parameter version first (with webAPIParameter)
-            var executeMethod = jobType.GetMethod("ExecuteJob",
-                BindingFlags.Public | BindingFlags.Static,
-                null,
-                new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int), typeof(string) },
-                null);
-
-            bool has6Params = executeMethod != null;
-
-            // Fall back to 5-parameter version (without webAPIParameter)
-            if (executeMethod == null)
+            // Also load DLLs from the package
+            foreach (var dll in dlls)
             {
-                executeMethod = jobType.GetMethod("ExecuteJob",
+                try
+                {
+                    var loadedAsm = Assembly.LoadFrom(dll);
+                    var asmName = loadedAsm.GetName().Name;
+                    if (asmName != null && !loadedAssemblies.ContainsKey(asmName))
+                    {
+                        loadedAssemblies[asmName] = loadedAsm;
+                    }
+                }
+                catch
+                {
+                    // Ignore DLLs that can't be loaded
+                }
+            }
+
+            result.Logs.Add($"Pre-loaded {loadedAssemblies.Count} assemblies for runtime resolution.");
+
+            // Set up assembly resolve handler for the compiled script
+            ResolveEventHandler? resolveHandler = null;
+            resolveHandler = (sender, args) =>
+            {
+                var requestedName = new AssemblyName(args.Name).Name;
+                if (requestedName != null && loadedAssemblies.TryGetValue(requestedName, out var asm))
+                {
+                    return asm;
+                }
+                return null;
+            };
+
+            AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
+
+            try
+            {
+                // Find the BlazorDataOrchestratorJob class
+                var jobType = assembly.GetTypes()
+                    .FirstOrDefault(t => t.Name == "BlazorDataOrchestratorJob");
+
+                if (jobType == null)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "Class 'BlazorDataOrchestratorJob' not found. Code must define a class named 'BlazorDataOrchestratorJob'.";
+                    return result;
+                }
+
+                // Find the ExecuteJob method - try 6-parameter version first (with webAPIParameter)
+                var executeMethod = jobType.GetMethod("ExecuteJob",
                     BindingFlags.Public | BindingFlags.Static,
                     null,
-                    new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) },
+                    new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int), typeof(string) },
                     null);
-            }
 
-            if (executeMethod == null)
-            {
-                result.Success = false;
-                result.ErrorMessage = "Method 'ExecuteJob' not found in BlazorDataOrchestratorJob class. " +
-                    "Expected signature: public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId[, string webAPIParameter])";
-                return result;
-            }
+                bool has6Params = executeMethod != null;
 
-            result.Logs.Add("Executing job...");
-
-            // Execute the method with appropriate parameters
-            object[] methodParams;
-            if (has6Params)
-            {
-                methodParams = new object[]
+                // Fall back to 5-parameter version (without webAPIParameter)
+                if (executeMethod == null)
                 {
-                    context.AppSettingsJson,
-                    0, // jobAgentId
-                    context.JobId,
-                    context.JobInstanceId,
-                    context.JobScheduleId,
-                    context.WebAPIParameter ?? string.Empty
-                };
-            }
-            else
-            {
-                methodParams = new object[]
+                    executeMethod = jobType.GetMethod("ExecuteJob",
+                        BindingFlags.Public | BindingFlags.Static,
+                        null,
+                        new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) },
+                        null);
+                }
+
+                if (executeMethod == null)
                 {
-                    context.AppSettingsJson,
-                    0, // jobAgentId
-                    context.JobId,
-                    context.JobInstanceId,
-                    context.JobScheduleId
-                };
+                    result.Success = false;
+                    result.ErrorMessage = "Method 'ExecuteJob' not found in BlazorDataOrchestratorJob class. " +
+                        "Expected signature: public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId[, string webAPIParameter])";
+                    return result;
+                }
+
+                result.Logs.Add("Executing job...");
+
+                // Execute the method with appropriate parameters
+                object[] methodParams;
+                if (has6Params)
+                {
+                    methodParams = new object[]
+                    {
+                        context.AppSettingsJson,
+                        0, // jobAgentId
+                        context.JobId,
+                        context.JobInstanceId,
+                        context.JobScheduleId,
+                        context.WebAPIParameter ?? string.Empty
+                    };
+                }
+                else
+                {
+                    methodParams = new object[]
+                    {
+                        context.AppSettingsJson,
+                        0, // jobAgentId
+                        context.JobId,
+                        context.JobInstanceId,
+                        context.JobScheduleId
+                    };
+                }
+
+                var task = (Task<List<string>>?)executeMethod.Invoke(null, methodParams);
+
+                if (task != null)
+                {
+                    var logs = await task;
+                    result.Logs.AddRange(logs);
+                }
+
+                result.Success = true;
+                result.Logs.Add("C# job execution completed successfully.");
             }
-
-            var task = (Task<List<string>>?)executeMethod.Invoke(null, methodParams);
-
-            if (task != null)
+            finally
             {
-                var logs = await task;
-                result.Logs.AddRange(logs);
+                // Always remove the assembly resolve handler
+                AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
             }
-
-            result.Success = true;
-            result.Logs.Add("C# job execution completed successfully.");
         }
         catch (Exception ex)
         {
