@@ -1,10 +1,21 @@
-# Implementation Plan: Online C#/Python Code Editor in JobDetailsDialog
+# Implementation Plan: Online C#/Python Code Editor
 
-## Status: 📋 Planned
+## Status Summary
+
+| Feature | Status | Location |
+|---------|--------|----------|
+| Job Creator "Run Code" Feature | ✅ Complete | `BlazorDataOrchestrator.JobCreatorTemplate` |
+| Online Code Editor in JobDetailsDialog | 📋 Planned | `BlazorOrchestrator.Web` |
 
 ---
 
-## Overview
+## Part 1: Online Code Editor in JobDetailsDialog
+
+### Status: 📋 Planned
+
+---
+
+### Overview
 
 This plan implements an **Online Code Editor** feature within the `JobDetailsDialog.razor` page, enabling users to write, edit, compile, and deploy C# or Python code directly from the browser. The feature builds upon the existing code editor implementation in `BlazorDataOrchestrator.JobCreatorTemplate\Components\Pages\Home.razor`.
 
@@ -1068,3 +1079,213 @@ public class EditorFileStorageService
 4. **Blob Storage**: Packages are stored in Azure Blob Storage and referenced by the `Job.JobCodeFile` property.
 
 5. **Agent Execution**: The "Run Job Now" feature queues the job for the `BlazorOrchestrator.Agent` to execute, following the existing job execution pattern.
+
+---
+---
+
+## Part 2: Job Creator "Run Code" Feature - NuGet Upload & Job Association
+
+### Status: ✅ Complete
+
+---
+
+### Overview
+
+This section documents the completed functionality in the `OnRunCode` method in `Home.razor` (JobCreatorTemplate) to:
+1. **Create a NuGet package** from the current code files
+2. **Upload the package to Azure Blob Storage**
+3. **Associate the uploaded package with the Job record** that is created
+4. **Continue to execute the code locally** for debugging in Visual Studio
+
+The goal is to ensure that every time code is run from the Job Creator, a deployable NuGet package is created, stored, and linked to the job - enabling the same job to be executed later by the Agent service.
+
+---
+
+### Architecture Overview (Job Creator)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Home.razor as Home.razor (OnRunCode)
+    participant NuGetService as NuGetPackageService (Template)
+    participant BuilderService as NuGetPackageBuilderService (Core)
+    participant JobManager as JobManager
+    participant BlobStorage as Azure Blob Storage
+    participant LocalExecution as Local Code Execution
+
+    User->>Home.razor: Click "Run" button
+    Home.razor->>Home.razor: Save current code files
+    Home.razor->>NuGetService: ExtractAndSaveDependenciesFromProjectAsync()
+    NuGetService->>BuilderService: ExtractDependenciesFromProjectAsync()
+    BuilderService-->>NuGetService: Return dependencies
+    NuGetService-->>Home.razor: Dependencies saved
+    Home.razor->>NuGetService: CreatePackageAsStreamAsync()
+    NuGetService->>BuilderService: BuildPackageAsStreamAsync(config)
+    BuilderService-->>NuGetService: Return (stream, fileName, version)
+    NuGetService-->>Home.razor: Return package stream + metadata
+    Home.razor->>JobManager: CreateDesignerJobInstanceAsync() 
+    JobManager-->>Home.razor: Return JobInstanceId
+    Home.razor->>JobManager: GetJobIdFromInstanceIdAsync()
+    JobManager-->>Home.razor: Return JobId
+    Home.razor->>JobManager: UploadJobPackageAsync(jobId, packageStream, fileName)
+    JobManager->>BlobStorage: Upload to "jobs" container
+    JobManager->>JobManager: Update Job.JobCodeFile
+    JobManager-->>Home.razor: Return blob name
+    Home.razor->>LocalExecution: Execute code locally (C# or Python)
+    LocalExecution-->>Home.razor: Execution results
+    Home.razor->>JobManager: CompleteJobInstanceAsync()
+    Home.razor-->>User: Display results dialog
+```
+
+---
+
+### Phase 1: Update NuGetPackageService
+
+#### 1.1 Add Method to Return Package as Stream
+- [x] **File:** `src/BlazorDataOrchestrator.JobCreatorTemplate/Services/NuGetPackageService.cs`
+
+**Implementation:** The `NuGetPackageService` now wraps the Core `NuGetPackageBuilderService` and provides the `CreatePackageAsStreamAsync()` method:
+
+```csharp
+/// <summary>
+/// Creates a NuGet package and returns it as a MemoryStream along with metadata.
+/// </summary>
+public async Task<(MemoryStream PackageStream, string FileName, string Version)> CreatePackageAsStreamAsync(
+    string packageId = "BlazorDataOrchestrator.Job",
+    string? version = null,
+    string? description = null,
+    string? authors = null)
+{
+    var config = CreateBuildConfiguration(packageId, version, description, authors);
+    
+    var result = await _builderService.BuildPackageAsStreamAsync(config);
+
+    if (result == null)
+    {
+        _logger.LogError("Failed to create package as stream");
+        throw new InvalidOperationException("Failed to create package as stream");
+    }
+
+    _logger.LogInformation("Created package as stream: {FileName} (version {Version})", result.Value.FileName, result.Value.Version);
+
+    return result.Value;
+}
+```
+
+---
+
+### Phase 2: Register JobManager in JobCreatorTemplate
+
+#### 2.1 Add JobManager Service Registration
+- [x] **File:** `src/BlazorDataOrchestrator.JobCreatorTemplate/Program.cs`
+
+```csharp
+builder.Services.AddScoped<JobManager>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var sqlConnectionString = config.GetConnectionString("blazororchestratordb") ?? "";
+    var blobConnectionString = config.GetConnectionString("blobs") ?? "";
+    var queueConnectionString = config.GetConnectionString("queues") ?? "";
+    var tableConnectionString = config.GetConnectionString("tables") ?? "";
+    return new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+});
+```
+
+---
+
+### Phase 3: Update Home.razor OnRunCode Method
+
+#### 3.1 Inject Required Services
+- [x] **File:** `src/BlazorDataOrchestrator.JobCreatorTemplate/Components/Pages/Home.razor`
+
+```razor
+@inject JobManager InjectedJobManager
+```
+
+#### 3.2 OnRunCode Flow
+- [x] The updated flow:
+  1. Save current code files
+  2. Create NuGet package as stream
+  3. Load and patch AppSettings with connection strings from Aspire environment
+  4. Create Job Instance (get JobId from existing or create new)
+  5. Upload package to Azure Blob Storage and associate with Job
+  6. Execute code locally for debugging (C# or Python)
+  7. Complete job instance and display results
+
+---
+
+### Phase 4: Testing Checklist
+
+#### Manual Testing
+- [x] Run code in Development mode
+- [x] Run code in Production mode
+- [x] Verify package contents
+- [x] Verify Job record in database
+
+#### Edge Cases
+- [x] Run when Azure Storage is unavailable (logs error but still executes locally)
+- [x] Run multiple times in succession (creates new package with unique name)
+- [x] Run with unsaved changes (changes saved before package creation)
+
+---
+
+### Files Modified (Job Creator Feature)
+
+| File | Changes |
+|------|---------|
+| `src/BlazorDataOrchestrator.Core/Services/NuGetPackageBuilderService.cs` | **NEW** - Shared NuGet package building logic |
+| `src/BlazorDataOrchestrator.Core/Models/NuGetDependency.cs` | **NEW** - Dependency model classes |
+| `src/BlazorDataOrchestrator.JobCreatorTemplate/Services/NuGetPackageService.cs` | Refactored as wrapper around Core service |
+| `src/BlazorDataOrchestrator.JobCreatorTemplate/Program.cs` | Registered `JobManager` as scoped service |
+| `src/BlazorDataOrchestrator.JobCreatorTemplate/Components/Pages/Home.razor` | Updated `OnRunCode` with package creation/upload |
+
+---
+
+### Implementation Notes
+
+1. **JobManager Fallback Pattern**: Uses `var activeJobManager = jobManager ?? InjectedJobManager;` to support both manual initialization and dependency injection.
+
+2. **Graceful Degradation**: Package creation and upload failures are logged as warnings but do not prevent local code execution.
+
+3. **Stream Management**: Package streams are properly disposed in a `finally` block to prevent memory leaks.
+
+4. **Connection String Patching**: Patches connection strings from Aspire environment variables into the appsettings JSON at runtime.
+
+5. **Job Instance Lifecycle**: Properly calls `CompleteJobInstanceAsync()` with success/failure status after code execution.
+
+6. **Package Versioning**: Auto-generated using `1.0.{DateTime.Now:yyyyMMddHHmmss}` format.
+
+7. **Content Files Structure**: NuGet packages use standard `contentFiles/any/any/` structure.
+
+---
+
+### Code Refactoring Summary
+
+The following code was moved from `JobCreatorTemplate` to `BlazorDataOrchestrator.Core` for shared use:
+
+**Moved to Core:**
+- `PackageDependency`, `DependenciesConfig`, `NuGetDependency`, `NuGetDependencyGroup`, `NuGetResolutionResult` → `BlazorDataOrchestrator.Core.Models.NuGetDependency.cs`
+- Package building logic → `NuGetPackageBuilderService` in `BlazorDataOrchestrator.Core.Services`
+
+**Default Dependencies:**
+- `Microsoft.EntityFrameworkCore` v10.0.0
+- `Microsoft.EntityFrameworkCore.SqlServer` v10.0.0
+- `Azure.Data.Tables` v12.9.1
+
+**Benefits:**
+- Core project can create NuGet packages independently
+- Shared models eliminate duplication
+- Better separation of concerns
+
+---
+
+### Summary
+
+This feature enables a seamless workflow where:
+1. Developer writes/edits code in the Job Creator
+2. Clicking "Run" automatically packages the code
+3. Package is uploaded and associated with the Job record
+4. Code is also executed locally for immediate debugging
+5. The same job can later be run by the Agent service using the uploaded package
+
+This bridges the gap between development/debugging in the Job Creator and production execution by the Agent.
