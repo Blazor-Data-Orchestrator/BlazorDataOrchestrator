@@ -1,13 +1,5 @@
 {
 	"servers": {
-		"aspire": {
-			"type": "stdio",
-			"command": "aspire",
-			"args": [
-				"mcp",
-				"start"
-			]
-		},
 		"playwright": {
 			"type": "stdio",
 			"command": "npx",

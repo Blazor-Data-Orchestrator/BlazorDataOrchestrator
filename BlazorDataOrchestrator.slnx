@@ -6,6 +6,7 @@
     <File Path="docs/logs.md" />
     <File Path="docs/NuGetExecutionFeature.md" />
     <File Path="docs/NugetExecutionFeatureDiagram.md" />
+    <File Path="docs/OnlineCodeEditorFeaturePlan.md" />
     <File Path="docs/QueueVisibilityTimeoutRenewal.md" />
     <File Path="docs/TimezoneFeaturePlan.md" />
     <File Path="docs/WebhookFeaturePlan.md" />

@@ -1,6 +1,26 @@
 namespace BlazorDataOrchestrator.Core.Models;
 
 /// <summary>
+/// Represents a NuGet package dependency for package creation.
+/// Used when building NuGet packages from job code.
+/// </summary>
+public class PackageDependency
+{
+    public string Id { get; set; } = "";
+    public string Version { get; set; } = "";
+
+    public override string ToString() => $"{Id} {Version}";
+}
+
+/// <summary>
+/// Represents the dependencies configuration file structure.
+/// </summary>
+public class DependenciesConfig
+{
+    public List<PackageDependency> Dependencies { get; set; } = new();
+}
+
+/// <summary>
 /// Represents a NuGet package dependency extracted from a .nuspec file.
 /// </summary>
 public class NuGetDependency
