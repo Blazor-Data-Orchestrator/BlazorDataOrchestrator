@@ -34,7 +34,9 @@
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
-	<PackageReference Include="Radzen.Blazor" Version="*" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="Radzen.Blazor" Version="*" />
+    <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />
   </ItemGroup>
 
   <ItemGroup>

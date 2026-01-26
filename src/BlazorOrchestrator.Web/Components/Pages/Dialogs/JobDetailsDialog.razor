@@ -4,6 +4,8 @@
 @using BlazorDataOrchestrator.Core
 @using Radzen
 @using Radzen.Blazor
+@using SimpleBlazorMonaco
+@using MonacoRazor
 @inject JobService JobService
 @inject JobGroupService JobGroupService
 @inject JobQueueService JobQueueService
@@ -14,6 +16,12 @@
 @inject TimeDisplayService TimeDisplayService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
+@inject JobCodeEditorService CodeEditorService
+@inject CSharpCompilationService CSharpCompiler
+@inject PythonValidationService PythonValidator
+@inject WebNuGetPackageService PackageService
+@inject EditorFileStorageService FileStorage
+@inject ILogger<JobDetailsDialog> _logger
 
 @if (IsLoading)
 {
@@ -36,7 +44,7 @@ else if (Job == null)
 else
 {
     <RadzenStack Gap="1rem" Style="min-width: 850px;">
-        <RadzenTabs @bind-SelectedIndex="@SelectedTabIndex" Style="width: 100%;">
+        <RadzenTabs @bind-SelectedIndex="@SelectedTabIndex" Style="width: 100%;" Change="@OnTabChanged">
             <Tabs>
                 <RadzenTabsItem Text="Details" Icon="info">
                     @* Details Tab Content *@
@@ -227,26 +235,115 @@ Content-Type: application/json
                 </RadzenTabsItem>
 
                 <RadzenTabsItem Text="Code" Icon="code">
-                    @* Code Tab Content *@
-                    <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenStack Gap="0.5rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Existing Code file</RadzenText>
-                            <RadzenText TextStyle="TextStyle.Body2" Style="font-family: monospace; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">
-                                @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
-                            </RadzenText>
-                        </RadzenStack>
-
-                        <RadzenStack Gap="0.5rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Upload nuget package file</RadzenText>
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
-                                @if (IsUploading)
+                    @* Code Editor Tab Content *@
+                    <RadzenStack Gap="1rem" Style="padding: 1rem 0; height: 500px;">
+                        @* Toolbar *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
+                                     JustifyContent="JustifyContent.SpaceBetween" Gap="1rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                @* Language Selection *@
+                                <RadzenLabel Text="Language:" Style="font-weight: 500;" />
+                                <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
+                                                TextProperty="Name" ValueProperty="Value"
+                                                Style="min-width: 120px;" Change="@OnLanguageChanged"
+                                                Disabled="@(codeEditMode == CodeEditMode.Upload)" />
+                                
+                                @* Edit Mode Toggle *@
+                                <RadzenLabel Text="Mode:" Style="font-weight: 500; margin-left: 1rem;" />
+                                <RadzenSelectBar @bind-Value="@codeEditMode" TValue="CodeEditMode" Size="ButtonSize.Small"
+                                                 Change="@OnEditModeChanged">
+                                    <Items>
+                                        <RadzenSelectBarItem Text="Editor" Value="CodeEditMode.Editor" />
+                                        <RadzenSelectBarItem Text="Upload" Value="CodeEditMode.Upload" />
+                                    </Items>
+                                </RadzenSelectBar>
+                                
+                                @* File Selector (when in Editor mode) *@
+                                @if (codeEditMode == CodeEditMode.Editor)
                                 {
-                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                                    <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
+                                    <RadzenDropDown @bind-Value="@selectedCodeFile" Data="@codeFileList"
+                                                    Style="min-width: 180px; margin-left: 1rem;"
+                                                    Change="@OnCodeFileChanged" AllowClear="false" />
+                                }
+                            </RadzenStack>
+                            
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                @if (codeEditMode == CodeEditMode.Editor)
+                                {
+                                    <RadzenButton Text="Save & Compile" Icon="save" ButtonStyle="ButtonStyle.Primary" 
+                                                  Size="ButtonSize.Small" Click="@SaveAndCompileCode" 
+                                                  IsBusy="@isCompilingCode" />
+                                    <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" 
+                                                  Size="ButtonSize.Small" Click="@RunJobWithCode" 
+                                                  IsBusy="@isRunningJobWithCode" />
                                 }
                             </RadzenStack>
                         </RadzenStack>
+
+                        @* Editor or Upload Section *@
+                        @if (isExtractingPackageFiles)
+                        {
+                            @* Loading overlay while extracting package files *@
+                            <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" 
+                                          Gap="1.5rem" Style="flex-grow: 1; border: 1px solid #e8e8e8; border-radius: 8px; background: #f8f9fa;">
+                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                                <RadzenText TextStyle="TextStyle.Body1" Style="text-align: center;">
+                                    Extracting package files...
+                                </RadzenText>
+                            </RadzenStack>
+                        }
+                        else if (codeEditMode == CodeEditMode.Editor)
+                        {
+                            @* Code Editor Area *@
+                            <div style="flex-grow: 1; border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden;">
+                                <CodeEditor @ref="jobCodeEditor"
+                                            Language="@GetMonacoLanguageForJob()"
+                                            Code="@currentJobCode"
+                                            Height="100%"
+                                            Width="100%"
+                                            Border="0"
+                                            Margin="0" />
+                            </div>
+                        }
+                        else
+                        {
+                            @* File Upload Section *@
+                            <RadzenStack Gap="1rem" Style="padding: 1rem; background: #f8f9fa; border-radius: 8px; flex-grow: 1;">
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">
+                                        Current Code Package
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body2" 
+                                                Style="font-family: monospace; background: #ffffff; padding: 0.5rem; border-radius: 4px;">
+                                        @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
+                                    </RadzenText>
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">
+                                        Upload NuGet Package (.nupkg)
+                                    </RadzenText>
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                        <InputFile OnChange="@OnFileSelected" accept=".nupkg,.zip" Disabled="@IsUploading" />
+                                        @if (IsUploading)
+                                        {
+                                            <RadzenProgressBarCircular ShowValue="false" 
+                                                                       Mode="ProgressBarMode.Indeterminate" 
+                                                                       Size="ProgressBarCircularSize.Small" />
+                                            <RadzenText TextStyle="TextStyle.Body2">Uploading...</RadzenText>
+                                        }
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenStack>
+                        }
+
+                        @* AppSettings Editor Info (visible when editing JSON files) *@
+                        @if (codeEditMode == CodeEditMode.Editor && selectedCodeFile?.EndsWith(".json") == true)
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Size="AlertSize.Small">
+                                Edit the appsettings file to configure your job's runtime settings.
+                            </RadzenAlert>
+                        }
                     </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>
@@ -293,6 +390,43 @@ Content-Type: application/json
     private bool IsUploading { get; set; } = false;
     private bool IsRunningJob { get; set; } = false;
     private int SelectedTabIndex { get; set; } = 0;
+    private int previousTabIndex = 0;
+    private bool hasInitializedCodeTab = false;
+
+    // Code Editor State
+    private CodeEditor? jobCodeEditor;
+    private string currentJobCode = "";
+    private string codeLanguage = "csharp";
+    private CodeEditMode codeEditMode = CodeEditMode.Upload; // Start in Upload mode by default
+    private string? selectedCodeFile;
+    private List<string> codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+    private bool isCompilingCode = false;
+    private bool isRunningJobWithCode = false;
+    private bool codeEditorInitialized = false;
+    
+    // Extended Code Editor State for package file extraction
+    private JobCodeModel? loadedCodeModel;
+    private bool hasLoadedPackageFiles = false;
+    private string? previousSelectedFile;
+    private bool isExtractingPackageFiles = false;
+
+    private List<LanguageOption> languageOptions = new List<LanguageOption>
+    {
+        new LanguageOption { Name = "C#", Value = "csharp" },
+        new LanguageOption { Name = "Python", Value = "python" }
+    };
+
+    public enum CodeEditMode
+    {
+        Editor,
+        Upload
+    }
+
+    public class LanguageOption
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
     private IBrowserFile? SelectedFile { get; set; }
 
     private RadzenDataGrid<JobSchedule>? ScheduleGrid;
@@ -757,6 +891,516 @@ Content-Type: application/json
         catch (Exception ex)
         {
             NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to copy: {ex.Message}");
+        }
+    }
+
+    // Code Editor Methods
+    private async Task OnLanguageChanged()
+    {
+        // Reset loaded state when language changes
+        hasLoadedPackageFiles = false;
+        loadedCodeModel = null;
+        
+        // Set default file list based on language
+        if (codeLanguage == "csharp")
+        {
+            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+        }
+        else if (codeLanguage == "python")
+        {
+            codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json" };
+        }
+        
+        selectedCodeFile = codeFileList.FirstOrDefault();
+        
+        // If we have a package, reload files for the new language
+        if (Job != null && !string.IsNullOrEmpty(Job.JobCodeFile))
+        {
+            await LoadPackageFilesAsync();
+        }
+        else
+        {
+            // Load default template for new language
+            currentJobCode = CodeEditorService.GetDefaultTemplate(codeLanguage);
+            if (!string.IsNullOrEmpty(selectedCodeFile))
+            {
+                FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
+            }
+        }
+        
+        // Update editor state
+        FileStorage.SetEditorState(JobId, new EditorState 
+        { 
+            Language = codeLanguage, 
+            SelectedFile = selectedCodeFile 
+        });
+        
+        if (jobCodeEditor != null)
+        {
+            await jobCodeEditor.UpdateCodeAsync(currentJobCode);
+            await jobCodeEditor.UpdateLanguageAsync(GetMonacoLanguageForJob());
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task OnCodeFileChanged()
+    {
+        if (string.IsNullOrEmpty(selectedCodeFile)) return;
+        
+        // Save current code before switching
+        if (jobCodeEditor != null && !string.IsNullOrEmpty(previousSelectedFile))
+        {
+            var code = await jobCodeEditor.GetCodeAsync();
+            
+            // Save to loadedCodeModel if available
+            if (loadedCodeModel != null)
+            {
+                CodeEditorService.SetFileContent(loadedCodeModel, previousSelectedFile, code);
+            }
+            
+            // Also save to file storage
+            FileStorage.SetFile(JobId, previousSelectedFile, code);
+        }
+        
+        // Load new file content
+        string fileContent;
+        
+        if (loadedCodeModel != null)
+        {
+            // Get content from the loaded code model
+            fileContent = CodeEditorService.GetFileContent(loadedCodeModel, selectedCodeFile);
+        }
+        else
+        {
+            // Try to get from file storage
+            fileContent = FileStorage.GetFile(JobId, selectedCodeFile) ?? "";
+        }
+        
+        if (string.IsNullOrEmpty(fileContent))
+        {
+            // Generate default content based on file type
+            fileContent = GetDefaultContentForFile(selectedCodeFile);
+            
+            // Store the default content
+            if (loadedCodeModel != null)
+            {
+                CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, fileContent);
+            }
+            FileStorage.SetFile(JobId, selectedCodeFile, fileContent);
+        }
+        
+        currentJobCode = fileContent;
+        previousSelectedFile = selectedCodeFile;
+        
+        // Update editor state
+        var state = FileStorage.GetEditorState(JobId) ?? new EditorState();
+        state.SelectedFile = selectedCodeFile;
+        FileStorage.SetEditorState(JobId, state);
+        
+        if (jobCodeEditor != null)
+        {
+            await jobCodeEditor.UpdateCodeAsync(currentJobCode);
+            await jobCodeEditor.UpdateLanguageAsync(GetMonacoLanguageForJob());
+        }
+        
+        StateHasChanged();
+    }
+
+    private string GetDefaultContentForFile(string fileName)
+    {
+        var lowerFileName = fileName.ToLowerInvariant();
+        
+        if (lowerFileName.EndsWith(".json"))
+        {
+            return CodeEditorService.GetDefaultAppSettings();
+        }
+        if (lowerFileName.EndsWith(".cs") || lowerFileName.EndsWith(".py"))
+        {
+            return CodeEditorService.GetDefaultTemplate(codeLanguage);
+        }
+        if (lowerFileName == "requirements.txt")
+        {
+            return "# Python dependencies\n# Add your pip packages here\n";
+        }
+        
+        return "";
+    }
+
+    /// <summary>
+    /// Handles tab change events. When Code tab is selected and job has a package, 
+    /// automatically switches to Editor mode and loads the package files.
+    /// </summary>
+    private async Task OnTabChanged(int newIndex)
+    {
+        const int CodeTabIndex = 5; // Code tab is the 6th tab (0-indexed)
+        
+        // Check if switching TO the Code tab
+        if (newIndex == CodeTabIndex && !hasInitializedCodeTab)
+        {
+            hasInitializedCodeTab = true;
+            
+            // If job has a NuGet package, automatically select Editor mode and load files
+            if (Job != null && !string.IsNullOrEmpty(Job.JobCodeFile))
+            {
+                codeEditMode = CodeEditMode.Editor;
+                StateHasChanged();
+                
+                // Load package files (this will show dialog with spinner)
+                await LoadPackageFilesAsync();
+            }
+        }
+        
+        previousTabIndex = newIndex;
+    }
+
+    private async Task OnEditModeChanged()
+    {
+        if (codeEditMode == CodeEditMode.Editor)
+        {
+            // When switching to Editor mode, load package files if available
+            await LoadPackageFilesAsync();
+            
+            // Initialize editor if needed
+            if (!codeEditorInitialized && !string.IsNullOrEmpty(currentJobCode))
+            {
+                codeEditorInitialized = true;
+                await Task.Delay(100); // Allow component to render
+                if (jobCodeEditor != null)
+                {
+                    await jobCodeEditor.UpdateCodeAsync(currentJobCode);
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Loads all files from the job's NuGet package when entering Editor mode.
+    /// Shows a loading indicator within the Code tab while loading.
+    /// </summary>
+    private async Task LoadPackageFilesAsync()
+    {
+        if (Job == null || string.IsNullOrEmpty(Job.JobCodeFile) || hasLoadedPackageFiles)
+        {
+            // No package to load, but still initialize if not done
+            if (!codeEditorInitialized)
+            {
+                await InitializeCodeEditor();
+            }
+            return;
+        }
+        
+        // Show loading state
+        isExtractingPackageFiles = true;
+        StateHasChanged();
+        
+        // Small delay to ensure UI updates
+        await Task.Delay(50);
+        
+        try
+        {
+            // Download the package from blob storage
+            var packageStream = await JobManager.DownloadJobPackageAsync(Job.Id);
+            
+            if (packageStream != null)
+            {
+                // Extract all files - pass a placeholder language, actual will come from config
+                loadedCodeModel = await CodeEditorService.ExtractAllFilesFromPackageAsync(
+                    packageStream, codeLanguage);
+                
+                // Update language from configuration.json (the ExtractAllFilesFromPackageAsync 
+                // method reads the SelectedLanguage from configuration.json and sets it in the model)
+                codeLanguage = loadedCodeModel.Language;
+                
+                // Update the file dropdown list based on discovered language
+                UpdateFileListForLanguage();
+                
+                // Update the file dropdown list
+                if (loadedCodeModel.DiscoveredFiles.Any())
+                {
+                    codeFileList = loadedCodeModel.DiscoveredFiles;
+                    selectedCodeFile = codeFileList.FirstOrDefault();
+                    previousSelectedFile = selectedCodeFile;
+                    
+                    // Load the first file's content
+                    if (selectedCodeFile != null)
+                    {
+                        currentJobCode = CodeEditorService.GetFileContent(loadedCodeModel, selectedCodeFile);
+                    }
+                }
+                
+                // Also initialize file storage from the code model
+                FileStorage.InitializeFromCodeModel(JobId, loadedCodeModel);
+                
+                hasLoadedPackageFiles = true;
+                codeEditorInitialized = true;
+                
+                _logger.LogInformation("Loaded {Count} files from package for job {JobId} with language {Language}", 
+                    codeFileList.Count, Job.Id, codeLanguage);
+            }
+            else
+            {
+                // Package download failed, initialize with defaults
+                await InitializeCodeEditor();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load package files for job {JobId}", Job?.Id);
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", 
+                "Could not load existing code package. Using default template.");
+            await InitializeCodeEditor();
+        }
+        finally
+        {
+            // Hide loading state
+            isExtractingPackageFiles = false;
+            StateHasChanged();
+        }
+    }
+    
+    /// <summary>
+    /// Updates the file list based on the current language setting.
+    /// </summary>
+    private void UpdateFileListForLanguage()
+    {
+        var mainFile = codeLanguage == "python" ? "main.py" : "main.cs";
+        if (codeLanguage == "csharp")
+        {
+            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+        }
+        else
+        {
+            codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json", "requirements.txt" };
+        }
+    }
+
+    private string GetMonacoLanguageForJob()
+    {
+        return CodeEditorService.GetMonacoLanguageForFile(selectedCodeFile, codeLanguage);
+    }
+
+    private async Task InitializeCodeEditor()
+    {
+        if (Job == null || codeEditorInitialized) return;
+        
+        try
+        {
+            // Initialize with default template
+            currentJobCode = CodeEditorService.GetDefaultTemplate(codeLanguage);
+            
+            // Set default file list based on language
+            if (codeLanguage == "csharp")
+            {
+                codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+            }
+            else
+            {
+                codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json" };
+            }
+            
+            selectedCodeFile = codeFileList.FirstOrDefault();
+            previousSelectedFile = selectedCodeFile;
+            
+            if (!string.IsNullOrEmpty(selectedCodeFile))
+            {
+                FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
+                FileStorage.SetFile(JobId, "appsettings.json", CodeEditorService.GetDefaultAppSettings());
+                FileStorage.SetFile(JobId, "appsettings.Production.json", CodeEditorService.GetDefaultAppSettings());
+            }
+            
+            codeEditorInitialized = true;
+            
+            // Update editor if already rendered
+            if (jobCodeEditor != null)
+            {
+                await jobCodeEditor.UpdateCodeAsync(currentJobCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", 
+                $"Could not initialize code editor: {ex.Message}");
+            currentJobCode = CodeEditorService.GetDefaultTemplate(codeLanguage);
+            codeEditorInitialized = true;
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task SaveAndCompileCode()
+    {
+        if (jobCodeEditor == null || Job == null) return;
+        
+        isCompilingCode = true;
+        StateHasChanged();
+        
+        try
+        {
+            // Get current code from editor
+            currentJobCode = await jobCodeEditor.GetCodeAsync();
+            
+            // Save current file to storage and loadedCodeModel
+            if (!string.IsNullOrEmpty(selectedCodeFile))
+            {
+                FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
+                if (loadedCodeModel != null)
+                {
+                    CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, currentJobCode);
+                }
+            }
+            
+            // Get the main code file for compilation
+            var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
+            var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
+            
+            // Attempt compilation/validation
+            CompilationResult compilationResult;
+            if (codeLanguage == "csharp")
+            {
+                compilationResult = CSharpCompiler.Compile(mainCode);
+            }
+            else
+            {
+                compilationResult = PythonValidator.Validate(mainCode);
+            }
+            
+            if (!compilationResult.Success)
+            {
+                // Show compilation errors in popup dialog
+                await ShowCompilationErrorsDialog(compilationResult.Errors);
+                return;
+            }
+            
+            // Compilation successful - create NuGet package and upload
+            var codeModel = FileStorage.ToCodeModel(JobId);
+            var blobName = await PackageService.CreateAndUploadPackageAsync(Job.Id, codeModel);
+            
+            // Update job record
+            Job.JobCodeFile = blobName;
+            
+            // Mark that we've saved, so next load will get this version
+            hasLoadedPackageFiles = false;
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Success", 
+                "Code compiled and saved successfully!");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                $"Failed to save code: {ex.Message}");
+        }
+        finally
+        {
+            isCompilingCode = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowCompilationErrorsDialog(List<CompilationError> errors)
+    {
+        await DialogService.OpenAsync("Compilation Errors", ds =>
+            @<RadzenStack Gap="1rem" Style="padding: 1rem;">
+                <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false">
+                    The code could not be compiled. Please fix the errors below before saving.
+                </RadzenAlert>
+                <div style="max-height: 300px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; 
+                            padding: 1rem; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 12px;">
+                    @foreach (var error in errors)
+                    {
+                        <div style="margin-bottom: 0.5rem; border-left: 3px solid @(error.Severity == "Error" ? "#f44336" : "#ff9800"); padding-left: 0.5rem;">
+                            <span style="color: #9cdcfe;">Line @error.Line, Col @error.Column:</span>
+                            <span style="color: @(error.Severity == "Error" ? "#f44336" : "#ff9800");">[@error.Severity]</span>
+                            <span>@error.Message</span>
+                        </div>
+                    }
+                </div>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End">
+                    <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => ds.Close())" />
+                </RadzenStack>
+            </RadzenStack>,
+            new DialogOptions { Width = "600px", Height = "auto" }
+        );
+    }
+
+    private async Task RunJobWithCode()
+    {
+        if (Job == null) return;
+        
+        isRunningJobWithCode = true;
+        StateHasChanged();
+        
+        try
+        {
+            // If in editor mode, save and compile first
+            if (codeEditMode == CodeEditMode.Editor && jobCodeEditor != null)
+            {
+                currentJobCode = await jobCodeEditor.GetCodeAsync();
+                
+                // Save current file to storage and loadedCodeModel
+                if (!string.IsNullOrEmpty(selectedCodeFile))
+                {
+                    FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
+                    if (loadedCodeModel != null)
+                    {
+                        CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, currentJobCode);
+                    }
+                }
+                
+                // Get the main code file for compilation
+                var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
+                var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
+                
+                // Compile code
+                CompilationResult compilationResult;
+                if (codeLanguage == "csharp")
+                {
+                    compilationResult = CSharpCompiler.Compile(mainCode);
+                }
+                else
+                {
+                    compilationResult = PythonValidator.Validate(mainCode);
+                }
+                
+                if (!compilationResult.Success)
+                {
+                    await ShowCompilationErrorsDialog(compilationResult.Errors);
+                    return;
+                }
+                
+                // Create and upload NuGet package
+                var codeModel = FileStorage.ToCodeModel(JobId);
+                var blobName = await PackageService.CreateAndUploadPackageAsync(Job.Id, codeModel);
+                
+                Job.JobCodeFile = blobName;
+            }
+            else if (string.IsNullOrEmpty(Job.JobCodeFile))
+            {
+                NotificationService.Notify(NotificationSeverity.Warning, "Warning", 
+                    "Please upload a NuGet package or write code before running the job.");
+                return;
+            }
+            
+            // Queue job for execution with Agent
+            var jobInstanceId = await JobManager.RunJobNowAsync(Job.Id);
+            
+            NotificationService.Notify(NotificationSeverity.Success, "Job Queued", 
+                $"Job has been queued for execution. Instance ID: {jobInstanceId}");
+            
+            // Switch to Logs tab and refresh
+            SelectedTabIndex = 3; // Logs tab index
+            await RefreshLogs();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", 
+                $"Failed to run job: {ex.Message}");
+        }
+        finally
+        {
+            isRunningJobWithCode = false;
+            StateHasChanged();
         }
     }
 }

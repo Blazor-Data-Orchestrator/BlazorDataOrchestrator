@@ -5,13 +5,13 @@
 | Feature | Status | Location |
 |---------|--------|----------|
 | Job Creator "Run Code" Feature | ✅ Complete | `BlazorDataOrchestrator.JobCreatorTemplate` |
-| Online Code Editor in JobDetailsDialog | 📋 Planned | `BlazorOrchestrator.Web` |
+| Online Code Editor in JobDetailsDialog | ✅ Complete | `BlazorOrchestrator.Web` |
 
 ---
 
 ## Part 1: Online Code Editor in JobDetailsDialog
 
-### Status: 📋 Planned
+### Status: ✅ Complete
 
 ---
 
