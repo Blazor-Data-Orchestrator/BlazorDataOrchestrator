@@ -50,8 +50,8 @@ public class WebNuGetPackageService
 
         using (var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, true))
         {
-            // Add .nuspec file
-            var nuspecContent = GenerateNuspec(fullPackageId, version, codeModel.Language);
+            // Add .nuspec file (including dependencies if available)
+            var nuspecContent = GenerateNuspec(fullPackageId, version, codeModel.Language, codeModel.Dependencies);
             await AddEntryAsync(archive, $"{fullPackageId}.nuspec", nuspecContent);
 
             // Add code files based on language
@@ -150,8 +150,23 @@ public class WebNuGetPackageService
         }
     }
 
-    private string GenerateNuspec(string packageId, string version, string language)
+    private string GenerateNuspec(string packageId, string version, string language, List<NuGetDependencyInfo>? dependencies = null)
     {
+        var dependenciesXml = "";
+        
+        if (dependencies?.Any() == true)
+        {
+            var depElements = string.Join("\n      ", 
+                dependencies.Select(d => $@"<dependency id=""{d.PackageId}"" version=""{d.Version}"" />"));
+            
+            dependenciesXml = $@"
+    <dependencies>
+      <group targetFramework=""net10.0"">
+      {depElements}
+      </group>
+    </dependencies>";
+        }
+        
         return $@"<?xml version=""1.0"" encoding=""utf-8""?>
 <package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
   <metadata>
@@ -161,7 +176,7 @@ public class WebNuGetPackageService
     <description>Auto-generated job package ({language})</description>
     <contentFiles>
       <files include=""**/*"" buildAction=""Content"" copyToOutput=""true"" />
-    </contentFiles>
+    </contentFiles>{dependenciesXml}
   </metadata>
 </package>";
     }

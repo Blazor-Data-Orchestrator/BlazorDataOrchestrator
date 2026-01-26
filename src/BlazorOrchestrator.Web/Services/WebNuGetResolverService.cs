@@ -1,12 +1,14 @@
 using Microsoft.CodeAnalysis;
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Xml.Linq;
 
 namespace BlazorOrchestrator.Web.Services;
 
 /// <summary>
 /// Resolves NuGet package dependencies for web-based compilation.
 /// Caches resolved assemblies to minimize repeated downloads.
+/// Supports transitive dependency resolution.
 /// </summary>
 public class WebNuGetResolverService
 {
@@ -14,14 +16,20 @@ public class WebNuGetResolverService
     private readonly ILogger<WebNuGetResolverService> _logger;
     
     // Cache for resolved metadata references (keyed by "packageId:version")
-    private static readonly ConcurrentDictionary<string, MetadataReference?> _referenceCache = new();
+    private static readonly ConcurrentDictionary<string, List<MetadataReference>> _referenceCache = new();
     
     // Cache for downloaded package bytes (keyed by "packageId:version")
     private static readonly ConcurrentDictionary<string, byte[]?> _packageCache = new();
     
+    // Track packages being processed to prevent infinite loops
+    private static readonly ConcurrentDictionary<string, bool> _processingPackages = new();
+    
     // NuGet API base URLs
     private const string NuGetServiceIndex = "https://api.nuget.org/v3/index.json";
     private const string NuGetPackageBaseUrl = "https://api.nuget.org/v3-flatcontainer";
+    
+    // Maximum depth for transitive dependency resolution
+    private const int MaxDependencyDepth = 5;
 
     public WebNuGetResolverService(
         IHttpClientFactory httpClientFactory,
@@ -33,37 +41,93 @@ public class WebNuGetResolverService
 
     /// <summary>
     /// Resolves NuGet dependencies to MetadataReferences for compilation.
+    /// Includes transitive dependency resolution.
     /// </summary>
     /// <param name="dependencies">The list of NuGet dependencies from .nuspec.</param>
-    /// <param name="targetFramework">The target framework (default: net9.0).</param>
+    /// <param name="targetFramework">The target framework (default: net10.0).</param>
     /// <returns>List of MetadataReferences for the resolved packages.</returns>
     public async Task<List<MetadataReference>> ResolveForCompilationAsync(
         List<NuGetDependencyInfo> dependencies,
-        string targetFramework = "net9.0")
+        string targetFramework = "net10.0")
     {
         var references = new List<MetadataReference>();
+        var processedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _logger.LogInformation("Resolving {Count} NuGet dependencies for {TargetFramework} (with transitive resolution)", 
+            dependencies.Count, targetFramework);
+
+        // Resolve all dependencies including transitive ones
+        await ResolvePackagesRecursivelyAsync(dependencies, targetFramework, references, processedPackages, 0);
+
+        _logger.LogInformation("Total NuGet references resolved: {Count} (from {PackageCount} packages)", 
+            references.Count, processedPackages.Count);
+        
+        return references;
+    }
+
+    /// <summary>
+    /// Recursively resolves packages and their transitive dependencies.
+    /// </summary>
+    private async Task ResolvePackagesRecursivelyAsync(
+        List<NuGetDependencyInfo> dependencies,
+        string targetFramework,
+        List<MetadataReference> references,
+        HashSet<string> processedPackages,
+        int depth)
+    {
+        if (depth > MaxDependencyDepth)
+        {
+            _logger.LogWarning("Maximum dependency depth ({MaxDepth}) reached, stopping recursion", MaxDependencyDepth);
+            return;
+        }
 
         foreach (var dep in dependencies)
         {
-            var cacheKey = $"{dep.PackageId.ToLowerInvariant()}:{dep.Version}";
+            var packageKey = $"{dep.PackageId.ToLowerInvariant()}:{dep.Version.ToLowerInvariant()}";
+
+            // Skip if already processed
+            if (processedPackages.Contains(packageKey))
+            {
+                continue;
+            }
 
             // Check cache first
-            if (_referenceCache.TryGetValue(cacheKey, out var cached) && cached != null)
+            if (_referenceCache.TryGetValue(packageKey, out var cached) && cached != null && cached.Any())
             {
-                references.Add(cached);
-                _logger.LogDebug("Using cached reference for {PackageId} v{Version}", dep.PackageId, dep.Version);
+                references.AddRange(cached);
+                processedPackages.Add(packageKey);
+                _logger.LogDebug("Using cached references for {PackageId} v{Version} ({RefCount} refs)", 
+                    dep.PackageId, dep.Version, cached.Count);
+                continue;
+            }
+
+            // Mark as processed to prevent loops
+            if (!processedPackages.Add(packageKey))
+            {
                 continue;
             }
 
             try
             {
-                var packageReferences = await DownloadAndExtractReferencesAsync(dep, targetFramework);
-                foreach (var reference in packageReferences)
+                _logger.LogInformation("Resolving package: {PackageId} v{Version} (depth: {Depth})", 
+                    dep.PackageId, dep.Version, depth);
+                
+                var (packageReferences, transitiveDeps) = await DownloadAndExtractWithDependenciesAsync(dep, targetFramework);
+                
+                if (packageReferences.Any())
                 {
-                    if (reference != null)
-                    {
-                        references.Add(reference);
-                    }
+                    references.AddRange(packageReferences);
+                    _referenceCache[packageKey] = packageReferences;
+                    _logger.LogInformation("Extracted {Count} references from {PackageId}", 
+                        packageReferences.Count, dep.PackageId);
+                }
+
+                // Recursively resolve transitive dependencies
+                if (transitiveDeps.Any())
+                {
+                    _logger.LogDebug("Package {PackageId} has {Count} transitive dependencies", 
+                        dep.PackageId, transitiveDeps.Count);
+                    await ResolvePackagesRecursivelyAsync(transitiveDeps, targetFramework, references, processedPackages, depth + 1);
                 }
             }
             catch (Exception ex)
@@ -72,25 +136,26 @@ public class WebNuGetResolverService
                     dep.PackageId, dep.Version);
             }
         }
-
-        return references;
     }
 
     /// <summary>
     /// Downloads a NuGet package and extracts DLLs as MetadataReferences.
+    /// Also extracts transitive dependencies from the package's .nuspec.
     /// </summary>
-    private async Task<List<MetadataReference>> DownloadAndExtractReferencesAsync(
-        NuGetDependencyInfo dep,
-        string targetFramework)
+    private async Task<(List<MetadataReference> References, List<NuGetDependencyInfo> Dependencies)> 
+        DownloadAndExtractWithDependenciesAsync(
+            NuGetDependencyInfo dep,
+            string targetFramework)
     {
         var references = new List<MetadataReference>();
+        var transitiveDeps = new List<NuGetDependencyInfo>();
         var packageId = dep.PackageId.ToLowerInvariant();
         var version = await ResolveVersionAsync(packageId, dep.Version);
 
         if (string.IsNullOrEmpty(version))
         {
             _logger.LogWarning("Could not resolve version for {PackageId}", dep.PackageId);
-            return references;
+            return (references, transitiveDeps);
         }
 
         var cacheKey = $"{packageId}:{version}";
@@ -105,61 +170,106 @@ public class WebNuGetResolverService
             try
             {
                 var client = _httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromSeconds(30);
+                client.Timeout = TimeSpan.FromSeconds(60);
                 
                 _logger.LogInformation("Downloading NuGet package: {PackageId} v{Version}", dep.PackageId, version);
                 packageBytes = await client.GetByteArrayAsync(packageUrl);
                 _packageCache[cacheKey] = packageBytes;
+                _logger.LogDebug("Downloaded {Size} bytes for {PackageId}", packageBytes.Length, dep.PackageId);
             }
             catch (HttpRequestException ex)
             {
                 _logger.LogWarning(ex, "Failed to download package {PackageId} v{Version} from {Url}",
                     dep.PackageId, version, packageUrl);
-                return references;
+                return (references, transitiveDeps);
             }
         }
 
-        // Extract DLLs from the package
+        // Extract DLLs and .nuspec from the package
         using var packageStream = new MemoryStream(packageBytes);
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+
+        // First, extract .nuspec to get transitive dependencies
+        var nuspecEntry = archive.Entries.FirstOrDefault(e => 
+            e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+        
+        if (nuspecEntry != null)
+        {
+            try
+            {
+                using var nuspecStream = nuspecEntry.Open();
+                using var reader = new StreamReader(nuspecStream);
+                var nuspecContent = await reader.ReadToEndAsync();
+                transitiveDeps = ParseNuspecDependencies(nuspecContent, targetFramework);
+                _logger.LogDebug("Parsed {Count} transitive dependencies from {PackageId} .nuspec", 
+                    transitiveDeps.Count, dep.PackageId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse .nuspec from {PackageId}", dep.PackageId);
+            }
+        }
 
         // Find the best matching lib folder for our target framework
         var targetFrameworks = GetTargetFrameworkFolders(targetFramework);
         
-        // First pass: collect all lib DLLs and their frameworks
+        // First pass: collect all lib DLLs and group by framework
         var libEntries = archive.Entries
             .Where(e => e.FullName.Replace('\\', '/').ToLowerInvariant().StartsWith("lib/") && 
                        e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        _logger.LogInformation("Package {PackageId} has {Count} lib DLL entries: {Entries}", 
+            dep.PackageId, libEntries.Count,
+            string.Join(", ", libEntries.Select(e => e.FullName)));
+
         if (!libEntries.Any())
         {
-            _logger.LogWarning("No lib/*.dll entries found in package {PackageId}", dep.PackageId);
+            _logger.LogWarning("No lib/*.dll entries found in package {PackageId}. All entries: {Entries}", 
+                dep.PackageId, 
+                string.Join(", ", archive.Entries.Take(20).Select(e => e.FullName)));
+            return (references, transitiveDeps);
         }
 
-        foreach (var entry in libEntries)
+        // Group entries by framework folder
+        var entriesByFramework = libEntries
+            .Select(entry => {
+                var entryPath = entry.FullName.Replace('\\', '/');
+                var pathParts = entryPath.Split('/');
+                var framework = pathParts.Length >= 2 ? pathParts[1].ToLowerInvariant() : "";
+                return (Entry: entry, Framework: framework);
+            })
+            .GroupBy(x => x.Framework)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Entry).ToList());
+
+        _logger.LogDebug("Package {PackageId} has frameworks: {Frameworks}", 
+            dep.PackageId, string.Join(", ", entriesByFramework.Keys));
+
+        // Find the best matching framework in priority order
+        string? bestFramework = null;
+        foreach (var tf in targetFrameworks)
         {
-            var entryPath = entry.FullName.Replace('\\', '/').ToLowerInvariant();
-            
-            // Extract the framework folder name from path like "lib/net6.0/Something.dll"
-            var pathParts = entryPath.Split('/');
-            if (pathParts.Length < 3) continue;
-            
-            var frameworkFolder = pathParts[1]; // The folder after "lib/"
-            
-            // Check if this framework is in our list of acceptable frameworks
-            var matchedFramework = targetFrameworks.FirstOrDefault(tf => 
-                frameworkFolder.Equals(tf, StringComparison.OrdinalIgnoreCase) ||
-                frameworkFolder.StartsWith(tf, StringComparison.OrdinalIgnoreCase));
-
-            if (matchedFramework == null)
+            if (entriesByFramework.ContainsKey(tf))
             {
-                // Log available frameworks for debugging
-                _logger.LogDebug("Skipping {EntryPath} - framework {Framework} not in target list", 
-                    entryPath, frameworkFolder);
-                continue;
+                bestFramework = tf;
+                break;
             }
+        }
 
+        if (bestFramework == null)
+        {
+            _logger.LogWarning("No compatible framework found for {PackageId}. Available: {Available}, Wanted: {Wanted}",
+                dep.PackageId, 
+                string.Join(", ", entriesByFramework.Keys),
+                string.Join(", ", targetFrameworks.Take(5)));
+            return (references, transitiveDeps);
+        }
+
+        _logger.LogInformation("Selected framework {Framework} for {PackageId}", bestFramework, dep.PackageId);
+
+        // Extract DLLs from the best matching framework
+        foreach (var entry in entriesByFramework[bestFramework])
+        {
             try
             {
                 using var dllStream = entry.Open();
@@ -170,12 +280,8 @@ public class WebNuGetResolverService
                 var reference = MetadataReference.CreateFromImage(dllBytes);
                 references.Add(reference);
                 
-                // Cache the primary DLL reference
-                var dllCacheKey = $"{cacheKey}:{entry.Name}";
-                _referenceCache[dllCacheKey] = reference;
-                
                 _logger.LogInformation("Extracted reference: {DllName} from {PackageId} ({Framework})", 
-                    entry.Name, dep.PackageId, frameworkFolder);
+                    entry.Name, dep.PackageId, bestFramework);
             }
             catch (Exception ex)
             {
@@ -184,13 +290,164 @@ public class WebNuGetResolverService
             }
         }
 
-        // Also cache the first reference under the main cache key for quick lookup
-        if (references.Any())
-        {
-            _referenceCache[cacheKey] = references.First();
-        }
+        return (references, transitiveDeps);
+    }
 
-        return references;
+    /// <summary>
+    /// Parses dependencies from a .nuspec file content.
+    /// </summary>
+    private List<NuGetDependencyInfo> ParseNuspecDependencies(string nuspecContent, string targetFramework)
+    {
+        var dependencies = new List<NuGetDependencyInfo>();
+        
+        try
+        {
+            var doc = XDocument.Parse(nuspecContent);
+            var ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+            
+            // Find the dependency group that matches our target framework
+            var dependencyGroups = doc.Descendants(ns + "group").ToList();
+            
+            _logger.LogDebug("Found {Count} dependency groups in nuspec", dependencyGroups.Count);
+            
+            // Try to find a matching group - use a flexible matching approach
+            XElement? matchingGroup = null;
+            
+            // Define framework priorities for matching (higher priority first)
+            // Match based on the actual .nuspec format (e.g., ".NETStandard2.0")
+            var frameworkPriorities = new[]
+            {
+                ".NETStandard2.1", "netstandard2.1",
+                ".NETStandard2.0", "netstandard2.0", 
+                ".NETStandard1.6", "netstandard1.6",
+                ".NETStandard1.3", "netstandard1.3",
+                "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "net5.0",
+                ".NETCoreApp3.1", "netcoreapp3.1"
+            };
+            
+            foreach (var priority in frameworkPriorities)
+            {
+                matchingGroup = dependencyGroups.FirstOrDefault(g =>
+                {
+                    var tfAttr = g.Attribute("targetFramework")?.Value;
+                    if (tfAttr == null) return false;
+                    return tfAttr.Equals(priority, StringComparison.OrdinalIgnoreCase);
+                });
+                
+                if (matchingGroup != null)
+                {
+                    _logger.LogDebug("Matched dependency group with targetFramework: {TF}", 
+                        matchingGroup.Attribute("targetFramework")?.Value);
+                    break;
+                }
+            }
+            
+            // If no matching group, use the first group (often the most general)
+            IEnumerable<XElement> dependencyElements;
+            if (matchingGroup != null)
+            {
+                dependencyElements = matchingGroup.Elements(ns + "dependency");
+            }
+            else if (dependencyGroups.Any())
+            {
+                // Use the last group (often netstandard which is more compatible)
+                matchingGroup = dependencyGroups.Last();
+                dependencyElements = matchingGroup.Elements(ns + "dependency");
+                _logger.LogDebug("No exact match, using last group with targetFramework: {TF}",
+                    matchingGroup.Attribute("targetFramework")?.Value);
+            }
+            else
+            {
+                // No groups - get all dependencies directly
+                dependencyElements = doc.Descendants(ns + "dependency");
+            }
+            
+            foreach (var dep in dependencyElements)
+            {
+                var packageId = dep.Attribute("id")?.Value;
+                var version = dep.Attribute("version")?.Value ?? "";
+                
+                if (!string.IsNullOrEmpty(packageId))
+                {
+                    // Skip common system packages that are included with .NET
+                    if (IsSystemPackage(packageId))
+                    {
+                        _logger.LogDebug("Skipping system package: {PackageId}", packageId);
+                        continue;
+                    }
+                    
+                    // Clean up version ranges like "[1.3.3, 2.0.0)" to just "1.3.3"
+                    version = CleanVersionSpec(version);
+                    
+                    dependencies.Add(new NuGetDependencyInfo
+                    {
+                        PackageId = packageId,
+                        Version = version,
+                        TargetFramework = targetFramework
+                    });
+                    
+                    _logger.LogDebug("Added dependency: {PackageId} v{Version}", packageId, version);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse .nuspec dependencies");
+        }
+        
+        _logger.LogInformation("Parsed {Count} dependencies from nuspec", dependencies.Count);
+        return dependencies;
+    }
+
+    /// <summary>
+    /// Cleans up a NuGet version specification to extract a usable version.
+    /// Handles ranges like "[1.3.3, 2.0.0)" by extracting the minimum version.
+    /// </summary>
+    private static string CleanVersionSpec(string versionSpec)
+    {
+        if (string.IsNullOrEmpty(versionSpec))
+            return versionSpec;
+            
+        // Remove brackets and parentheses
+        var cleaned = versionSpec.Trim('[', ']', '(', ')');
+        
+        // If there's a comma (range), take the first part (minimum version)
+        if (cleaned.Contains(','))
+        {
+            cleaned = cleaned.Split(',')[0].Trim();
+        }
+        
+        return cleaned;
+    }
+
+    /// <summary>
+    /// Checks if a package is a system package that should be skipped.
+    /// These packages are typically already available in the .NET runtime.
+    /// </summary>
+    private static bool IsSystemPackage(string packageId)
+    {
+        // Only skip packages that are guaranteed to be in the runtime
+        // Be conservative - it's better to download a duplicate than miss a dependency
+        var systemPrefixes = new[]
+        {
+            "Microsoft.NETCore.App",
+            "Microsoft.NETCore.Platforms",
+            "NETStandard.Library",
+            "runtime."
+        };
+        
+        // Exact match packages
+        var exactMatches = new[]
+        {
+            "Microsoft.CSharp",
+            "System.Runtime",
+            "System.Runtime.Loader"
+        };
+        
+        return systemPrefixes.Any(prefix => 
+            packageId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) ||
+            exactMatches.Any(exact => 
+            packageId.Equals(exact, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -280,5 +537,6 @@ public class WebNuGetResolverService
     {
         _referenceCache.Clear();
         _packageCache.Clear();
+        _processingPackages.Clear();
     }
 }

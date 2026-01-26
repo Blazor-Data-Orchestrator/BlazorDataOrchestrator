@@ -112,17 +112,8 @@ builder.Services.AddScoped<JobManager>(sp =>
 builder.Services.AddSingleton<EditorFileStorageService>();
 builder.Services.AddScoped<JobCodeEditorService>();
 
-// Register WebNuGetResolverService for NuGet dependency resolution during compilation
-builder.Services.AddHttpClient();
-builder.Services.AddScoped<WebNuGetResolverService>();
-
-// Register CSharpCompilationService with NuGet resolver
-builder.Services.AddScoped<CSharpCompilationService>(sp =>
-{
-    var logger = sp.GetRequiredService<ILogger<CSharpCompilationService>>();
-    var nugetResolver = sp.GetRequiredService<WebNuGetResolverService>();
-    return new CSharpCompilationService(logger, nugetResolver);
-});
+// Register CSharpCompilationService (uses Core NuGetResolverService for dotnet restore-based resolution)
+builder.Services.AddScoped<CSharpCompilationService>();
 
 builder.Services.AddScoped<PythonValidationService>();
 builder.Services.AddScoped<WebNuGetPackageService>();

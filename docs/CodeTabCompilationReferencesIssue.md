@@ -13,6 +13,20 @@ The "Save & Compile" and "Run Job Now" buttons on the **Code tab** of the `JobDe
 
 ### Recent Updates
 
+**January 26, 2026 (Update 2):**
+- ✅ Added transitive dependency resolution to `WebNuGetResolverService`
+- ✅ Packages now download and parse their own `.nuspec` files to resolve nested dependencies
+- ✅ Added `ParseNuspecDependencies()` method to extract dependencies from downloaded packages
+- ✅ Added `IsSystemPackage()` filter to skip common .NET runtime packages
+- ✅ Implemented recursive resolution with depth limit (max 5 levels)
+- ✅ Added better caching for resolved reference lists
+
+**January 26, 2026:**
+- ✅ Improved `WebNuGetResolverService` framework matching logic
+- ✅ Added better logging for NuGet package download and extraction
+- ✅ Added support for net10.0 target framework
+- ✅ Added `System.Data.Common` and `System.ComponentModel.TypeConverter` to standard references
+
 **January 25, 2026:** 
 - ✅ Updated `JobCodeModel` to include `NuspecContent` and `NuspecFileName` properties
 - ✅ Updated `ExtractAllFilesFromPackageAsync()` to extract `.nuspec` files for C# packages
@@ -343,6 +357,26 @@ builder.Services.AddScoped<WebNuGetResolverService>();
 | 4 | Update CSharpCompilationService | ✅ Completed | Medium |
 | 5 | Update JobDetailsDialog.razor | ✅ Completed | Low |
 | 6 | Register Services | ✅ Completed | Low |
+| 7 | Transitive Dependency Resolution | ✅ Completed | Medium |
+
+**Phase 7 Details (Transitive Dependencies):**
+
+The `WebNuGetResolverService` now recursively resolves transitive dependencies:
+
+1. Downloads each package from NuGet.org
+2. Extracts the `.nuspec` from the downloaded package
+3. Parses the `.nuspec` for its dependencies
+4. Recursively downloads and extracts dependencies (up to 5 levels deep)
+5. Caches resolved packages to avoid redundant downloads
+6. Filters out common system packages that are already available in .NET runtime
+
+**Example Resolution Flow:**
+```
+SendGrid (9.29.3)
+├── Newtonsoft.Json (13.0.1)
+├── starkbank-ecdsa (1.3.3)
+└── System.Threading.Tasks.Extensions (excluded - system package)
+```
 
 **Recommended implementation sequence:**
 1. **Phase 2** - Parse dependencies (foundation for other phases)
@@ -350,6 +384,7 @@ builder.Services.AddScoped<WebNuGetResolverService>();
 3. **Phase 3** - Create WebNuGetResolverService (most complex)
 4. **Phase 5** - Update dialog methods
 5. **Phase 6** - Register services
+6. **Phase 7** - Transitive dependency resolution (now implemented)
 
 ---
 
@@ -359,7 +394,7 @@ builder.Services.AddScoped<WebNuGetResolverService>();
 |------|--------|-------------|--------|
 | `src/BlazorOrchestrator.Web/Services/JobCodeEditorService.cs` | Modify | Add `.nuspec` extraction, dependency parsing | ✅ Completed |
 | `src/BlazorOrchestrator.Web/Services/CSharpCompilationService.cs` | Modify | Add dependency-aware compilation, standard references | ✅ Completed |
-| `src/BlazorOrchestrator.Web/Services/WebNuGetResolverService.cs` | Create | New service for web-compatible NuGet resolution | ✅ Completed |
+| `src/BlazorOrchestrator.Web/Services/WebNuGetResolverService.cs` | Create | New service for web-compatible NuGet resolution with transitive deps | ✅ Completed |
 | `src/BlazorOrchestrator.Web/Components/Pages/Dialogs/JobDetailsDialog.razor` | Modify | Pass dependency info to compiler | ✅ Completed |
 | `src/BlazorOrchestrator.Web/Program.cs` | Modify | Register new services | ✅ Completed |
 
@@ -394,10 +429,11 @@ builder.Services.AddScoped<WebNuGetResolverService>();
 - [x] `.nuspec` content can be read from `JobCodeModel.NuspecContent`
 - [x] Switching between files preserves `.nuspec` content
 
-### Future Phases
+### Future Phases (Now Completed)
 - [x] Dependencies are parsed from `.nuspec` XML
 - [x] Parsed dependencies are available in `JobCodeModel.Dependencies`
 - [x] "Save & Compile" uses dependencies to resolve additional references
+- [x] Transitive dependencies are automatically downloaded and resolved
 - [ ] "Run Job Now" on Code tab produces same results as Details tab
 - [ ] Compilation errors match agent execution errors
 

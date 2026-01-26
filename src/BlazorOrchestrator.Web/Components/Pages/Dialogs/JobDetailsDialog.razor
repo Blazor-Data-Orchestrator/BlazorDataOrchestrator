@@ -1106,6 +1106,20 @@ Content-Type: application/json
                 // method reads the SelectedLanguage from configuration.json and sets it in the model)
                 codeLanguage = loadedCodeModel.Language;
                 
+                // Log dependency info for debugging
+                Console.WriteLine($"[LoadPackageFilesAsync] Loaded code model with {loadedCodeModel.Dependencies?.Count ?? 0} dependencies");
+                if (loadedCodeModel.Dependencies?.Any() == true)
+                {
+                    foreach (var dep in loadedCodeModel.Dependencies)
+                    {
+                        Console.WriteLine($"  - {dep.PackageId} v{dep.Version}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[LoadPackageFilesAsync] No dependencies found. NuspecContent length: {loadedCodeModel.NuspecContent?.Length ?? 0}");
+                }
+                
                 // Update the file dropdown list based on discovered language
                 UpdateFileListForLanguage();
                 
@@ -1262,11 +1276,17 @@ Content-Type: application/json
                 // Use dependency-aware compilation if dependencies are available
                 if (loadedCodeModel?.Dependencies?.Any() == true)
                 {
+                    Console.WriteLine($"[SaveAndCompileCode] Found {loadedCodeModel.Dependencies.Count} dependencies to resolve:");
+                    foreach (var dep in loadedCodeModel.Dependencies)
+                    {
+                        Console.WriteLine($"  - {dep.PackageId} v{dep.Version}");
+                    }
                     compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(
                         mainCode, loadedCodeModel.Dependencies);
                 }
                 else
                 {
+                    Console.WriteLine("[SaveAndCompileCode] No dependencies found in loadedCodeModel, using default references");
                     // Fall back to dependency-aware compilation without explicit deps
                     // (still loads standard references like EF Core, BlazorDataOrchestrator.Core)
                     compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(mainCode);

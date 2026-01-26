@@ -1,6 +1,8 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -10,20 +12,12 @@ namespace BlazorOrchestrator.Web.Services;
 public class CSharpCompilationService
 {
     private readonly ILogger<CSharpCompilationService> _logger;
-    private readonly WebNuGetResolverService? _nugetResolver;
+    private readonly NuGetResolverService _nugetResolver;
 
     public CSharpCompilationService(ILogger<CSharpCompilationService> logger)
     {
         _logger = logger;
-        _nugetResolver = null;
-    }
-
-    public CSharpCompilationService(
-        ILogger<CSharpCompilationService> logger,
-        WebNuGetResolverService nugetResolver)
-    {
-        _logger = logger;
-        _nugetResolver = nugetResolver;
+        _nugetResolver = new NuGetResolverService();
     }
 
     /// <summary>
@@ -91,6 +85,7 @@ public class CSharpCompilationService
 
     /// <summary>
     /// Compiles C# code with NuGet dependencies and standard references.
+    /// Uses `dotnet restore` to properly resolve transitive dependencies.
     /// </summary>
     /// <param name="code">The C# code to compile.</param>
     /// <param name="dependencies">NuGet dependencies from .nuspec file.</param>
@@ -109,20 +104,92 @@ public class CSharpCompilationService
 
             // Get base references from current runtime
             var references = GetMetadataReferences().ToList();
+            _logger.LogInformation("Base references count: {Count}", references.Count);
 
             // Add standard references commonly needed for jobs
             AddStandardReferences(references);
+            _logger.LogInformation("After standard references: {Count}", references.Count);
 
-            // Resolve NuGet dependencies if available
-            if (dependencies?.Any() == true && _nugetResolver != null)
+            // Resolve NuGet dependencies using dotnet restore (like the Agent does)
+            if (dependencies?.Any() == true)
             {
-                _logger.LogInformation("Resolving {Count} NuGet dependencies for compilation", dependencies.Count);
-                var nugetReferences = await _nugetResolver.ResolveForCompilationAsync(dependencies);
-                references.AddRange(nugetReferences);
+                _logger.LogInformation("Resolving {Count} NuGet dependencies via dotnet restore:", dependencies.Count);
+                foreach (var dep in dependencies)
+                {
+                    _logger.LogInformation("  - {PackageId} v{Version}", dep.PackageId, dep.Version);
+                }
+
+                // Convert NuGetDependencyInfo to NuGetDependency for the Core resolver
+                var coreDependencies = dependencies.Select(d => new NuGetDependency
+                {
+                    PackageId = d.PackageId,
+                    Version = d.Version
+                }).ToList();
+
+                var logs = new List<string>();
+                var resolutionResult = await _nugetResolver.ResolveAsync(coreDependencies, "net10.0", logs);
+
+                // Log all messages from the resolver
+                foreach (var log in logs)
+                {
+                    _logger.LogInformation("[NuGetResolver] {Log}", log);
+                }
+
+                if (resolutionResult.Success)
+                {
+                    _logger.LogInformation("NuGet resolution successful, found {Count} assemblies", resolutionResult.AssemblyPaths.Count);
+                    
+                    // Get names of assemblies we already have from standard references
+                    var existingAssemblyNames = new HashSet<string>(
+                        references
+                            .Where(r => !string.IsNullOrEmpty(r.Display))
+                            .Select(r => Path.GetFileNameWithoutExtension(r.Display!)),
+                        StringComparer.OrdinalIgnoreCase);
+                    
+                    foreach (var assemblyPath in resolutionResult.AssemblyPaths)
+                    {
+                        try
+                        {
+                            if (File.Exists(assemblyPath))
+                            {
+                                var asmName = Path.GetFileNameWithoutExtension(assemblyPath);
+                                
+                                // Skip if we already have this assembly from standard references
+                                // This prevents version conflicts (e.g., EF Core 10.0.0 vs 10.0.1)
+                                if (existingAssemblyNames.Contains(asmName))
+                                {
+                                    _logger.LogDebug("Skipping duplicate assembly: {Name} (already loaded)", asmName);
+                                    continue;
+                                }
+                                
+                                references.Add(MetadataReference.CreateFromFile(assemblyPath));
+                                existingAssemblyNames.Add(asmName);
+                                _logger.LogDebug("Added reference: {Path}", assemblyPath);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Assembly file not found: {Path}", assemblyPath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to load assembly: {Path}", assemblyPath);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("NuGet resolution failed: {Error}", resolutionResult.ErrorMessage);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("No NuGet dependencies to resolve");
             }
 
             // Deduplicate references
             references = references.DistinctBy(r => r.Display).ToList();
+            _logger.LogInformation("Final references count after deduplication: {Count}", references.Count);
 
             var compilation = CSharpCompilation.Create(
                 assemblyName,

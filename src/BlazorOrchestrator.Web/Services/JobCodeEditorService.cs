@@ -741,12 +741,55 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     public async Task<JobCodeModel> ExtractAllFilesFromPackageAsync(Stream packageStream, string language)
     {
         var model = new JobCodeModel { Language = language };
-        var codeExtension = language.ToLower() == "python" ? ".py" : ".cs";
-        var mainFileName = language.ToLower() == "python" ? "main.py" : "main.cs";
 
-        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+        // We need to read the archive twice - first pass to get actual language from configuration.json
+        // Copy stream to memory so we can read it multiple times
+        using var memoryStream = new MemoryStream();
+        await packageStream.CopyToAsync(memoryStream);
+        memoryStream.Position = 0;
 
-        foreach (var entry in archive.Entries)
+        // First pass: Find configuration.json to determine actual language
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, leaveOpen: true))
+        {
+            foreach (var entry in archive.Entries)
+            {
+                var entryPath = entry.FullName.Replace('\\', '/');
+                var lowerPath = entryPath.ToLowerInvariant();
+                
+                if (lowerPath.EndsWith("configuration.json"))
+                {
+                    using var reader = new StreamReader(entry.Open());
+                    var content = await reader.ReadToEndAsync();
+                    try
+                    {
+                        var config = JsonSerializer.Deserialize<ConfigurationModel>(content);
+                        if (config != null && !string.IsNullOrEmpty(config.SelectedLanguage))
+                        {
+                            model.Language = config.SelectedLanguage;
+                            _logger.LogInformation("Detected language from configuration.json: {Language}", model.Language);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse configuration.json");
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Now set the correct file extensions based on actual language
+        var actualLanguage = model.Language;
+        var codeExtension = actualLanguage.ToLower() == "python" ? ".py" : ".cs";
+        var mainFileName = actualLanguage.ToLower() == "python" ? "main.py" : "main.cs";
+        
+        _logger.LogInformation("Extracting package files with language: {Language}", actualLanguage);
+
+        // Second pass: Extract all files
+        memoryStream.Position = 0;
+        using var archive2 = new ZipArchive(memoryStream, ZipArchiveMode.Read);
+
+        foreach (var entry in archive2.Entries)
         {
             var entryPath = entry.FullName.Replace('\\', '/');
             var fileName = Path.GetFileName(entryPath);
@@ -764,21 +807,31 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             // Handle .nuspec file specially - extract for C# language
             if (lowerPath.EndsWith(".nuspec"))
             {
+                _logger.LogInformation("Found .nuspec file: {FileName}, actualLanguage: {Language}", fileName, actualLanguage);
+                
                 // Only include .nuspec for C# language
-                if (language.ToLower() == "csharp" || language.ToLower() == "cs")
+                if (actualLanguage.ToLower() == "csharp" || actualLanguage.ToLower() == "cs")
                 {
                     using var nuspecReader = new StreamReader(entry.Open());
                     model.NuspecContent = await nuspecReader.ReadToEndAsync();
                     model.NuspecFileName = fileName;
                     
+                    _logger.LogInformation("Extracted .nuspec content ({Length} chars)", model.NuspecContent.Length);
+                    
                     // Parse dependencies from .nuspec
                     model.Dependencies = ParseNuSpecDependencies(model.NuspecContent);
+                    
+                    _logger.LogInformation("Model now has {Count} dependencies after parsing", model.Dependencies.Count);
                     
                     // Add to discovered files so it shows in dropdown
                     if (!model.DiscoveredFiles.Contains(fileName))
                     {
                         model.DiscoveredFiles.Add(fileName);
                     }
+                }
+                else
+                {
+                    _logger.LogInformation("Skipping .nuspec because language is {Language}, not csharp", actualLanguage);
                 }
                 continue;
             }
@@ -823,7 +876,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 }
             }
             // Check for requirements.txt (Python)
-            else if (lowerFileName == "requirements.txt" && language == "python")
+            else if (lowerFileName == "requirements.txt" && actualLanguage.ToLower() == "python")
             {
                 model.RequirementsTxt = content;
                 if (!model.DiscoveredFiles.Contains("requirements.txt"))
@@ -831,21 +884,10 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                     model.DiscoveredFiles.Add("requirements.txt");
                 }
             }
-            // Check for configuration.json
+            // Skip configuration.json - already processed in first pass
             else if (lowerFileName == "configuration.json")
             {
-                try
-                {
-                    var config = JsonSerializer.Deserialize<ConfigurationModel>(content);
-                    if (config != null && !string.IsNullOrEmpty(config.SelectedLanguage))
-                    {
-                        model.Language = config.SelectedLanguage;
-                    }
-                }
-                catch
-                {
-                    // Ignore configuration parsing errors
-                }
+                // Already processed above
             }
         }
 
@@ -925,11 +967,23 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         
         try
         {
+            _logger.LogInformation("Parsing .nuspec content ({Length} chars)", nuspecContent?.Length ?? 0);
+            
+            if (string.IsNullOrWhiteSpace(nuspecContent))
+            {
+                _logger.LogWarning("Empty .nuspec content provided");
+                return dependencies;
+            }
+            
             var doc = XDocument.Parse(nuspecContent);
             var ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
             
+            _logger.LogDebug(".nuspec namespace: {Namespace}", ns.NamespaceName);
+            
             // Find all dependency elements
-            var dependencyElements = doc.Descendants(ns + "dependency");
+            var dependencyElements = doc.Descendants(ns + "dependency").ToList();
+            _logger.LogInformation("Found {Count} dependency elements in .nuspec", dependencyElements.Count);
+            
             foreach (var dep in dependencyElements)
             {
                 var packageId = dep.Attribute("id")?.Value;
@@ -946,10 +1000,13 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                         Version = version ?? "",
                         TargetFramework = targetFramework
                     });
+                    
+                    _logger.LogInformation("Parsed dependency: {PackageId} v{Version} (TF: {TF})", 
+                        packageId, version, targetFramework);
                 }
             }
             
-            _logger.LogInformation("Parsed {Count} dependencies from .nuspec", dependencies.Count);
+            _logger.LogInformation("Total parsed {Count} dependencies from .nuspec", dependencies.Count);
         }
         catch (Exception ex)
         {
