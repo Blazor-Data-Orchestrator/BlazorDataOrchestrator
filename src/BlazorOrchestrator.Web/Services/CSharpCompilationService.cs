@@ -259,6 +259,8 @@ public class CSharpCompilationService
             "System.ComponentModel",
             "System.ComponentModel.Primitives",
             "System.ComponentModel.Annotations",
+            "System.ComponentModel.TypeConverter",  // For IListSource
+            "System.Data.Common",                   // For DbConnection, DbCommand, etc.
             "System.Net.Primitives",
             "System.Net.Http",
             "System.Private.Uri",
@@ -266,7 +268,11 @@ public class CSharpCompilationService
             "System.Text.RegularExpressions",
             "System.Linq.Expressions",
             "System.Memory",
-            "System.Buffers"
+            "System.Buffers",
+            "System.ObjectModel",
+            "System.Diagnostics.DiagnosticSource",
+            "Microsoft.Extensions.Logging.Abstractions",
+            "Microsoft.Extensions.DependencyInjection.Abstractions"
         };
 
         foreach (var name in additionalAssemblies)

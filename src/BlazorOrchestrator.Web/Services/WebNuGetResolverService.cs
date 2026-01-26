@@ -126,20 +126,39 @@ public class WebNuGetResolverService
         // Find the best matching lib folder for our target framework
         var targetFrameworks = GetTargetFrameworkFolders(targetFramework);
         
-        foreach (var entry in archive.Entries)
+        // First pass: collect all lib DLLs and their frameworks
+        var libEntries = archive.Entries
+            .Where(e => e.FullName.Replace('\\', '/').ToLowerInvariant().StartsWith("lib/") && 
+                       e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (!libEntries.Any())
+        {
+            _logger.LogWarning("No lib/*.dll entries found in package {PackageId}", dep.PackageId);
+        }
+
+        foreach (var entry in libEntries)
         {
             var entryPath = entry.FullName.Replace('\\', '/').ToLowerInvariant();
             
-            // Only look at lib folder DLLs
-            if (!entryPath.StartsWith("lib/") || !entryPath.EndsWith(".dll"))
-                continue;
-
-            // Check if this DLL matches our target framework
+            // Extract the framework folder name from path like "lib/net6.0/Something.dll"
+            var pathParts = entryPath.Split('/');
+            if (pathParts.Length < 3) continue;
+            
+            var frameworkFolder = pathParts[1]; // The folder after "lib/"
+            
+            // Check if this framework is in our list of acceptable frameworks
             var matchedFramework = targetFrameworks.FirstOrDefault(tf => 
-                entryPath.Contains($"/lib/{tf}/") || entryPath.Contains($"lib/{tf}/"));
+                frameworkFolder.Equals(tf, StringComparison.OrdinalIgnoreCase) ||
+                frameworkFolder.StartsWith(tf, StringComparison.OrdinalIgnoreCase));
 
             if (matchedFramework == null)
+            {
+                // Log available frameworks for debugging
+                _logger.LogDebug("Skipping {EntryPath} - framework {Framework} not in target list", 
+                    entryPath, frameworkFolder);
                 continue;
+            }
 
             try
             {
@@ -155,7 +174,8 @@ public class WebNuGetResolverService
                 var dllCacheKey = $"{cacheKey}:{entry.Name}";
                 _referenceCache[dllCacheKey] = reference;
                 
-                _logger.LogDebug("Extracted reference: {DllName} from {PackageId}", entry.Name, dep.PackageId);
+                _logger.LogInformation("Extracted reference: {DllName} from {PackageId} ({Framework})", 
+                    entry.Name, dep.PackageId, frameworkFolder);
             }
             catch (Exception ex)
             {
@@ -227,22 +247,26 @@ public class WebNuGetResolverService
         var folders = new List<string>();
         
         // Try exact match first, then fallback to compatible frameworks
+        // Include common variations and .NET Standard as fallbacks
         switch (targetFramework.ToLowerInvariant())
         {
+            case "net10.0":
+                folders.AddRange(new[] { "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
+                break;
             case "net9.0":
-                folders.AddRange(new[] { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" });
+                folders.AddRange(new[] { "net9.0", "net8.0", "net7.0", "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
                 break;
             case "net8.0":
-                folders.AddRange(new[] { "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" });
+                folders.AddRange(new[] { "net8.0", "net7.0", "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
                 break;
             case "net7.0":
-                folders.AddRange(new[] { "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" });
+                folders.AddRange(new[] { "net7.0", "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
                 break;
             case "net6.0":
-                folders.AddRange(new[] { "net6.0", "netstandard2.1", "netstandard2.0" });
+                folders.AddRange(new[] { "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
                 break;
             default:
-                folders.AddRange(new[] { "net9.0", "net8.0", "netstandard2.1", "netstandard2.0" });
+                folders.AddRange(new[] { "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "net5.0", "netcoreapp3.1", "netstandard2.1", "netstandard2.0", "netstandard1.6", "netstandard1.3" });
                 break;
         }
 
