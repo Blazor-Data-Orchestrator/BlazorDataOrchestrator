@@ -1028,8 +1028,7 @@ Content-Type: application/json
     }
 
     /// <summary>
-    /// Handles tab change events. When Code tab is selected and job has a package, 
-    /// automatically switches to Editor mode and loads the package files.
+    /// Handles tab change events. When Code tab is selected, always shows Upload mode by default.
     /// </summary>
     private async Task OnTabChanged(int newIndex)
     {
@@ -1040,15 +1039,9 @@ Content-Type: application/json
         {
             hasInitializedCodeTab = true;
             
-            // If job has a NuGet package, automatically select Editor mode and load files
-            if (Job != null && !string.IsNullOrEmpty(Job.JobCodeFile))
-            {
-                codeEditMode = CodeEditMode.Editor;
-                StateHasChanged();
-                
-                // Load package files (this will show dialog with spinner)
-                await LoadPackageFilesAsync();
-            }
+            // Always show Upload mode by default when first opening Code tab
+            codeEditMode = CodeEditMode.Upload;
+            StateHasChanged();
         }
         
         previousTabIndex = newIndex;
@@ -1162,13 +1155,20 @@ Content-Type: application/json
     
     /// <summary>
     /// Updates the file list based on the current language setting.
+    /// Includes .nuspec file in the list for C# when a package has been loaded.
     /// </summary>
     private void UpdateFileListForLanguage()
     {
         var mainFile = codeLanguage == "python" ? "main.py" : "main.cs";
         if (codeLanguage == "csharp")
         {
-            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+            var files = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+            // Add .nuspec file if it was loaded from the package
+            if (loadedCodeModel != null && !string.IsNullOrEmpty(loadedCodeModel.NuspecFileName))
+            {
+                files.Add(loadedCodeModel.NuspecFileName);
+            }
+            codeFileList = files;
         }
         else
         {
@@ -1259,7 +1259,18 @@ Content-Type: application/json
             CompilationResult compilationResult;
             if (codeLanguage == "csharp")
             {
-                compilationResult = CSharpCompiler.Compile(mainCode);
+                // Use dependency-aware compilation if dependencies are available
+                if (loadedCodeModel?.Dependencies?.Any() == true)
+                {
+                    compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(
+                        mainCode, loadedCodeModel.Dependencies);
+                }
+                else
+                {
+                    // Fall back to dependency-aware compilation without explicit deps
+                    // (still loads standard references like EF Core, BlazorDataOrchestrator.Core)
+                    compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(mainCode);
+                }
             }
             else
             {
@@ -1352,11 +1363,22 @@ Content-Type: application/json
                 var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
                 var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
                 
-                // Compile code
+                // Compile code with dependencies
                 CompilationResult compilationResult;
                 if (codeLanguage == "csharp")
                 {
-                    compilationResult = CSharpCompiler.Compile(mainCode);
+                    // Use dependency-aware compilation if dependencies are available
+                    if (loadedCodeModel?.Dependencies?.Any() == true)
+                    {
+                        compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(
+                            mainCode, loadedCodeModel.Dependencies);
+                    }
+                    else
+                    {
+                        // Fall back to dependency-aware compilation without explicit deps
+                        // (still loads standard references like EF Core, BlazorDataOrchestrator.Core)
+                        compilationResult = await CSharpCompiler.CompileWithDependenciesAsync(mainCode);
+                    }
                 }
                 else
                 {

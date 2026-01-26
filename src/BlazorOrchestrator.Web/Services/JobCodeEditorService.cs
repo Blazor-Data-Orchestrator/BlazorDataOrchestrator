@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Xml.Linq;
 using BlazorDataOrchestrator.Core;
 
 namespace BlazorOrchestrator.Web.Services;
@@ -752,12 +753,33 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             var lowerFileName = fileName.ToLowerInvariant();
             var lowerPath = entryPath.ToLowerInvariant();
 
-            // Skip directories and metadata files
+            // Skip directories and metadata files (but keep .nuspec for C#)
             if (string.IsNullOrEmpty(fileName) ||
-                lowerPath.Contains(".nuspec") ||
                 lowerPath.Contains("[content_types]") ||
                 lowerPath.Contains("_rels/"))
             {
+                continue;
+            }
+
+            // Handle .nuspec file specially - extract for C# language
+            if (lowerPath.EndsWith(".nuspec"))
+            {
+                // Only include .nuspec for C# language
+                if (language.ToLower() == "csharp" || language.ToLower() == "cs")
+                {
+                    using var nuspecReader = new StreamReader(entry.Open());
+                    model.NuspecContent = await nuspecReader.ReadToEndAsync();
+                    model.NuspecFileName = fileName;
+                    
+                    // Parse dependencies from .nuspec
+                    model.Dependencies = ParseNuSpecDependencies(model.NuspecContent);
+                    
+                    // Add to discovered files so it shows in dropdown
+                    if (!model.DiscoveredFiles.Contains(fileName))
+                    {
+                        model.DiscoveredFiles.Add(fileName);
+                    }
+                }
                 continue;
             }
 
@@ -893,6 +915,51 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     }
 
     /// <summary>
+    /// Parses NuGet dependencies from .nuspec XML content.
+    /// </summary>
+    /// <param name="nuspecContent">The .nuspec file content.</param>
+    /// <returns>List of parsed NuGet dependencies.</returns>
+    private List<NuGetDependencyInfo> ParseNuSpecDependencies(string nuspecContent)
+    {
+        var dependencies = new List<NuGetDependencyInfo>();
+        
+        try
+        {
+            var doc = XDocument.Parse(nuspecContent);
+            var ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+            
+            // Find all dependency elements
+            var dependencyElements = doc.Descendants(ns + "dependency");
+            foreach (var dep in dependencyElements)
+            {
+                var packageId = dep.Attribute("id")?.Value;
+                var version = dep.Attribute("version")?.Value;
+                
+                if (!string.IsNullOrEmpty(packageId))
+                {
+                    // Get target framework from parent group if available
+                    var targetFramework = dep.Parent?.Attribute("targetFramework")?.Value ?? "";
+                    
+                    dependencies.Add(new NuGetDependencyInfo
+                    {
+                        PackageId = packageId,
+                        Version = version ?? "",
+                        TargetFramework = targetFramework
+                    });
+                }
+            }
+            
+            _logger.LogInformation("Parsed {Count} dependencies from .nuspec", dependencies.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse .nuspec dependencies");
+        }
+        
+        return dependencies;
+    }
+
+    /// <summary>
     /// Gets the content of a specific file from the JobCodeModel.
     /// </summary>
     /// <param name="model">The job code model.</param>
@@ -923,6 +990,12 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         if (lowerFileName == "requirements.txt" && !string.IsNullOrEmpty(model.RequirementsTxt))
         {
             return model.RequirementsTxt;
+        }
+
+        // Check .nuspec file
+        if (lowerFileName.EndsWith(".nuspec") && !string.IsNullOrEmpty(model.NuspecContent))
+        {
+            return model.NuspecContent;
         }
 
         // Check additional files
@@ -970,6 +1043,11 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             model.RequirementsTxt = content;
         }
+        else if (lowerFileName.EndsWith(".nuspec"))
+        {
+            model.NuspecContent = content;
+            model.NuspecFileName = fileName;
+        }
         else
         {
             model.AdditionalCodeFiles[fileName] = content;
@@ -1010,6 +1088,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             ".json" => "json",
             ".txt" => "plaintext",
             ".xml" => "xml",
+            ".nuspec" => "xml",  // .nuspec files are XML format
             _ => defaultLanguage
         };
     }
@@ -1048,6 +1127,17 @@ public class JobCodeModel
     public string AppSettingsProduction { get; set; } = "{}";
 
     /// <summary>
+    /// The .nuspec file content (for C# packages).
+    /// Contains package metadata and NuGet dependencies.
+    /// </summary>
+    public string? NuspecContent { get; set; }
+
+    /// <summary>
+    /// The .nuspec file name as found in the package.
+    /// </summary>
+    public string? NuspecFileName { get; set; }
+
+    /// <summary>
     /// The requirements.txt content (for Python).
     /// </summary>
     public string? RequirementsTxt { get; set; }
@@ -1062,6 +1152,11 @@ public class JobCodeModel
     /// List of all discovered files for the dropdown, in display order.
     /// </summary>
     public List<string> DiscoveredFiles { get; set; } = new();
+
+    /// <summary>
+    /// List of NuGet dependencies parsed from the .nuspec file.
+    /// </summary>
+    public List<NuGetDependencyInfo> Dependencies { get; set; } = new();
 }
 
 /// <summary>
@@ -1135,4 +1230,25 @@ public class CompilationError
     /// The severity level (Error or Warning).
     /// </summary>
     public string Severity { get; set; } = "Error";
+}
+
+/// <summary>
+/// Represents a NuGet package dependency from a .nuspec file.
+/// </summary>
+public class NuGetDependencyInfo
+{
+    /// <summary>
+    /// The NuGet package ID (e.g., "Newtonsoft.Json").
+    /// </summary>
+    public string PackageId { get; set; } = "";
+
+    /// <summary>
+    /// The version or version range (e.g., "13.0.1", "[13.0.1,)").
+    /// </summary>
+    public string Version { get; set; } = "";
+
+    /// <summary>
+    /// The target framework (e.g., "net8.0", "net9.0").
+    /// </summary>
+    public string TargetFramework { get; set; } = "";
 }
