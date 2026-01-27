@@ -201,6 +201,16 @@ else
     protected override async Task OnInitializedAsync()
     {
         await CheckSystemStatus();
+
+        if (!IsInstalling && !IsLoading)
+        {
+            // Load dashboard data in the background so the UI becomes interactive immediately
+            _ = InvokeAsync(async () =>
+            {
+                await LoadDashboardData();
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task CheckSystemStatus()
@@ -291,7 +301,6 @@ else
         // All checks passed - show the dashboard
         IsInstalling = false;
         IsLoading = false;
-        await LoadDashboardData();
     }
 
     private async Task<bool> CanConnectToDatabase()
