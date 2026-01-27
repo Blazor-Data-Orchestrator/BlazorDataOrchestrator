@@ -961,6 +961,22 @@ Content-Type: application/json
             
             // Also save to file storage
             FileStorage.SetFile(JobId, previousSelectedFile, code);
+            
+            // If the previous file was a .nuspec, re-parse dependencies
+            if (previousSelectedFile?.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var parsedDependencies = CodeEditorService.ParseNuSpecDependencies(code);
+                FileStorage.SetDependencies(JobId, parsedDependencies);
+                FileStorage.SetNuspecContent(JobId, code, previousSelectedFile);
+                
+                if (loadedCodeModel != null)
+                {
+                    loadedCodeModel.Dependencies = parsedDependencies;
+                    loadedCodeModel.NuspecContent = code;
+                }
+                
+                Console.WriteLine($"[OnCodeFileChanged] Re-parsed {parsedDependencies.Count} dependencies from edited .nuspec");
+            }
         }
         
         // Load new file content
@@ -1263,6 +1279,22 @@ Content-Type: application/json
                 {
                     CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, currentJobCode);
                 }
+                
+                // If the current file is .nuspec, re-parse dependencies before saving
+                if (selectedCodeFile?.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var parsedDependencies = CodeEditorService.ParseNuSpecDependencies(currentJobCode);
+                    FileStorage.SetDependencies(JobId, parsedDependencies);
+                    FileStorage.SetNuspecContent(JobId, currentJobCode, selectedCodeFile);
+                    
+                    if (loadedCodeModel != null)
+                    {
+                        loadedCodeModel.Dependencies = parsedDependencies;
+                        loadedCodeModel.NuspecContent = currentJobCode;
+                    }
+                    
+                    Console.WriteLine($"[SaveAndCompileCode] Re-parsed {parsedDependencies.Count} dependencies from edited .nuspec");
+                }
             }
             
             // Get the main code file for compilation
@@ -1376,6 +1408,22 @@ Content-Type: application/json
                     if (loadedCodeModel != null)
                     {
                         CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, currentJobCode);
+                    }
+                    
+                    // If the current file is .nuspec, re-parse dependencies before running
+                    if (selectedCodeFile?.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        var parsedDependencies = CodeEditorService.ParseNuSpecDependencies(currentJobCode);
+                        FileStorage.SetDependencies(JobId, parsedDependencies);
+                        FileStorage.SetNuspecContent(JobId, currentJobCode, selectedCodeFile);
+                        
+                        if (loadedCodeModel != null)
+                        {
+                            loadedCodeModel.Dependencies = parsedDependencies;
+                            loadedCodeModel.NuspecContent = currentJobCode;
+                        }
+                        
+                        Console.WriteLine($"[RunJobWithCode] Re-parsed {parsedDependencies.Count} dependencies from edited .nuspec");
                     }
                 }
                 

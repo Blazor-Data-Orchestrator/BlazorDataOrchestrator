@@ -8,6 +8,9 @@ public class EditorFileStorageService
 {
     private readonly Dictionary<int, Dictionary<string, string>> _jobFiles = new();
     private readonly Dictionary<int, EditorState> _editorStates = new();
+    private readonly Dictionary<int, List<NuGetDependencyInfo>> _jobDependencies = new();
+    private readonly Dictionary<int, string?> _jobNuspecContent = new();
+    private readonly Dictionary<int, string?> _jobNuspecFileName = new();
     private readonly object _lock = new();
 
     /// <summary>
@@ -101,6 +104,67 @@ public class EditorFileStorageService
         {
             _jobFiles.Remove(jobId);
             _editorStates.Remove(jobId);
+            _jobDependencies.Remove(jobId);
+            _jobNuspecContent.Remove(jobId);
+            _jobNuspecFileName.Remove(jobId);
+        }
+    }
+
+    /// <summary>
+    /// Sets the NuGet dependencies for a specific job.
+    /// </summary>
+    /// <param name="jobId">The job ID.</param>
+    /// <param name="dependencies">The list of NuGet dependencies.</param>
+    public void SetDependencies(int jobId, List<NuGetDependencyInfo> dependencies)
+    {
+        lock (_lock)
+        {
+            _jobDependencies[jobId] = new List<NuGetDependencyInfo>(dependencies);
+        }
+    }
+
+    /// <summary>
+    /// Gets the NuGet dependencies for a specific job.
+    /// </summary>
+    /// <param name="jobId">The job ID.</param>
+    /// <returns>List of NuGet dependencies, or empty list if not found.</returns>
+    public List<NuGetDependencyInfo> GetDependencies(int jobId)
+    {
+        lock (_lock)
+        {
+            return _jobDependencies.TryGetValue(jobId, out var deps)
+                ? new List<NuGetDependencyInfo>(deps)
+                : new List<NuGetDependencyInfo>();
+        }
+    }
+
+    /// <summary>
+    /// Sets the .nuspec content and filename for a specific job.
+    /// </summary>
+    /// <param name="jobId">The job ID.</param>
+    /// <param name="content">The .nuspec file content.</param>
+    /// <param name="fileName">The .nuspec file name.</param>
+    public void SetNuspecContent(int jobId, string? content, string? fileName)
+    {
+        lock (_lock)
+        {
+            _jobNuspecContent[jobId] = content;
+            _jobNuspecFileName[jobId] = fileName;
+        }
+    }
+
+    /// <summary>
+    /// Gets the .nuspec content and filename for a specific job.
+    /// </summary>
+    /// <param name="jobId">The job ID.</param>
+    /// <returns>Tuple containing the content and filename.</returns>
+    public (string? Content, string? FileName) GetNuspecInfo(int jobId)
+    {
+        lock (_lock)
+        {
+            _jobNuspecContent.TryGetValue(jobId, out var content);
+            _jobNuspecFileName.TryGetValue(jobId, out var fileName);
+            return (content, fileName);
         }
     }
 
@@ -176,6 +240,18 @@ public class EditorFileStorageService
             foreach (var kvp in codeModel.AdditionalCodeFiles)
             {
                 SetFile(jobId, kvp.Key, kvp.Value);
+            }
+
+            // Store dependencies and nuspec content for C# packages
+            if (codeModel.Dependencies?.Any() == true)
+            {
+                _jobDependencies[jobId] = new List<NuGetDependencyInfo>(codeModel.Dependencies);
+            }
+            
+            if (!string.IsNullOrEmpty(codeModel.NuspecContent))
+            {
+                _jobNuspecContent[jobId] = codeModel.NuspecContent;
+                _jobNuspecFileName[jobId] = codeModel.NuspecFileName;
             }
 
             // Determine the selected file
@@ -263,6 +339,21 @@ public class EditorFileStorageService
             foreach (var fileName in model.AdditionalCodeFiles.Keys)
             {
                 model.DiscoveredFiles.Add(fileName);
+            }
+
+            // Include dependencies and nuspec content from storage
+            model.Dependencies = GetDependencies(jobId);
+            var (nuspecContent, nuspecFileName) = GetNuspecInfo(jobId);
+            model.NuspecContent = nuspecContent;
+            model.NuspecFileName = nuspecFileName;
+            
+            // Add .nuspec to discovered files if available (for C#)
+            if (!string.IsNullOrEmpty(nuspecFileName) && language.ToLower() == "csharp")
+            {
+                if (!model.DiscoveredFiles.Contains(nuspecFileName))
+                {
+                    model.DiscoveredFiles.Add(nuspecFileName);
+                }
             }
 
             return model;

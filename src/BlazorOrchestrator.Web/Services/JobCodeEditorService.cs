@@ -961,7 +961,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     /// </summary>
     /// <param name="nuspecContent">The .nuspec file content.</param>
     /// <returns>List of parsed NuGet dependencies.</returns>
-    private List<NuGetDependencyInfo> ParseNuSpecDependencies(string nuspecContent)
+    public List<NuGetDependencyInfo> ParseNuSpecDependencies(string nuspecContent)
     {
         var dependencies = new List<NuGetDependencyInfo>();
         
