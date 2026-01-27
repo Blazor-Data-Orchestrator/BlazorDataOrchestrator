@@ -237,44 +237,51 @@ Content-Type: application/json
                 <RadzenTabsItem Text="Code" Icon="code">
                     @* Code Editor Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0; height: 500px;">
-                        @* Toolbar *@
+                        @* Row 1: Mode Toggle *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenLabel Text="Mode:" Style="font-weight: 500;" />
+                            <RadzenSelectBar @bind-Value="@codeEditMode" TValue="CodeEditMode" Size="ButtonSize.Small"
+                                             Change="@OnEditModeChanged">
+                                <Items>
+                                    <RadzenSelectBarItem Text="Editor" Value="CodeEditMode.Editor" />
+                                    <RadzenSelectBarItem Text="Upload" Value="CodeEditMode.Upload" />
+                                </Items>
+                            </RadzenSelectBar>
+                        </RadzenStack>
+
+                        @* Row 2: Language, File Selector, and Buttons *@
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
                                      JustifyContent="JustifyContent.SpaceBetween" Gap="1rem">
-                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
                                 @* Language Selection *@
-                                <RadzenLabel Text="Language:" Style="font-weight: 500;" />
-                                <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
-                                                TextProperty="Name" ValueProperty="Value"
-                                                Style="min-width: 120px;" Change="@OnLanguageChanged"
-                                                Disabled="@(codeEditMode == CodeEditMode.Upload)" />
-                                
-                                @* Edit Mode Toggle *@
-                                <RadzenLabel Text="Mode:" Style="font-weight: 500; margin-left: 1rem;" />
-                                <RadzenSelectBar @bind-Value="@codeEditMode" TValue="CodeEditMode" Size="ButtonSize.Small"
-                                                 Change="@OnEditModeChanged">
-                                    <Items>
-                                        <RadzenSelectBarItem Text="Editor" Value="CodeEditMode.Editor" />
-                                        <RadzenSelectBarItem Text="Upload" Value="CodeEditMode.Upload" />
-                                    </Items>
-                                </RadzenSelectBar>
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                    <RadzenLabel Text="Language:" Style="font-weight: 500;" />
+                                    <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
+                                                    TextProperty="Name" ValueProperty="Value"
+                                                    Style="min-width: 120px;" Change="@OnLanguageChanged"
+                                                    Disabled="@(codeEditMode == CodeEditMode.Upload)" />
+                                </RadzenStack>
                                 
                                 @* File Selector (when in Editor mode) *@
                                 @if (codeEditMode == CodeEditMode.Editor)
                                 {
-                                    <RadzenDropDown @bind-Value="@selectedCodeFile" Data="@codeFileList"
-                                                    Style="min-width: 180px; margin-left: 1rem;"
-                                                    Change="@OnCodeFileChanged" AllowClear="false" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenLabel Text="File:" Style="font-weight: 500;" />
+                                        <RadzenDropDown @bind-Value="@selectedCodeFile" Data="@codeFileList"
+                                                        Style="min-width: 220px;"
+                                                        Change="@OnCodeFileChanged" AllowClear="false" />
+                                    </RadzenStack>
                                 }
                             </RadzenStack>
                             
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                                 @if (codeEditMode == CodeEditMode.Editor)
                                 {
-                                    <RadzenButton Text="Save & Compile" Icon="save" ButtonStyle="ButtonStyle.Primary" 
-                                                  Size="ButtonSize.Small" Click="@SaveAndCompileCode" 
+                                    <RadzenButton Text="Save & Compile" Icon="save" ButtonStyle="ButtonStyle.Success" 
+                                                  Size="ButtonSize.Medium" Click="@SaveAndCompileCode" 
                                                   IsBusy="@isCompilingCode" />
                                     <RadzenButton Text="Run Job Now" Icon="play_arrow" ButtonStyle="ButtonStyle.Success" 
-                                                  Size="ButtonSize.Small" Click="@RunJobWithCode" 
+                                                  Size="ButtonSize.Medium" Click="@RunJobWithCode" 
                                                   IsBusy="@isRunningJobWithCode" />
                                 }
                             </RadzenStack>
