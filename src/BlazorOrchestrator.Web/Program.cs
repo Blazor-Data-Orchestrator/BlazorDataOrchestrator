@@ -108,6 +108,16 @@ builder.Services.AddScoped<JobManager>(sp =>
     return new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
 });
 
+// Register code editor services
+builder.Services.AddSingleton<EditorFileStorageService>();
+builder.Services.AddScoped<JobCodeEditorService>();
+
+// Register CSharpCompilationService (uses Core NuGetResolverService for dotnet restore-based resolution)
+builder.Services.AddScoped<CSharpCompilationService>();
+
+builder.Services.AddScoped<PythonValidationService>();
+builder.Services.AddScoped<WebNuGetPackageService>();
+
 builder.Services.AddRadzenComponents();
 var app = builder.Build();
 

@@ -125,12 +125,6 @@ else
                             <RadzenStack Gap="1rem">
                                 <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
                                     <RadzenText TextStyle="TextStyle.H6" TagName="TagName.H3" Style="margin: 0; font-weight: 600;">@job.Name</RadzenText>
-                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.25rem">
-                                        <span style="@GetStatusDotStyle(job)"></span>
-                                        <RadzenText TextStyle="TextStyle.Body2" Style="@GetStatusTextStyle(job)">
-                                            @GetStatusText(job)
-                                        </RadzenText>
-                                    </RadzenStack>
                                 </RadzenStack>
 
                                 @if (job.JobGroups.Any())
@@ -169,7 +163,6 @@ else
                                     }
                                     else
                                     {
-                                        <RadzenButton Text="Enable" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
                                         <RadzenButton Text="Logs" ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined" Size="ButtonSize.Small" Style="color: #6b7280;" Click="@(() => OpenLogsDialog(job.Id, job.Name))" />
                                     }
                                 </RadzenStack>
@@ -208,6 +201,16 @@ else
     protected override async Task OnInitializedAsync()
     {
         await CheckSystemStatus();
+
+        if (!IsInstalling && !IsLoading)
+        {
+            // Load dashboard data in the background so the UI becomes interactive immediately
+            _ = InvokeAsync(async () =>
+            {
+                await LoadDashboardData();
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task CheckSystemStatus()
@@ -298,7 +301,6 @@ else
         // All checks passed - show the dashboard
         IsInstalling = false;
         IsLoading = false;
-        await LoadDashboardData();
     }
 
     private async Task<bool> CanConnectToDatabase()

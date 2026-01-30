@@ -804,6 +804,56 @@ namespace BlazorDataOrchestrator.Core
             return uniqueName;
         }
 
+        /// <summary>
+        /// Gets the code file (blob name) for a job.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <returns>The blob name of the job's code file, or null if not set</returns>
+        public async Task<string?> GetJobCodeFileAsync(int jobId)
+        {
+            using var context = CreateDbContext();
+            var job = await context.Jobs.FirstOrDefaultAsync(j => j.Id == jobId);
+            return job?.JobCodeFile;
+        }
+
+        /// <summary>
+        /// Downloads a job's NuGet package from blob storage.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <returns>A stream containing the package, or null if not found</returns>
+        public async Task<Stream?> DownloadJobPackageAsync(int jobId)
+        {
+            using var context = CreateDbContext();
+            var job = await context.Jobs.FirstOrDefaultAsync(j => j.Id == jobId);
+            
+            if (job == null || string.IsNullOrEmpty(job.JobCodeFile))
+            {
+                return null;
+            }
+
+            try
+            {
+                var blobClient = _packageContainerClient.GetBlobClient(job.JobCodeFile);
+                
+                if (!await blobClient.ExistsAsync())
+                {
+                    return null;
+                }
+
+                var memoryStream = new MemoryStream();
+                await blobClient.DownloadToAsync(memoryStream);
+                memoryStream.Position = 0;
+                
+                await LogAsync("DownloadJobPackage", $"Downloaded package: {job.JobCodeFile}", jobId: jobId);
+                return memoryStream;
+            }
+            catch (Exception ex)
+            {
+                await LogAsync("DownloadJobPackage", $"Error downloading package: {ex.Message}", "Error", jobId: jobId);
+                return null;
+            }
+        }
+
         // #9 Run Job Now
         /// <summary>
         /// Triggers immediate execution of a job by creating a JobInstance and sending a queue message.

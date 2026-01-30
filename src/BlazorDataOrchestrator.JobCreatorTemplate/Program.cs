@@ -1,3 +1,4 @@
+using BlazorDataOrchestrator.Core;
 using BlazorDataOrchestrator.Core.Data;
 using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
@@ -34,6 +35,17 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
+            
+            // Register JobManager for package upload and job management
+            builder.Services.AddScoped<JobManager>(sp =>
+            {
+                var config = sp.GetRequiredService<IConfiguration>();
+                var sqlConnectionString = config.GetConnectionString("blazororchestratordb") ?? "";
+                var blobConnectionString = config.GetConnectionString("blobs") ?? "";
+                var queueConnectionString = config.GetConnectionString("queues") ?? "";
+                var tableConnectionString = config.GetConnectionString("tables") ?? "";
+                return new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+            });
             
             var app = builder.Build();
 

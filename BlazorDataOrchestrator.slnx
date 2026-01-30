@@ -3,9 +3,12 @@
     <File Path="docs/AppSettings.md" />
     <File Path="docs/BlazorDataOrchestrator.Job.1.0.20260109080436.nupkg" />
     <File Path="docs/BlazorDataOrchestrator.Job.PYTHON.1.0.20260113054237.nupkg" />
+    <File Path="docs/JobCreatorRunCodeFeaturePlan.md" />
     <File Path="docs/logs.md" />
     <File Path="docs/NuGetExecutionFeature.md" />
     <File Path="docs/NugetExecutionFeatureDiagram.md" />
+    <File Path="docs/OnlineCodeEditorFeaturePlan.md" />
+    <File Path="docs/OnlineJobEditorEnhancements.md" />
     <File Path="docs/QueueVisibilityTimeoutRenewal.md" />
     <File Path="docs/TimezoneFeaturePlan.md" />
     <File Path="docs/WebhookFeaturePlan.md" />
