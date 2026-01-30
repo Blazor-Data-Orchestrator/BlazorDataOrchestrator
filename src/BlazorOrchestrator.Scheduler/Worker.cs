@@ -258,7 +258,7 @@ public class Worker : BackgroundService
         }
 
         // Resolve queue name from JobQueue table
-        string queueName = _settings.DefaultQueueName;
+        string queueName = Settings.QueueConstants.DefaultQueueName;
         if (job.JobQueue.HasValue)
         {
             var jobQueue = dbContext.JobQueue.FirstOrDefault(q => q.Id == job.JobQueue.Value);

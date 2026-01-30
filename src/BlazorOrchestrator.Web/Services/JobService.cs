@@ -42,6 +42,10 @@ public class JobService
 
     public async Task<Job> CreateJobAsync(string jobName, int organizationId, string? environment = null)
     {
+        // Get the default queue - look for "default" queue by name
+        var defaultQueue = await _dbContext.JobQueues
+            .FirstOrDefaultAsync(q => q.QueueName.ToLower() == "default");
+        
         var job = new Job
         {
             JobName = jobName,
@@ -52,6 +56,7 @@ public class JobService
             JobInProcess = false,
             JobInError = false,
             JobCodeFile = string.Empty, // Required field - will be populated later when job code is uploaded
+            JobQueue = defaultQueue?.Id, // Set default queue if available
             CreatedDate = DateTime.UtcNow,
             CreatedBy = "System"
         };
@@ -59,7 +64,7 @@ public class JobService
         _dbContext.Jobs.Add(job);
         await _dbContext.SaveChangesAsync();
         
-        _logger.LogInformation("Created job '{JobName}' with ID {JobId}", jobName, job.Id);
+        _logger.LogInformation("Created job '{JobName}' with ID {JobId} with default queue {QueueId}", jobName, job.Id, job.JobQueue);
         return job;
     }
 

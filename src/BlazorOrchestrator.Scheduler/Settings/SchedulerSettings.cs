@@ -1,6 +1,27 @@
 namespace BlazorOrchestrator.Scheduler.Settings;
 
 /// <summary>
+/// Constant values for queue names - hardcoded to prevent accidental modification.
+/// </summary>
+public static class QueueConstants
+{
+    /// <summary>
+    /// Default queue name when job's queue is null or empty.
+    /// </summary>
+    public const string DefaultQueueName = "default";
+
+    /// <summary>
+    /// Queue name for Azure-based jobs.
+    /// </summary>
+    public const string AzureQueueContainer = "azure-queue";
+
+    /// <summary>
+    /// Queue name for on-premises jobs.
+    /// </summary>
+    public const string OnPremisesQueueContainer = "onprem-queue";
+}
+
+/// <summary>
 /// Configuration settings for the Scheduler service.
 /// </summary>
 public class SchedulerSettings
@@ -14,21 +35,6 @@ public class SchedulerSettings
     /// Enable verbose logging for debugging purposes.
     /// </summary>
     public bool VerboseLogging { get; set; } = false;
-
-    /// <summary>
-    /// Default queue name when job's EnvironmentQueue is null or empty.
-    /// </summary>
-    public string DefaultQueueName { get; set; } = "default-queue";
-
-    /// <summary>
-    /// Queue name for Azure-based jobs (when EnvironmentQueue equals "azure").
-    /// </summary>
-    public string AzureQueueContainer { get; set; } = "azure-queue";
-
-    /// <summary>
-    /// Queue name for on-premises jobs (when EnvironmentQueue equals "onprem").
-    /// </summary>
-    public string OnPremisesQueueContainer { get; set; } = "onprem-queue";
 
     /// <summary>
     /// Number of hours after which a job instance without UpdatedDate is marked as stuck/error.

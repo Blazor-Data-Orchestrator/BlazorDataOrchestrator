@@ -77,6 +77,17 @@
     protected override void OnParametersSet()
     {
         _jobName = JobName;
+        
+        // Pre-select "Default" job group if available and nothing is selected yet
+        if (!selectedJobGroupIds.Any() && AvailableJobGroups.Any())
+        {
+            var defaultGroup = AvailableJobGroups.FirstOrDefault(g => 
+                g.JobGroupName?.Equals("Default", StringComparison.OrdinalIgnoreCase) == true);
+            if (defaultGroup != null)
+            {
+                selectedJobGroupIds = new List<int> { defaultGroup.Id };
+            }
+        }
     }
 
     private void ValidateJobName()
