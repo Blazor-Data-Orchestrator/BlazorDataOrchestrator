@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\csharp.instructions.md" />
+    <EmbeddedResource Include="Resources\python.instructions.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.0" />
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.0" />
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.0" />
@@ -16,6 +21,12 @@
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
     <PackageReference Include="CS-Script" Version="4.13.1" />
     <PackageReference Include="CSnakes.Runtime" Version="1.*" />
+    <!-- AI functionality packages -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.2.0-preview.1.26063.2" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="OpenAI" Version="2.8.0" />
+    <PackageReference Include="Radzen.Blazor" Version="*" />
   </ItemGroup>
 
 </Project>

@@ -85,6 +85,10 @@ builder.Services.AddScoped<AISettingsService>(sp =>
     return new AISettingsService(tableServiceClient);
 });
 
+// Register AI Chat services
+builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.IAIChatService, CodeAssistantChatService>();
+
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
 builder.Services.AddScoped<JobStorageService>(sp =>
 {

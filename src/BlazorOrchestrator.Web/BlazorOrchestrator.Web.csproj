@@ -37,6 +37,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
     <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />
+    <!-- AI packages for ConfigureAIDialog connection testing -->
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="OpenAI" Version="2.8.0" />
   </ItemGroup>
 
   <ItemGroup>
