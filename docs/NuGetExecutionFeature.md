@@ -127,13 +127,13 @@ public class JobQueueMessage
 **C# Execution Flow:**
 1. Load `main.cs` from `CodeCSharp` folder
 2. Use Roslyn/CSScript to compile and execute
-3. Call `BlazorDataOrchestratorJob.ExecuteJob()` per csharp.instructions.md
+3. Call `BlazorDataOrchestratorJob.ExecuteJob()`
 4. Capture and return logs
 
 **Python Execution Flow:**
 1. Load `main.py` from `CodePython` folder
 2. Use CSSnakes or subprocess to execute
-3. Call `execute_job()` per python.instructions.md
+3. Call `execute_job()` 
 4. Capture and return logs
 
 ### 3.3 Create Models in Core

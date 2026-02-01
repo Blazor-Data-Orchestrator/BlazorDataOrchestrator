@@ -14,7 +14,6 @@ namespace BlazorDataOrchestrator.Core.Services;
 
 /// <summary>
 /// Service for executing C# and Python code from extracted NuGet packages.
-/// Follows the patterns defined in csharp.instructions.md and python.instructions.md.
 /// </summary>
 public class CodeExecutorService
 {
@@ -72,7 +71,7 @@ public class CodeExecutorService
 
     /// <summary>
     /// Executes C# code using CSScript.
-    /// Expects a BlazorDataOrchestratorJob class with ExecuteJob method per csharp.instructions.md.
+    /// Expects a BlazorDataOrchestratorJob class with ExecuteJob method 
     /// </summary>
     private async Task<CodeExecutionResult> ExecuteCSharpAsync(string extractedPath, JobExecutionContext context)
     {
@@ -365,7 +364,6 @@ public class CodeExecutorService
 
     /// <summary>
     /// Executes Python code using subprocess.
-    /// Expects an execute_job function per python.instructions.md.
     /// </summary>
     private async Task<CodeExecutionResult> ExecutePythonAsync(string extractedPath, JobExecutionContext context)
     {
