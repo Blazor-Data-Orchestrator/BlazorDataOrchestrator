@@ -253,14 +253,16 @@ Content-Type: application/json
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" 
                                      JustifyContent="JustifyContent.SpaceBetween" Gap="1rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
-                                @* Language Selection *@
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenLabel Text="Language:" Style="font-weight: 500;" />
-                                    <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
-                                                    TextProperty="Name" ValueProperty="Value"
-                                                    Style="min-width: 120px;" Change="@OnLanguageChanged"
-                                                    Disabled="@(codeEditMode == CodeEditMode.Upload)" />
-                                </RadzenStack>
+                                @* Language Selection (only in Editor mode) *@
+                                @if (codeEditMode == CodeEditMode.Editor)
+                                {
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenLabel Text="Language:" Style="font-weight: 500;" />
+                                        <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
+                                                        TextProperty="Name" ValueProperty="Value"
+                                                        Style="min-width: 120px;" Change="@OnLanguageChanged" />
+                                    </RadzenStack>
+                                }
                                 
                                 @* File Selector (when in Editor mode) *@
                                 @if (codeEditMode == CodeEditMode.Editor)
@@ -320,10 +322,17 @@ Content-Type: application/json
                                     <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">
                                         Current Code Package
                                     </RadzenText>
-                                    <RadzenText TextStyle="TextStyle.Body2" 
-                                                Style="font-family: monospace; background: #ffffff; padding: 0.5rem; border-radius: 4px;">
-                                        @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
-                                    </RadzenText>
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                        <RadzenText TextStyle="TextStyle.Body2" 
+                                                    Style="font-family: monospace; background: #ffffff; padding: 0.5rem; border-radius: 4px; flex: 1;">
+                                            @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
+                                        </RadzenText>
+                                        @if (!string.IsNullOrEmpty(Job.JobCodeFile))
+                                        {
+                                            <RadzenButton Icon="download" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                                          Title="Download Package" Click="@DownloadCodePackage" />
+                                        }
+                                    </RadzenStack>
                                 </RadzenStack>
 
                                 <RadzenStack Gap="0.5rem">
@@ -771,6 +780,22 @@ Content-Type: application/json
         {
             IsUploading = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task DownloadCodePackage()
+    {
+        if (Job == null || string.IsNullOrEmpty(Job.JobCodeFile)) return;
+
+        try
+        {
+            // Open the download URL in a new tab
+            var downloadUrl = $"/api/job-package/{JobId}/download";
+            await JSRuntime.InvokeVoidAsync("open", downloadUrl, "_blank");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to download package: {ex.Message}");
         }
     }
 
