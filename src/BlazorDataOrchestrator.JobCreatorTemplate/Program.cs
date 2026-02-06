@@ -4,6 +4,8 @@ using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
 using BlazorDataOrchestrator.JobCreatorTemplate.Services;
 using Radzen;
+using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
+using CodeAssistantChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CodeAssistantChatService;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {

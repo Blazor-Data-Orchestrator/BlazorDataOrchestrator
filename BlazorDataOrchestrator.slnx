@@ -1,8 +1,5 @@
 <Solution>
-  <Folder Name="/Solution Items/">
-    <File Path="docs/BlazorDataOrchestrator.Job.1.0.20260109080436.nupkg" />
-    <File Path="docs/BlazorDataOrchestrator.Job.PYTHON.1.0.20260113054237.nupkg" />
-  </Folder>
+  <Folder Name="/Solution Items/" />
   <Project Path="src/BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
   <Project Path="src/BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" />
   <Project Path="src/BlazorOrchestrator.AppHost/BlazorOrchestrator.AppHost.csproj" />

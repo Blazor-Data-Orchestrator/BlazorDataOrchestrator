@@ -12,6 +12,8 @@ using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using RadzenChatMessage = Radzen.Blazor.ChatMessage;
 using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.Core.Models;
+using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
+using ConversationSession = BlazorDataOrchestrator.Core.Models.ConversationSession;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
@@ -52,6 +54,19 @@ Keep responses concise and focused on the code task at hand.";
     public void SetCurrentEditorCode(string code)
     {
         _currentEditorCode = code ?? "";
+    }
+    
+    /// <summary>
+    /// Sets the current programming language context.
+    /// </summary>
+    public void SetLanguage(string language)
+    {
+        // Clear cached instructions when language changes
+        if (_cachedInstructionsLanguage != language)
+        {
+            _cachedInstructions = null;
+            _cachedInstructionsLanguage = language;
+        }
     }
     
     /// <summary>
