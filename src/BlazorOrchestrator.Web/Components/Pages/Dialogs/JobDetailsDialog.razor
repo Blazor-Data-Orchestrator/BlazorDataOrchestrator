@@ -75,7 +75,7 @@ else
                                     <RadzenLabel Text="Job Group" Component="JobGroup" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@selectedJobGroupId" Data="@AvailableJobGroups" 
                                                     TextProperty="JobGroupName" ValueProperty="Id"
-                                                    AllowClear="true" Placeholder="Select a job group..."
+                                                    AllowClear="false" Placeholder="Default"
                                                     Name="JobGroup" Style="width: 100%;" />
                                 </RadzenStack>
 
@@ -83,7 +83,7 @@ else
                                     <RadzenLabel Text="Job Queue" Component="JobQueue" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@Job.JobQueue" Data="@AvailableJobQueues" 
                                                     TextProperty="QueueName" ValueProperty="Id"
-                                                    AllowClear="true" Placeholder="Select ..."
+                                                    AllowClear="false" Placeholder="default"
                                                     Name="JobQueue" Style="width: 100%;" />
                                 </RadzenStack>
                             </RadzenStack>
@@ -474,6 +474,22 @@ Content-Type: application/json
                 // Load current job group assignment (single group)
                 var currentGroups = await JobGroupService.GetJobGroupsForJobAsync(JobId);
                 selectedJobGroupId = currentGroups.FirstOrDefault()?.Id;
+                
+                // Set default job group if none selected - find "Default" group
+                if (!selectedJobGroupId.HasValue)
+                {
+                    var defaultGroup = AvailableJobGroups.FirstOrDefault(g => 
+                        g.JobGroupName?.Equals("Default", StringComparison.OrdinalIgnoreCase) == true);
+                    selectedJobGroupId = defaultGroup?.Id;
+                }
+                
+                // Set default job queue if none selected - find "default" queue
+                if (!Job.JobQueue.HasValue)
+                {
+                    var defaultQueue = AvailableJobQueues.FirstOrDefault(q => 
+                        q.QueueName?.Equals("default", StringComparison.OrdinalIgnoreCase) == true);
+                    Job.JobQueue = defaultQueue?.Id;
+                }
             }
         }
         catch (Exception ex)

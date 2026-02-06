@@ -34,13 +34,17 @@
         <RadzenColumn Size="4">
             <RadzenStack Gap="0.25rem">
                 <RadzenLabel Text="Start Time" Component="StartTime" Style="font-weight: 500;" />
-                <RadzenNumeric @bind-Value="@Schedule.StartTime" Name="StartTime" Style="width: 100%;" Min="0" Max="23" />
+                <RadzenDatePicker @bind-Value="@StartTimeValue" Name="StartTime" Style="width: 100%;"
+                                  ShowTime="true" TimeOnly="true" DateFormat="h:mm tt" 
+                                  HourFormat="12" ShowSeconds="false" />
             </RadzenStack>
         </RadzenColumn>
         <RadzenColumn Size="4">
             <RadzenStack Gap="0.25rem">
                 <RadzenLabel Text="Stop Time" Component="StopTime" Style="font-weight: 500;" />
-                <RadzenNumeric @bind-Value="@Schedule.StopTime" Name="StopTime" Style="width: 100%;" Min="0" Max="23" />
+                <RadzenDatePicker @bind-Value="@StopTimeValue" Name="StopTime" Style="width: 100%;"
+                                  ShowTime="true" TimeOnly="true" DateFormat="h:mm tt"
+                                  HourFormat="12" ShowSeconds="false" />
             </RadzenStack>
         </RadzenColumn>
     </RadzenRow>
@@ -133,6 +137,55 @@
 
     public string ValidationError { get; private set; } = string.Empty;
     public bool IsSaving { get; private set; } = false;
+
+    // Helper properties for time picker conversion
+    // Database stores time as int in military format: HHMM (e.g., 800 = 8:00 AM, 1430 = 2:30 PM)
+    private DateTime? StartTimeValue
+    {
+        get => MilitaryTimeToDateTime(Schedule.StartTime);
+        set
+        {
+            Schedule.StartTime = DateTimeToMilitaryTime(value);
+        }
+    }
+
+    private DateTime? StopTimeValue
+    {
+        get => MilitaryTimeToDateTime(Schedule.StopTime);
+        set
+        {
+            Schedule.StopTime = DateTimeToMilitaryTime(value);
+        }
+    }
+
+    /// <summary>
+    /// Converts military time integer (HHMM) to DateTime for the time picker
+    /// </summary>
+    private static DateTime? MilitaryTimeToDateTime(int? militaryTime)
+    {
+        if (!militaryTime.HasValue)
+            return null;
+        
+        int hour = militaryTime.Value / 100;
+        int minute = militaryTime.Value % 100;
+        
+        // Clamp values to valid ranges
+        hour = Math.Clamp(hour, 0, 23);
+        minute = Math.Clamp(minute, 0, 59);
+        
+        return new DateTime(2000, 1, 1, hour, minute, 0);
+    }
+
+    /// <summary>
+    /// Converts DateTime from time picker to military time integer (HHMM)
+    /// </summary>
+    private static int? DateTimeToMilitaryTime(DateTime? dateTime)
+    {
+        if (!dateTime.HasValue)
+            return null;
+        
+        return (dateTime.Value.Hour * 100) + dateTime.Value.Minute;
+    }
 
     private bool Validate()
     {
