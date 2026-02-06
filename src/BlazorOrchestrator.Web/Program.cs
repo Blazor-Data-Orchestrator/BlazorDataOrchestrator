@@ -78,6 +78,17 @@ builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddScoped<TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
 
+// Register AI Settings service (uses Azure Table Storage)
+builder.Services.AddScoped<AISettingsService>(sp =>
+{
+    var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
+    return new AISettingsService(tableServiceClient);
+});
+
+// Register AI Chat services
+builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.IAIChatService, CodeAssistantChatService>();
+
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
 builder.Services.AddScoped<JobStorageService>(sp =>
 {

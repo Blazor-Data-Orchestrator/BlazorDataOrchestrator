@@ -1,0 +1,540 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Models
+@inject BlazorDataOrchestrator.Core.Services.IAIChatService ChatService
+@inject AISettingsService SettingsService
+@inject NotificationService NotificationService
+@inject DialogService DialogService
+
+<div class="ai-chat-dialog-overlay" @onclick="OnOverlayClick">
+    <div class="ai-chat-dialog" @onclick:stopPropagation="true">
+        @* Header *@
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     JustifyContent="JustifyContent.SpaceBetween"
+                     Style="padding: 16px 20px; background: #5c6bc0; color: white; border-radius: 12px 12px 0 0;">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="8">
+                <RadzenIcon Icon="smart_toy" Style="font-size: 24px;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="color: white; margin: 0;">AI Code Assistant</RadzenText>
+                <RadzenBadge Text="@Language.ToUpperInvariant()" BadgeStyle="BadgeStyle.Light" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
+                <RadzenButton Icon="settings" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@OpenSettingsDialog" title="Configure AI Service" />
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@ClearConversation" title="Clear conversation" />
+                <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@OnCloseClick" title="Close" />
+            </RadzenStack>
+        </RadzenStack>
+
+        @* Chat Content - Custom Chat UI *@
+        <div class="chat-content">
+            <div class="chat-messages" @ref="messagesContainer">
+                @if (Messages.Count == 0)
+                {
+                    <div class="chat-empty">
+                        <RadzenIcon Icon="chat" Style="font-size: 48px; color: #9e9e9e;" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #757575; margin-top: 12px;">
+                            Start a conversation with the AI assistant
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #9e9e9e;">
+                            Ask questions about your code, request changes, or get help with debugging
+                        </RadzenText>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var message in Messages)
+                    {
+                        <div class="chat-message @(message.IsUser ? "user-message" : "assistant-message")">
+                            <div class="message-avatar">
+                                <RadzenIcon Icon="@(message.IsUser ? "person" : "smart_toy")" />
+                            </div>
+                            <div class="message-content">
+                                <div class="message-header">
+                                    <span class="message-sender">@(message.IsUser ? "You" : "AI Assistant")</span>
+                                    <span class="message-time">@message.Timestamp.ToString("HH:mm")</span>
+                                </div>
+                                <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
+                                @if (message.IsStreaming)
+                                {
+                                    <div class="message-streaming">
+                                        <span class="streaming-indicator"></span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+            
+            @* Input Area *@
+            <div class="chat-input-area">
+                <textarea @bind="currentInput" 
+                          @bind:event="oninput"
+                          placeholder="Type your message..." 
+                          rows="2"
+                          class="chat-textarea"
+                          disabled="@IsCallingAI"
+                          @onkeydown="OnInputKeyDown"></textarea>
+                <RadzenButton Icon="send" 
+                              ButtonStyle="ButtonStyle.Primary" 
+                              Click="@SendMessage"
+                              Disabled="@(IsCallingAI || string.IsNullOrWhiteSpace(currentInput))"
+                              title="Send message" />
+            </div>
+        </div>
+
+        @* Footer with Apply Code Button *@
+        @if (HasPendingCodeUpdate)
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         Style="padding: 12px 16px; background: #e8f5e9; border-top: 1px solid #c8e6c9;">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="8">
+                    <RadzenIcon Icon="code" Style="color: #2e7d32;" />
+                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #2e7d32;">
+                        AI generated new code ready to apply
+                    </RadzenText>
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="8">
+                    <RadzenButton Text="Apply to Editor" Icon="check" ButtonStyle="ButtonStyle.Success"
+                                  Size="ButtonSize.Small" Click="@ApplyCodeToEditor" />
+                    <RadzenButton Text="Dismiss" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.Small" Click="@DismissPendingCode" />
+                </RadzenStack>
+            </RadzenStack>
+        }
+    </div>
+</div>
+
+<style>
+    .ai-chat-dialog-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+
+    .ai-chat-dialog {
+        width: 700px;
+        max-width: 90vw;
+        height: 75vh;
+        max-height: 750px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .chat-content {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .chat-messages {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .chat-empty {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 32px;
+    }
+
+    .chat-message {
+        display: flex;
+        gap: 12px;
+        max-width: 85%;
+    }
+
+    .chat-message.user-message {
+        align-self: flex-end;
+        flex-direction: row-reverse;
+    }
+
+    .chat-message.assistant-message {
+        align-self: flex-start;
+    }
+
+    .message-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .user-message .message-avatar {
+        background: #5c6bc0;
+        color: white;
+    }
+
+    .assistant-message .message-avatar {
+        background: #e8eaf6;
+        color: #5c6bc0;
+    }
+
+    .message-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .message-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+    }
+
+    .message-sender {
+        font-weight: 500;
+        font-size: 0.875rem;
+    }
+
+    .message-time {
+        font-size: 0.75rem;
+        color: #9e9e9e;
+    }
+
+    .message-text {
+        background: #f5f5f5;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.9375rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .user-message .message-text {
+        background: #5c6bc0;
+        color: white;
+        border-radius: 12px 12px 4px 12px;
+    }
+
+    .assistant-message .message-text {
+        border-radius: 12px 12px 12px 4px;
+    }
+
+    .message-text pre {
+        background: #263238;
+        color: #e0e0e0;
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 8px 0;
+        font-size: 0.875rem;
+    }
+
+    .message-text code {
+        background: rgba(0, 0, 0, 0.08);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.875em;
+    }
+
+    .message-streaming {
+        margin-top: 8px;
+    }
+
+    .streaming-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: #5c6bc0;
+        border-radius: 50%;
+        animation: pulse 1s infinite;
+    }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
+    .chat-input-area {
+        display: flex;
+        gap: 12px;
+        padding: 16px;
+        border-top: 1px solid #e0e0e0;
+        background: white;
+    }
+
+    .chat-textarea {
+        flex: 1;
+        resize: none;
+        padding: 12px;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 0.9375rem;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+
+    .chat-textarea:focus {
+        border-color: #5c6bc0;
+    }
+
+    .chat-textarea:disabled {
+        background: #f5f5f5;
+        cursor: not-allowed;
+    }
+</style>
+
+@code {
+    [Parameter] public string CurrentCode { get; set; } = "";
+    [Parameter] public string Language { get; set; } = "csharp";
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnCodeApply { get; set; }
+
+    private ElementReference messagesContainer;
+    private List<ChatMessageDisplay> Messages { get; set; } = new();
+    private string sessionId = Guid.NewGuid().ToString();
+    private string currentInput = "";
+    private bool IsCallingAI = false;
+    private bool HasPendingCodeUpdate = false;
+    private string? pendingCode = null;
+
+    private const string CodeBeginMarker = "###UPDATED CODE BEGIN###";
+    private const string CodeEndMarker = "###UPDATED CODE END###";
+
+    protected override void OnInitialized()
+    {
+        ChatService.SetLanguage(Language);
+        ChatService.SetCurrentEditorCode(CurrentCode);
+    }
+
+    protected override void OnParametersSet()
+    {
+        ChatService.SetCurrentEditorCode(CurrentCode);
+        ChatService.SetLanguage(Language);
+    }
+
+    private async Task OnInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(currentInput) || IsCallingAI)
+            return;
+
+        var userMessage = currentInput.Trim();
+        currentInput = "";
+        
+        // Add user message
+        Messages.Add(new ChatMessageDisplay
+        {
+            Content = userMessage,
+            IsUser = true,
+            Timestamp = DateTime.Now
+        });
+
+        // Add placeholder for assistant response
+        var assistantMessage = new ChatMessageDisplay
+        {
+            Content = "",
+            IsUser = false,
+            Timestamp = DateTime.Now,
+            IsStreaming = true
+        };
+        Messages.Add(assistantMessage);
+        
+        IsCallingAI = true;
+        StateHasChanged();
+
+        try
+        {
+            // Ensure the ChatService has the latest code context
+            ChatService.SetCurrentEditorCode(CurrentCode);
+            ChatService.SetLanguage(Language);
+
+            var responseBuilder = new System.Text.StringBuilder();
+
+            await foreach (var chunk in ChatService.GetCompletionsAsync(userMessage, sessionId))
+            {
+                responseBuilder.Append(chunk);
+                assistantMessage.Content = responseBuilder.ToString();
+                StateHasChanged();
+            }
+
+            assistantMessage.IsStreaming = false;
+            
+            // Check for code markers in the complete response
+            CheckForCodeUpdate(assistantMessage.Content);
+        }
+        catch (Exception ex)
+        {
+            assistantMessage.Content = $"Sorry, I encountered an error: {ex.Message}";
+            assistantMessage.IsStreaming = false;
+        }
+        finally
+        {
+            IsCallingAI = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CheckForCodeUpdate(string response)
+    {
+        if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
+        {
+            pendingCode = ExtractCodeFromResponse(response);
+            HasPendingCodeUpdate = !string.IsNullOrEmpty(pendingCode);
+            StateHasChanged();
+        }
+    }
+
+    private string? ExtractCodeFromResponse(string response)
+    {
+        var beginIndex = response.IndexOf(CodeBeginMarker);
+        var endIndex = response.IndexOf(CodeEndMarker);
+
+        if (beginIndex >= 0 && endIndex > beginIndex)
+        {
+            var codeStart = beginIndex + CodeBeginMarker.Length;
+            var code = response.Substring(codeStart, endIndex - codeStart);
+            
+            // Clean up the code
+            code = code.Trim();
+            if (code.StartsWith("```"))
+            {
+                var firstNewline = code.IndexOf('\n');
+                if (firstNewline >= 0)
+                {
+                    code = code.Substring(firstNewline + 1);
+                }
+            }
+            if (code.EndsWith("```"))
+            {
+                code = code.Substring(0, code.Length - 3);
+            }
+            
+            return code.Trim();
+        }
+        return null;
+    }
+
+    private string FormatMessage(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return "";
+
+        // Basic markdown-like formatting for code blocks
+        var result = System.Web.HttpUtility.HtmlEncode(content);
+        
+        // Format code blocks
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"```(\w*)\n([\s\S]*?)```",
+            m => $"<pre><code>{m.Groups[2].Value}</code></pre>");
+        
+        // Format inline code
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"`([^`]+)`",
+            "<code>$1</code>");
+
+        // Convert newlines to breaks (but not in code blocks)
+        result = result.Replace("\n", "<br/>");
+
+        return result;
+    }
+
+    private async Task ApplyCodeToEditor()
+    {
+        if (!string.IsNullOrEmpty(pendingCode))
+        {
+            await OnCodeApply.InvokeAsync(pendingCode);
+            HasPendingCodeUpdate = false;
+            pendingCode = null;
+            NotificationService.Notify(NotificationSeverity.Success, "Success", "Code applied to editor.");
+        }
+    }
+
+    private void DismissPendingCode()
+    {
+        HasPendingCodeUpdate = false;
+        pendingCode = null;
+    }
+
+    private async Task OnCloseClick()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    private void OnOverlayClick()
+    {
+        // Optional: uncomment to close on overlay click
+        // await OnClose.InvokeAsync();
+    }
+
+    private void ClearConversation()
+    {
+        ChatService.ClearSession(sessionId);
+        sessionId = Guid.NewGuid().ToString();
+        Messages.Clear();
+        HasPendingCodeUpdate = false;
+        pendingCode = null;
+        StateHasChanged();
+        NotificationService.Notify(NotificationSeverity.Info, "Cleared", "Conversation history cleared.");
+    }
+
+    private async Task OpenSettingsDialog()
+    {
+        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
+            new Dictionary<string, object>
+            {
+                { "OnSettingsSaved", EventCallback.Factory.Create(this, OnSettingsSaved) }
+            },
+            new DialogOptions 
+            { 
+                Width = "500px", 
+                Height = "auto",
+                CloseDialogOnEsc = true 
+            });
+    }
+
+    private void OnSettingsSaved()
+    {
+        ChatService.RefreshClient();
+        DialogService.Close();
+        NotificationService.Notify(NotificationSeverity.Success, "Success", "AI settings updated.");
+    }
+
+    private class ChatMessageDisplay
+    {
+        public string Content { get; set; } = "";
+        public bool IsUser { get; set; }
+        public DateTime Timestamp { get; set; }
+        public bool IsStreaming { get; set; }
+    }
+}

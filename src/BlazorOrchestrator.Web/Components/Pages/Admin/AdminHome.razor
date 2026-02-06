@@ -4,12 +4,16 @@
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Models
 @inject JobQueueService JobQueueService
 @inject JobGroupService JobGroupService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
 @inject AppSettingsService AppSettingsService
 @inject TimeDisplayService TimeDisplayService
+@inject AISettingsService AISettingsService
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Administration</PageTitle>
 
@@ -158,15 +162,15 @@
                     }
                 </RadzenStack>
             </RadzenTabsItem>
-            <RadzenTabsItem Text="Settings" Icon="settings">
+            <RadzenTabsItem Text="Timezone Settings" Icon="settings">
                 <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
                     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
-                        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Application Settings</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Timezone Settings</RadzenText>
                     </RadzenStack>
 
                     <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
                         <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
-                            Configure application-wide settings. The timezone setting affects how dates and times are displayed throughout the application.
+                            The timezone setting affects how dates and times are displayed throughout the application.
                         </RadzenText>
                     </RadzenAlert>
 
@@ -215,6 +219,168 @@
                     </RadzenCard>
                 </RadzenStack>
             </RadzenTabsItem>
+            <RadzenTabsItem Text="AI Settings" Icon="smart_toy">
+                <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">AI Service Configuration</RadzenText>
+                    </RadzenStack>
+
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                            Configure AI settings for the code assistant feature. These settings are stored securely in Azure Table Storage.
+                        </RadzenText>
+                    </RadzenAlert>
+
+                    @if (IsLoadingAISettings)
+                    {
+                        <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                            <RadzenText TextStyle="TextStyle.Body1">Loading AI settings...</RadzenText>
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        <RadzenCard Style="padding: 1.5rem;">
+                            <RadzenStack Gap="1.5rem">
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="AI Service Type" Component="AIServiceType" Style="font-weight: 600;" />
+                                    <RadzenDropDown @bind-Value="@AIServiceType" 
+                                                    Data="@AIServiceTypes" 
+                                                    Style="width: 100%; max-width: 400px;" 
+                                                    Name="AIServiceType"
+                                                    Change="@OnAIServiceTypeChanged" />
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                        Select the AI service provider to use for code assistance.
+                                    </RadzenText>
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="API Key" Component="ApiKey" Style="font-weight: 600;" />
+                                    <RadzenTextBox @bind-Value="@AIApiKey" 
+                                                   Style="width: 100%; max-width: 400px;" 
+                                                   Name="ApiKey"
+                                                   Placeholder="@(AIServiceType == "OpenAI" ? "sk-..." : "Your Azure OpenAI API Key")"
+                                                   @oninput="@OnApiKeyInput" />
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                        @if (AIServiceType == "OpenAI")
+                                        {
+                                            <text>Your OpenAI API key (starts with sk-).</text>
+                                        }
+                                        else
+                                        {
+                                            <text>Your Azure OpenAI API key from the Azure portal.</text>
+                                        }
+                                    </RadzenText>
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="@(AIServiceType == "OpenAI" ? "Model" : "Model Deployment Name")" Component="AIModel" Style="font-weight: 600;" />
+                                    <RadzenTextBox @bind-Value="@AIModel" 
+                                                   Style="width: 100%; max-width: 400px;" 
+                                                   Name="AIModel"
+                                                   Placeholder="@(AIServiceType == "OpenAI" ? "gpt-4-turbo-preview" : "gpt-4")" />
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                        @if (AIServiceType == "OpenAI")
+                                        {
+                                            <text>The OpenAI model to use (e.g., gpt-4-turbo-preview, gpt-4o).</text>
+                                        }
+                                        else
+                                        {
+                                            <text>The deployment name of your Azure OpenAI model.</text>
+                                        }
+                                    </RadzenText>
+                                </RadzenStack>
+
+                                @if (AIServiceType == "Azure OpenAI")
+                                {
+                                    <RadzenStack Gap="0.5rem">
+                                        <RadzenLabel Text="Embedding Model Deployment Name" Component="EmbeddingModel" Style="font-weight: 600;" />
+                                        <RadzenTextBox @bind-Value="@AIEmbeddingModel" 
+                                                       Style="width: 100%; max-width: 400px;" 
+                                                       Name="EmbeddingModel"
+                                                       Placeholder="text-embedding-ada-002" />
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                            The deployment name of your Azure OpenAI embedding model (optional).
+                                        </RadzenText>
+                                    </RadzenStack>
+
+                                    <RadzenStack Gap="0.5rem">
+                                        <RadzenLabel Text="Azure OpenAI Endpoint" Component="Endpoint" Style="font-weight: 600;" />
+                                        <RadzenTextBox @bind-Value="@AIEndpoint" 
+                                                       Style="width: 100%; max-width: 400px;" 
+                                                       Name="Endpoint"
+                                                       Placeholder="https://your-resource.openai.azure.com/" />
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                            Your Azure OpenAI resource endpoint URL.
+                                        </RadzenText>
+                                    </RadzenStack>
+
+                                    <RadzenStack Gap="0.5rem">
+                                        <RadzenLabel Text="API Version" Component="ApiVersion" Style="font-weight: 600;" />
+                                        <RadzenTextBox @bind-Value="@AIApiVersion" 
+                                                       Style="width: 100%; max-width: 400px;" 
+                                                       Name="ApiVersion"
+                                                       Placeholder="2024-02-15-preview" />
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                            The Azure OpenAI API version to use.
+                                        </RadzenText>
+                                    </RadzenStack>
+                                }
+
+                                @if (!IsAISettingsEntered)
+                                {
+                                    <RadzenStack Gap="0.5rem">
+                                        @if (AIServiceType == "OpenAI")
+                                        {
+                                            <RadzenButton Text="Get an OpenAI API Key" Icon="open_in_new" 
+                                                          ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                                                          Click="@GetOpenAIApiKey" Style="max-width: 400px;" />
+                                        }
+                                        else
+                                        {
+                                            <RadzenButton Text="Learn how to create Azure OpenAI resource" Icon="open_in_new" 
+                                                          ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                                                          Click="@GetAzureOpenAIApiKey" Style="max-width: 400px;" />
+                                        }
+                                    </RadzenStack>
+                                }
+
+                                @if (AISettings.IsConfigured)
+                                {
+                                    <RadzenCard Style="background: #f0fdf4; padding: 1rem; border: 1px solid #86efac;">
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                            <RadzenIcon Icon="check_circle" Style="color: #16a34a;" />
+                                            <RadzenText TextStyle="TextStyle.Body2" Style="color: #166534; margin: 0;">
+                                                AI service is configured and ready to use.
+                                            </RadzenText>
+                                        </RadzenStack>
+                                    </RadzenCard>
+                                }
+                                else
+                                {
+                                    <RadzenCard Style="background: #fef3c7; padding: 1rem; border: 1px solid #fcd34d;">
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                            <RadzenIcon Icon="warning" Style="color: #d97706;" />
+                                            <RadzenText TextStyle="TextStyle.Body2" Style="color: #92400e; margin: 0;">
+                                                AI service is not configured. Enter an API key to enable AI features.
+                                            </RadzenText>
+                                        </RadzenStack>
+                                    </RadzenCard>
+                                }
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
+                                    <RadzenButton Text="Save AI Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
+                                                  Click="@SaveAISettings" Disabled="@IsSavingAISettings" />
+                                    @if (IsSavingAISettings)
+                                    {
+                                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    }
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+                </RadzenStack>
+            </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
 </RadzenStack>
@@ -233,6 +399,19 @@
     private List<TimezoneOption> AvailableTimezones { get; set; } = new();
     private bool IsSavingSettings { get; set; } = false;
 
+    // AI Settings fields
+    private AISettings AISettings { get; set; } = new();
+    private string AIServiceType { get; set; } = "OpenAI";
+    private string AIApiKey { get; set; } = "";
+    private string AIModel { get; set; } = "gpt-4-turbo-preview";
+    private string AIEndpoint { get; set; } = "";
+    private string AIApiVersion { get; set; } = "";
+    private string AIEmbeddingModel { get; set; } = "";
+    private bool IsLoadingAISettings { get; set; } = true;
+    private bool IsSavingAISettings { get; set; } = false;
+    private bool IsAISettingsEntered { get; set; } = false;
+    private List<string> AIServiceTypes { get; set; } = new() { "OpenAI", "Azure OpenAI" };
+
     protected override async Task OnInitializedAsync()
     {
         // Load settings
@@ -241,6 +420,7 @@
         // Run sequentially to avoid DbContext concurrency issues
         await LoadJobGroups();
         await LoadJobQueues();
+        await LoadAISettings();
     }
 
     #region Settings
@@ -274,6 +454,112 @@
         finally
         {
             IsSavingSettings = false;
+            StateHasChanged();
+        }
+    }
+
+    #endregion
+
+    #region AI Settings
+
+    private async Task LoadAISettings()
+    {
+        IsLoadingAISettings = true;
+        StateHasChanged();
+
+        try
+        {
+            AISettings = await AISettingsService.GetSettingsAsync();
+            AIServiceType = AISettings.AIServiceType;
+            AIApiKey = AISettings.ApiKey;
+            AIModel = AISettings.AIModel;
+            AIEndpoint = AISettings.Endpoint;
+            AIApiVersion = AISettings.ApiVersion;
+            AIEmbeddingModel = AISettings.EmbeddingModel;
+            IsAISettingsEntered = !string.IsNullOrWhiteSpace(AIApiKey);
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load AI settings: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingAISettings = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnAIServiceTypeChanged()
+    {
+        if (AIServiceType == "OpenAI")
+        {
+            AIModel = string.IsNullOrWhiteSpace(AIModel) ? "gpt-4-turbo-preview" : AIModel;
+        }
+        StateHasChanged();
+    }
+
+    private void OnApiKeyInput(ChangeEventArgs args)
+    {
+        AIApiKey = args.Value?.ToString() ?? "";
+        IsAISettingsEntered = !string.IsNullOrWhiteSpace(AIApiKey);
+    }
+
+    private async Task GetOpenAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://platform.openai.com/account/api-keys");
+    }
+
+    private async Task GetAzureOpenAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal");
+    }
+
+    private async Task SaveAISettings()
+    {
+        IsSavingAISettings = true;
+        StateHasChanged();
+
+        try
+        {
+            // Validate API key format for OpenAI
+            if (AIServiceType == "OpenAI" && !string.IsNullOrWhiteSpace(AIApiKey) && !AIApiKey.StartsWith("sk-"))
+            {
+                NotificationService.Notify(NotificationSeverity.Warning, "Validation", "OpenAI API keys must start with 'sk-'.");
+                return;
+            }
+
+            // Validate Azure OpenAI settings
+            if (AIServiceType == "Azure OpenAI" && !string.IsNullOrWhiteSpace(AIApiKey))
+            {
+                if (string.IsNullOrWhiteSpace(AIEndpoint))
+                {
+                    NotificationService.Notify(NotificationSeverity.Warning, "Validation", "Azure OpenAI Endpoint is required.");
+                    return;
+                }
+            }
+
+            var settings = new AISettings
+            {
+                AIServiceType = AIServiceType,
+                ApiKey = AIApiKey,
+                AIModel = AIModel,
+                Endpoint = AIEndpoint,
+                ApiVersion = AIApiVersion,
+                EmbeddingModel = AIEmbeddingModel
+            };
+
+            await AISettingsService.SaveSettingsAsync(settings);
+            AISettings = settings;
+
+            NotificationService.Notify(NotificationSeverity.Success, "Success", "AI settings saved successfully.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to save AI settings: {ex.Message}");
+        }
+        finally
+        {
+            IsSavingAISettings = false;
             StateHasChanged();
         }
     }
