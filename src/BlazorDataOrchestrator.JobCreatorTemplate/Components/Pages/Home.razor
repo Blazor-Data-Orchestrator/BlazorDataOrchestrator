@@ -20,6 +20,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject JobManager InjectedJobManager
+@inject CopilotHealthService CopilotHealth
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -86,7 +87,7 @@
                             <RadzenStack Gap="0" Style="height: 100%; background: #f8f9fa; border-left: 1px solid #e8e8e8;">
                                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                              JustifyContent="JustifyContent.SpaceBetween"
-                                             Style="padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8;">
+                                             Style="padding: 14px 20px; background: #fffffF; border-bottom: 1px solid #e8e8e8;">
                                     <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: #333; margin: 0; font-weight: 600;">
                                         <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px; color: #5c6bc0;" />Chat
                                     </RadzenText>
@@ -94,6 +95,25 @@
                                                   title="Configure AI Service" Click="@OpenAISettingsDialog"
                                                   Style="padding: 4px 8px; min-width: auto;" />
                                 </RadzenStack>
+                                @if (!CopilotHealth.IsReady)
+                                {
+                                    <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat"
+                                                 Style="margin: 8px 12px 0 12px;" AllowClose="false">
+                                        <strong>⚠️ @CopilotHealth.StatusMessage</strong>
+                                        <p style="margin: 8px 0 4px 0; font-size: 0.85em;">
+                                            The AI Chat feature requires the GitHub Copilot CLI to be installed and authenticated.
+                                        </p>
+                                        <ol style="font-size: 0.82em; padding-left: 18px; margin: 0;">
+                                            <li>Download from <a href="https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli" target="_blank">https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli</a> or run <code>npm install -g @@github/copilot</code></li>
+                                            <li>Run <code>copilot --version</code> to verify</li>
+                                            <li>Run <code>copilot login</code> or set <code>GITHUB_TOKEN</code></li>
+                                            <li>Restart this application</li>
+                                        </ol>
+                                        <RadzenButton Text="Check Again" Size="ButtonSize.ExtraSmall"
+                                                      ButtonStyle="ButtonStyle.Warning" Style="margin-top: 8px;"
+                                                      Click="@OnCheckCopilotHealth" />
+                                    </RadzenAlert>
+                                }
                                 <div class="chat-container" style="flex-grow: 1; overflow: hidden; padding: 12px; position: relative;">
                                     <div style="position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; overflow: hidden;">
                                         <RadzenAIChat @ref="aiChat"
@@ -204,6 +224,7 @@
     private bool isCallingAI = false;
     private bool isCreatingPackage = false;
     private bool _disposed = false;
+    private bool _isApplyingAICode = false;
 
     private List<string> fileList = new List<string>();
     private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
@@ -895,6 +916,15 @@ except Exception as e:
                 _pendingCodeUpdate = extractedCode;
             }
         }
+
+        // Also check for tool-based code updates (apply_code_to_editor)
+        var toolUpdate = ChatService.ConsumePendingCodeUpdate();
+        if (!string.IsNullOrEmpty(toolUpdate))
+        {
+            _pendingCodeUpdate = toolUpdate;
+        }
+
+        StateHasChanged();
     }
     
     private void OnChatMessageAdded(Radzen.Blazor.ChatMessage message)
@@ -911,8 +941,20 @@ except Exception as e:
             // Apply any pending code update to the editor
             if (!string.IsNullOrEmpty(_pendingCodeUpdate))
             {
-                _ = ApplyCodeUpdateAsync(_pendingCodeUpdate);
+                var codeToApply = _pendingCodeUpdate;
                 _pendingCodeUpdate = null;
+                _ = InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await ApplyCodeUpdateAsync(codeToApply);
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
+                        if (!_disposed) StateHasChanged();
+                    }
+                });
             }
         }
     }
@@ -979,6 +1021,7 @@ except Exception as e:
     
     private async Task ApplyCodeUpdateAsync(string code)
     {
+        _isApplyingAICode = true;
         try
         {
             if (codeEditor != null)
@@ -994,15 +1037,29 @@ except Exception as e:
                 // Apply the new code to the editor
                 currentCode = code;
                 await codeEditor.UpdateCodeAsync(code);
+
+                // Force Monaco to re-layout so the change is visually reflected
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("forceMonacoLayout");
+                }
+                catch
+                {
+                    // Ignore if the JS function is not yet available
+                }
                 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Code updated from AI response.\n";
-                if (!_disposed) StateHasChanged();
+                if (!_disposed) await InvokeAsync(StateHasChanged);
             }
         }
         catch (Exception ex)
         {
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
-            if (!_disposed) StateHasChanged();
+            if (!_disposed) await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _isApplyingAICode = false;
         }
     }
 
@@ -1010,7 +1067,7 @@ except Exception as e:
 
     private async Task CheckForChanges()
     {
-        if (_disposed) return;
+        if (_disposed || _isApplyingAICode) return;
         try
         {
             await InvokeAsync(async () =>
@@ -1189,7 +1246,7 @@ except Exception as e:
                                 "To resolve this:\n" +
                                 "1. Download Python from https://www.python.org/downloads/\n" +
                                 "2. During installation, check 'Add Python to PATH'\n" +
-                                "3. Restart your application after installation\n\n" +
+                                "3. Restart your computer after installation\n\n" +
                                 "The file will be saved without syntax validation.", 
                                 "Python Not Found");
                             if (!_disposed) StateHasChanged();
@@ -1322,6 +1379,12 @@ except Exception as e:
         public string SelectedLanguage { get; set; } = "csharp";
         public int LastJobId { get; set; }
         public int LastJobInstanceId { get; set; }
+    }
+
+    private async Task OnCheckCopilotHealth()
+    {
+        await CopilotHealth.RefreshAsync();
+        if (!_disposed) StateHasChanged();
     }
 
     public void Dispose()

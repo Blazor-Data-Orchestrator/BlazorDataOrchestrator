@@ -27,6 +27,8 @@ public class CopilotChatService : CoreIAIChatService, Radzen.IAIChatService
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<CopilotChatService> _logger;
+    private readonly EmbeddedInstructionsProvider _embeddedInstructionsProvider;
+    private readonly CopilotHealthService _copilotHealth;
 
     // Editor state exposed to custom tools
     private string _currentEditorCode = "";
@@ -48,12 +50,16 @@ Keep responses concise and focused on the code task at hand.";
         CopilotClient client,
         IConfiguration configuration,
         IWebHostEnvironment environment,
-        ILogger<CopilotChatService> logger)
+        ILogger<CopilotChatService> logger,
+        EmbeddedInstructionsProvider embeddedInstructionsProvider,
+        CopilotHealthService copilotHealth)
     {
         _client = client;
         _configuration = configuration;
         _environment = environment;
         _logger = logger;
+        _embeddedInstructionsProvider = embeddedInstructionsProvider;
+        _copilotHealth = copilotHealth;
     }
 
     /// <summary>
@@ -111,7 +117,10 @@ Keep responses concise and focused on the code task at hand.";
     }
 
     /// <summary>
-    /// Loads the custom instructions for the selected language.
+    /// Loads the custom instructions for the selected language using a fallback chain:
+    /// 1. Local Resources/ folder (allows runtime overrides)
+    /// 2. EmbeddedInstructionsProvider (always available in the assembly)
+    /// 3. .github/skills/ relative path (development convenience)
     /// </summary>
     private async Task<string> GetLanguageInstructionsAsync()
     {
@@ -122,26 +131,74 @@ Keep responses concise and focused on the code task at hand.";
             return _cachedInstructions;
         }
 
-        string instructionsFile = selectedLanguage switch
+        string fileName = selectedLanguage switch
         {
-            "python" => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", "python.instructions.md"),
-            _ => Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", "csharp.instructions.md")
+            "python" => "python.instructions.md",
+            _ => "csharp.instructions.md"
         };
 
+        // 1. Try local Resources folder under ContentRootPath (allows runtime overrides)
         try
         {
-            if (File.Exists(instructionsFile))
+            var localPath = Path.Combine(_environment.ContentRootPath, "Resources", fileName);
+            if (File.Exists(localPath))
             {
-                _cachedInstructions = await File.ReadAllTextAsync(instructionsFile);
+                _cachedInstructions = await File.ReadAllTextAsync(localPath);
                 _cachedInstructionsLanguage = selectedLanguage;
+                _logger.LogInformation("Loaded {Language} instructions from local Resources ({Lines} lines, {Chars} chars)",
+                    selectedLanguage,
+                    _cachedInstructions.Split('\n').Length,
+                    _cachedInstructions.Length);
                 return _cachedInstructions;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Fall back to empty instructions
+            _logger.LogDebug(ex, "Failed to read instructions from local Resources folder");
         }
 
+        // 2. Try embedded resource (always available regardless of deployment layout)
+        try
+        {
+            var embedded = _embeddedInstructionsProvider.GetInstructionsForLanguage(selectedLanguage);
+            if (!string.IsNullOrWhiteSpace(embedded))
+            {
+                _cachedInstructions = embedded;
+                _cachedInstructionsLanguage = selectedLanguage;
+                _logger.LogInformation("Loaded {Language} instructions from embedded resources ({Lines} lines, {Chars} chars)",
+                    selectedLanguage,
+                    _cachedInstructions.Split('\n').Length,
+                    _cachedInstructions.Length);
+                return _cachedInstructions;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read instructions from embedded resources");
+        }
+
+        // 3. Try .github/skills/ relative path (development convenience)
+        try
+        {
+            var githubPath = Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", fileName);
+            if (File.Exists(githubPath))
+            {
+                _cachedInstructions = await File.ReadAllTextAsync(githubPath);
+                _cachedInstructionsLanguage = selectedLanguage;
+                _logger.LogInformation("Loaded {Language} instructions from .github/skills ({Lines} lines, {Chars} chars)",
+                    selectedLanguage,
+                    _cachedInstructions.Split('\n').Length,
+                    _cachedInstructions.Length);
+                return _cachedInstructions;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read instructions from .github/skills path");
+        }
+
+        // 4. Nothing found
+        _logger.LogWarning("No instructions found for {Language} in any location", selectedLanguage);
         _cachedInstructions = "";
         _cachedInstructionsLanguage = selectedLanguage;
         return _cachedInstructions;
@@ -163,6 +220,15 @@ Keep responses concise and focused on the code task at hand.";
                 promptBuilder.AppendLine();
                 promptBuilder.AppendLine("## Custom Instructions for Code Generation");
                 promptBuilder.AppendLine(instructions);
+                _logger.LogInformation(
+                    "System prompt includes {Language} instructions ({Lines} lines, {Chars} chars)",
+                    _cachedInstructionsLanguage ?? "unknown",
+                    instructions.Split('\n').Length,
+                    instructions.Length);
+            }
+            else
+            {
+                _logger.LogWarning("New session created without language-specific instructions");
             }
         }
 
@@ -318,6 +384,17 @@ Keep responses concise and focused on the code task at hand.";
     {
         try
         {
+            // Early-exit if Copilot is not ready (CLI missing / not authenticated)
+            if (!_copilotHealth.IsReady)
+            {
+                var guidance = $"⚠️ **Copilot is not available:** {_copilotHealth.StatusMessage}\n\n{CopilotHealthService.InstallInstructions}";
+                _logger.LogWarning("Chat request skipped — CopilotHealthService.IsReady is false: {Status}", _copilotHealth.StatusMessage);
+                session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = guidance });
+                writer.TryWrite(guidance);
+                writer.TryComplete();
+                return;
+            }
+
             // Build the prompt with editor context
             var promptBuilder = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(_currentEditorCode))

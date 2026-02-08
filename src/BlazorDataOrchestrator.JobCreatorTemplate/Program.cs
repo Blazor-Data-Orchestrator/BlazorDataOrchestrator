@@ -54,6 +54,13 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CopilotChatService>());
             builder.Services.AddScoped<Radzen.IAIChatService>(sp => sp.GetRequiredService<CopilotChatService>());
             
+            // Register Copilot Health & Model services
+            builder.Services.AddSingleton<CopilotHealthService>();
+            builder.Services.AddSingleton<CopilotModelService>();
+            
+            // Register EmbeddedInstructionsProvider for AI instruction fallback
+            builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
+            
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
             
@@ -70,9 +77,66 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             
             var app = builder.Build();
 
-            // Start the CopilotClient when the app starts
+            // Start the CopilotClient when the app starts (with health checks)
             var copilotClient = app.Services.GetRequiredService<CopilotClient>();
-            await copilotClient.StartAsync();
+            var copilotHealth = app.Services.GetRequiredService<CopilotHealthService>();
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+            var cliInstalled = await copilotHealth.CheckCliInstalledAsync();
+
+            if (!cliInstalled)
+            {
+                copilotHealth.SetStatus("Copilot CLI not found",
+                    "Install the Copilot CLI and restart your computer.");
+                logger.LogWarning("Copilot CLI not found — AI chat will be unavailable until the CLI is installed.");
+            }
+            else
+            {
+                // Check authentication before attempting to start
+                var isAuthenticated = await copilotHealth.CheckAuthenticatedAsync();
+                if (!isAuthenticated)
+                {
+                    logger.LogWarning("Copilot CLI is installed but does not appear to be authenticated. " +
+                        "The SDK may still work if it handles authentication internally.");
+                }
+
+                try
+                {
+                    await copilotClient.StartAsync();
+                    copilotHealth.SetStatus("Connected");
+                    logger.LogInformation("CopilotClient started successfully.");
+                }
+                catch (Exception ex)
+                {
+                    copilotHealth.SetStatus("Connection failed", ex.Message);
+                    logger.LogError(ex,
+                        "CopilotClient.StartAsync() failed — AI chat will be unavailable. " +
+                        "Ensure the Copilot CLI is authenticated (run 'copilot login' or set GITHUB_TOKEN).");
+                }
+            }
+
+            // Log instruction file availability at startup
+            var instructionsProvider = app.Services.GetRequiredService<EmbeddedInstructionsProvider>();
+            var csharpInstructions = instructionsProvider.GetCSharpInstructions();
+            var pythonInstructions = instructionsProvider.GetPythonInstructions();
+            if (!string.IsNullOrWhiteSpace(csharpInstructions))
+            {
+                logger.LogInformation("Loaded C# instructions ({Lines} lines, {Chars} chars)",
+                    csharpInstructions.Split('\n').Length, csharpInstructions.Length);
+            }
+            else
+            {
+                logger.LogWarning("C# instructions file is missing or empty");
+            }
+            if (!string.IsNullOrWhiteSpace(pythonInstructions))
+            {
+                logger.LogInformation("Loaded Python instructions ({Lines} lines, {Chars} chars)",
+                    pythonInstructions.Split('\n').Length, pythonInstructions.Length);
+            }
+            else
+            {
+                logger.LogWarning("Python instructions file is missing or empty");
+            }
 
             // Ensure cleanup on shutdown
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
