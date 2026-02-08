@@ -3,15 +3,16 @@ using BlazorDataOrchestrator.Core.Data;
 using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
 using BlazorDataOrchestrator.JobCreatorTemplate.Services;
+using GitHub.Copilot.SDK;
 using Radzen;
 using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
-using CodeAssistantChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CodeAssistantChatService;
+using CopilotChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CopilotChatService;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
 
@@ -23,17 +24,35 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.AddSqlServerDbContext<ApplicationDbContext>("blazororchestratordb");
 
             // Add services to the container.
+            builder.Services.AddHttpClient();
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
             builder.Services.AddRadzenComponents();
             
-            // Register AI Settings Service
-            builder.Services.AddScoped<AISettingsService>();
-            
-            // Register AI Chat Service for code assistance
-            builder.Services.AddScoped<CodeAssistantChatService>();
-            builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CodeAssistantChatService>());
+            // Register Copilot Client as Singleton (one CLI process for the app)
+            builder.Services.AddSingleton<CopilotClient>(sp =>
+            {
+                var config = sp.GetRequiredService<IConfiguration>();
+                var cliUrl = config.GetValue<string>("Copilot:CliUrl");
+                var options = new CopilotClientOptions
+                {
+                    AutoStart = true,
+                    AutoRestart = true,
+                    UseStdio = true,
+                    LogLevel = "info"
+                };
+                if (!string.IsNullOrEmpty(cliUrl))
+                {
+                    options.CliUrl = cliUrl;
+                }
+                return new CopilotClient(options);
+            });
+
+            // Register Copilot Chat Service for code assistance
+            builder.Services.AddScoped<CopilotChatService>();
+            builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CopilotChatService>());
+            builder.Services.AddScoped<Radzen.IAIChatService>(sp => sp.GetRequiredService<CopilotChatService>());
             
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
@@ -50,6 +69,17 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             });
             
             var app = builder.Build();
+
+            // Start the CopilotClient when the app starts
+            var copilotClient = app.Services.GetRequiredService<CopilotClient>();
+            await copilotClient.StartAsync();
+
+            // Ensure cleanup on shutdown
+            var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+            lifetime.ApplicationStopping.Register(() =>
+            {
+                copilotClient.StopAsync().GetAwaiter().GetResult();
+            });
 
             // Configure the HTTP request pipeline.
             if (!app.Environment.IsDevelopment())
@@ -83,7 +113,7 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
 
-            app.Run();
+            await app.RunAsync();
         }
     }
 }

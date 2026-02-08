@@ -15,7 +15,7 @@
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
-@inject CodeAssistantChatService ChatService
+@inject CopilotChatService ChatService
 @inject NuGetPackageService PackageService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
@@ -838,7 +838,7 @@ except Exception as e:
 
     private async Task OpenAISettingsDialog()
     {
-        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
+        await DialogService.OpenAsync<ConfigureCopilotDialog>("Configure Copilot",
             new Dictionary<string, object>
             {
                 { "OnSettingsSaved", EventCallback.Factory.Create(this, OnAISettingsSaved) }

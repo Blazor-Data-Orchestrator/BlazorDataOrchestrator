@@ -1,0 +1,78 @@
+@using Radzen
+@using Radzen.Blazor
+@inject IConfiguration Configuration
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="16" Style="padding: 8px;">
+    <RadzenText TextStyle="TextStyle.Body2" Style="color: #666;">
+        AI chat is powered by GitHub Copilot. Authentication is handled via the Copilot CLI.
+        Ensure the CLI is installed and authenticated on this machine.
+    </RadzenText>
+
+    <RadzenFormField Text="Model:" Variant="Variant.Outlined">
+        <RadzenDropDown Data="@availableModels" @bind-Value="@selectedModel"
+                        Style="width: 100%;" AllowClear="false" />
+    </RadzenFormField>
+
+    <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary"
+                  Click="@OnSave" Style="width: 100%;" />
+</RadzenStack>
+
+@code {
+    [Parameter] public EventCallback OnSettingsSaved { get; set; }
+
+    private string selectedModel = "gpt-4.1";
+
+    private List<string> availableModels = new()
+    {
+        "gpt-4.1",
+        "gpt-5",
+        "gpt-5.2",
+        "claude-sonnet-4.5",
+        "o1",
+        "o1-mini"
+    };
+
+    protected override void OnInitialized()
+    {
+        var configuredModel = Configuration.GetValue<string>("Copilot:Model");
+        if (!string.IsNullOrWhiteSpace(configuredModel))
+        {
+            selectedModel = configuredModel;
+            // Add the configured model to the list if not already present
+            if (!availableModels.Contains(configuredModel))
+            {
+                availableModels.Insert(0, configuredModel);
+            }
+        }
+    }
+
+    private async Task OnSave()
+    {
+        try
+        {
+            // Update the in-memory configuration
+            Configuration["Copilot:Model"] = selectedModel;
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Success",
+                Detail = $"Copilot model set to: {selectedModel}",
+                Duration = 4000
+            });
+
+            await OnSettingsSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error",
+                Detail = $"Failed to save settings: {ex.Message}",
+                Duration = 4000
+            });
+        }
+    }
+}
