@@ -44,13 +44,31 @@ A GitHub Actions workflow (`.github/workflows/update-wiki.yml`) has been created
 - Trigger on pushes to the `main` branch that modify files in `wiki-content/`
 - Can be manually triggered via the Actions tab
 
-## Manual Push Instructions
+## How the Wiki Sync Works
 
-If you need to manually push the wiki changes:
-1. Navigate to: `/home/runner/work/BlazorDataOrchestrator/BlazorDataOrchestrator.wiki/`
-2. Run: `git push origin master`
+### Automated (Recommended)
+Once this PR is merged to `main`:
+1. The GitHub Actions workflow will automatically detect changes in `wiki-content/`
+2. It will clone the wiki repository
+3. Copy all files from `wiki-content/` to the wiki
+4. Commit and push the changes
 
-The wiki repository has been locally committed with message: "Create stub pages for all wiki pages defined in Home.md"
+### Manual Sync (If Needed)
+If you need to manually sync the wiki before merging:
+1. Go to the Actions tab in the GitHub repository
+2. Select "Update Wiki" workflow
+3. Click "Run workflow" and select the branch
+4. The workflow will sync the current `wiki-content/` to the wiki
+
+### Direct Push (Alternative)
+The wiki changes have also been committed locally at:
+`/home/runner/work/BlazorDataOrchestrator/BlazorDataOrchestrator.wiki/`
+
+To push directly (requires GitHub access):
+```bash
+cd /home/runner/work/BlazorDataOrchestrator/BlazorDataOrchestrator.wiki
+git push origin master
+```
 
 ## Status
 ✅ All stub pages created
