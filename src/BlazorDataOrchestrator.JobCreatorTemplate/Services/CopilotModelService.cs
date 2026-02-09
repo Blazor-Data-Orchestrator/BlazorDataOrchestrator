@@ -94,7 +94,31 @@ public class CopilotModelService
             var method = _client.GetType().GetMethod("ListModelsAsync");
             if (method != null)
             {
-                var task = method.Invoke(_client, null) as Task;
+                // Build default arguments for every parameter the method expects
+                // (e.g. CancellationToken, options objects added in newer SDK versions).
+                var methodParams = method.GetParameters();
+                var args = new object?[methodParams.Length];
+                for (int i = 0; i < methodParams.Length; i++)
+                {
+                    if (methodParams[i].HasDefaultValue)
+                    {
+                        args[i] = methodParams[i].DefaultValue;
+                    }
+                    else if (methodParams[i].ParameterType == typeof(CancellationToken))
+                    {
+                        args[i] = CancellationToken.None;
+                    }
+                    else if (methodParams[i].ParameterType.IsValueType)
+                    {
+                        args[i] = Activator.CreateInstance(methodParams[i].ParameterType);
+                    }
+                    else
+                    {
+                        args[i] = null;
+                    }
+                }
+
+                var task = method.Invoke(_client, args) as Task;
                 if (task != null)
                 {
                     await task;

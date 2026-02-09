@@ -50,7 +50,7 @@ public class CopilotHealthService
         The AI Chat feature requires the GitHub Copilot CLI.
 
         **To install & authenticate:**
-        1. Download from [docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli](https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli) or run `npm install -g @github/copilot`
+        1. Download from [docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli](https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli) or run `winget install GitHub.Copilot`
         2. Run `copilot --version` to verify the install
         3. Authenticate using **one** of these methods:
            - Run `copilot login`
