@@ -60,15 +60,11 @@ If you need to manually sync the wiki before merging:
 3. Click "Run workflow" and select the branch
 4. The workflow will sync the current `wiki-content/` to the wiki
 
-### Direct Push (Alternative)
-The wiki changes have also been committed locally at:
+### Direct Push (For CI/Testing)
+The wiki changes were also committed locally during the build at:
 `/home/runner/work/BlazorDataOrchestrator/BlazorDataOrchestrator.wiki/`
 
-To push directly (requires GitHub access):
-```bash
-cd /home/runner/work/BlazorDataOrchestrator/BlazorDataOrchestrator.wiki
-git push origin master
-```
+This is only relevant in the CI environment. For manual wiki updates, use the automated sync methods above.
 
 ## Status
 ✅ All stub pages created
