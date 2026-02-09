@@ -11,6 +11,8 @@ on:
 jobs:
   update-wiki:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to push to wiki repository
     steps:
       - name: Checkout main repository
         uses: actions/checkout@v4
