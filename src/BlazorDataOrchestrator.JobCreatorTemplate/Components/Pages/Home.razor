@@ -11,6 +11,9 @@
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
 @using Microsoft.CodeAnalysis.CSharp
+@using Microsoft.CodeAnalysis.Emit
+@using System.Reflection
+@using System.Runtime.Loader
 @using Microsoft.JSInterop
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
@@ -224,7 +227,6 @@
     private bool isCallingAI = false;
     private bool isCreatingPackage = false;
     private bool _disposed = false;
-    private bool _isApplyingAICode = false;
 
     private List<string> fileList = new List<string>();
     private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
@@ -297,12 +299,6 @@
                 currentCode = await File.ReadAllTextAsync(path);
             }
         }
-
-        // Start polling for changes
-        _pollingTimer = new System.Timers.Timer(2000);
-        _pollingTimer.Elapsed += async (s, e) => await CheckForChanges();
-        _pollingTimer.AutoReset = true;
-        _pollingTimer.Start();
     }
 
     private void InitializeJobManager()
@@ -674,8 +670,10 @@
             {
                 if (selectedLanguage == "csharp")
                 {
-                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
-                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1, "");
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Dynamically compiling current editor code...\n";
+                    StateHasChanged();
+
+                    results = await CompileAndExecuteCodeAsync(currentCode ?? "", appSettingsContent, currentJobInstanceId);
                     if (_disposed) return;
                 }
                 else if (selectedLanguage == "python")
@@ -1021,7 +1019,6 @@ except Exception as e:
     
     private async Task ApplyCodeUpdateAsync(string code)
     {
-        _isApplyingAICode = true;
         try
         {
             if (codeEditor != null)
@@ -1057,37 +1054,6 @@ except Exception as e:
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
             if (!_disposed) await InvokeAsync(StateHasChanged);
         }
-        finally
-        {
-            _isApplyingAICode = false;
-        }
-    }
-
-    private System.Timers.Timer? _pollingTimer;
-
-    private async Task CheckForChanges()
-    {
-        if (_disposed || _isApplyingAICode) return;
-        try
-        {
-            await InvokeAsync(async () =>
-            {
-                if (_disposed) return;
-                if (codeEditor != null)
-                {
-                    var code = await codeEditor.GetCodeAsync();
-                    if (!string.IsNullOrEmpty(code) && code != currentCode)
-                    {
-                        undoStack.Push(currentCode);
-                        currentCode = code;
-                        redoStack.Clear();
-                        StateHasChanged();
-                    }
-                }
-            });
-        }
-        catch (ObjectDisposedException) { }
-        catch (Exception) { }
     }
 
     private async Task OnUndo()
@@ -1157,36 +1123,64 @@ except Exception as e:
                 var code = await codeEditor.GetCodeAsync();
                 if (!string.IsNullOrEmpty(selectedFile) && code != null)
                 {
-                    // Compilation check for main.cs
+                    // Save the file first so dotnet build picks up the latest code
+                    try 
+                    {
+                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
+                        await File.WriteAllTextAsync(path, code);
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
+                        if (!_disposed) StateHasChanged();
+                        return false;
+                    }
+
+                    // Full compilation check via CLI
                     if (selectedFile.Equals("main.cs", StringComparison.OrdinalIgnoreCase))
                     {
-                        try
-                        {
-                            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-                            var diagnostics = syntaxTree.GetDiagnostics();
-                            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Compiling project via dotnet build CLI...\n";
+                        if (!_disposed) StateHasChanged();
 
-                            if (errors.Any())
-                            {
-                                var errorMsg = string.Join("\n", errors.Select(e => $"Line {e.Location.GetLineSpan().StartLinePosition.Line + 1}: {e.GetMessage()}"));
-                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
-                                
-                                await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Save Error");
-                                if (!_disposed) StateHasChanged();
-                                return false;
-                            }
-                        }
-                        catch (Exception ex)
+                        var (buildSuccess, buildOutput, buildErrors) = await CompileWithDotnetCliAsync();
+
+                        if (!buildSuccess)
                         {
-                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
-                             if (!_disposed) StateHasChanged();
-                             return false;
+                            var errorMsg = buildErrors.Any()
+                                ? string.Join("\n", buildErrors)
+                                : buildOutput;
+                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
+
+                            // If Copilot is available, offer AI-assisted fix suggestions
+                            if (CopilotHealth.IsReady)
+                            {
+                                logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending compilation errors to Copilot for fix suggestions...\n";
+                                if (!_disposed) StateHasChanged();
+
+                                _ = SendCompilationErrorsToCopilotAsync(code, buildErrors);
+                            }
+
+                            await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Build Error");
+                            if (!_disposed) StateHasChanged();
+                            return false;
+                        }
+
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Build succeeded.\n";
+
+                        // Show warnings if any
+                        var warnings = buildErrors.Where(e => e.Contains(": warning ")).ToList();
+                        if (warnings.Any())
+                        {
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Warnings:\n{string.Join("\n", warnings)}\n";
                         }
                     }
 
-                    // Compilation check for main.py
+                    // Compilation check for main.py via Python CLI
                     if (selectedFile.Equals("main.py", StringComparison.OrdinalIgnoreCase))
                     {
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Compiling Python via CLI...\n";
+                        if (!_disposed) StateHasChanged();
+
                         try
                         {
                             var startInfo = new System.Diagnostics.ProcessStartInfo
@@ -1203,10 +1197,8 @@ except Exception as e:
                             using var process = new System.Diagnostics.Process { StartInfo = startInfo };
                             process.Start();
 
-                            // Start reading stderr asynchronously before writing to avoid deadlocks
                             var errorTask = process.StandardError.ReadToEndAsync();
                             
-                            // Write to stdin and close it to signal EOF
                             try
                             {
                                 using (var writer = process.StandardInput)
@@ -1216,26 +1208,38 @@ except Exception as e:
                             }
                             catch (System.IO.IOException)
                             {
-                                // Pipe was closed - Python may have crashed or not started properly
+                                // Pipe was closed
                             }
 
                             var error = await errorTask;
                             
-                            // Wait for process with timeout
                             var exited = process.WaitForExit(5000);
                             if (!exited)
                             {
                                 process.Kill();
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
                                 if (!_disposed) StateHasChanged();
-                                // Continue with save
                             }
                             else if (process.ExitCode != 0)
                             {
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
-                                await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
+
+                                // If Copilot is available, offer AI-assisted fix suggestions
+                                if (CopilotHealth.IsReady)
+                                {
+                                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending errors to Copilot for fix suggestions...\n";
+                                    if (!_disposed) StateHasChanged();
+
+                                    _ = SendCompilationErrorsToCopilotAsync(code, new List<string> { error });
+                                }
+
+                                await DialogService.Alert($"Compilation Failed:\n{error}", "Build Error");
                                 if (!_disposed) StateHasChanged();
                                 return false;
+                            }
+                            else
+                            {
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python compilation succeeded.\n";
                             }
                         }
                         catch (System.ComponentModel.Win32Exception)
@@ -1250,7 +1254,6 @@ except Exception as e:
                                 "The file will be saved without syntax validation.", 
                                 "Python Not Found");
                             if (!_disposed) StateHasChanged();
-                            // Continue with save even if Python is not available
                         }
                         catch (Exception ex)
                         {
@@ -1260,25 +1263,13 @@ except Exception as e:
                         }
                     }
 
-                    try 
-                    {
-                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
-                        await File.WriteAllTextAsync(path, code);
-                        
-                        // Update the undo stack after successful save
-                        undoStack.Push(code);
-                        redoStack.Clear();
-                        
-                        logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
-                        if (!_disposed) StateHasChanged();
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
-                        if (!_disposed) StateHasChanged();
-                        return false;
-                    }
+                    // Update the undo stack after successful save
+                    undoStack.Push(code);
+                    redoStack.Clear();
+                    
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
+                    if (!_disposed) StateHasChanged();
+                    return true;
                 }
             }
             return false;
@@ -1286,6 +1277,289 @@ except Exception as e:
         finally
         {
             isSaving = false;
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Compiles the project using the dotnet build CLI.
+    /// Returns a tuple of (Success, FullOutput, ErrorLines).
+    /// </summary>
+    private async Task<(bool Success, string Output, List<string> Errors)> CompileWithDotnetCliAsync()
+    {
+        var projectDir = Environment.ContentRootPath;
+        var projectFile = Path.Combine(projectDir, "BlazorDataOrchestrator.JobCreatorTemplate.csproj");
+
+        if (!File.Exists(projectFile))
+        {
+            return (false, "Project file not found.", new List<string> { "Project file not found at: " + projectFile });
+        }
+
+        // Use a temporary output directory to avoid file-lock conflicts with the running process.
+        // Also use --no-dependencies so we don't try to rebuild/copy referenced projects (e.g. Core)
+        // whose DLLs are locked by the running application.
+        var tempOutputDir = Path.Combine(Path.GetTempPath(), $"bdo-build-{Guid.NewGuid():N}");
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{projectFile}\" --no-restore --no-dependencies --nologo -v q -o \"{tempOutputDir}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = projectDir
+            };
+
+            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+            process.Start();
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+
+            var exited = process.WaitForExit(120_000); // 2 minute timeout
+            if (!exited)
+            {
+                process.Kill();
+                return (false, "Build timed out.", new List<string> { "Build process timed out after 120 seconds." });
+            }
+
+            var output = await outputTask;
+            var error = await errorTask;
+            var fullOutput = (output + "\n" + error).Trim();
+
+            // Parse error and warning lines from build output
+            var diagnosticLines = new List<string>();
+            foreach (var line in fullOutput.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Contains(": error ") || trimmed.Contains(": warning "))
+                {
+                    // Skip MSB3026/MSB3027/MSB3021 file-copy warnings/errors (file lock noise)
+                    if (trimmed.Contains("MSB3026") || trimmed.Contains("MSB3027") || trimmed.Contains("MSB3021"))
+                        continue;
+                    diagnosticLines.Add(trimmed);
+                }
+            }
+
+            return (process.ExitCode == 0, fullOutput, diagnosticLines);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return (false, "dotnet CLI not found.", new List<string> { "The dotnet CLI is not installed or not found in your system PATH." });
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message, new List<string> { $"Build error: {ex.Message}" });
+        }
+        finally
+        {
+            // Clean up the temporary output directory
+            try
+            {
+                if (Directory.Exists(tempOutputDir))
+                {
+                    Directory.Delete(tempOutputDir, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort cleanup
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dynamically compiles the current C# code from the editor using Roslyn and executes
+    /// BlazorDataOrchestratorJob.ExecuteJob via reflection. This ensures the latest editor
+    /// code is always executed rather than the statically compiled version.
+    /// </summary>
+    private async Task<List<string>> CompileAndExecuteCodeAsync(string code, string appSettingsContent, int jobInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            throw new InvalidOperationException("No code to compile.");
+        }
+
+        // Parse the code into a syntax tree
+        var syntaxTree = CSharpSyntaxTree.ParseText(code);
+
+        // Collect all runtime assembly references
+        var references = new List<MetadataReference>();
+        var loadedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Add references from all currently loaded assemblies (covers System, EF Core, etc.)
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (asm.IsDynamic) continue;
+            try
+            {
+                var location = asm.Location;
+                if (!string.IsNullOrEmpty(location) && File.Exists(location) && loadedPaths.Add(location))
+                {
+                    references.Add(MetadataReference.CreateFromFile(location));
+                }
+            }
+            catch
+            {
+                // Skip assemblies that can't provide a location
+            }
+        }
+
+        // Also add key runtime assemblies from the shared framework that may not be loaded yet
+        var runtimeDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        foreach (var dllName in new[] { "System.Runtime.dll", "System.Collections.dll", "System.Linq.dll",
+                                         "System.Net.Http.dll", "System.Threading.Tasks.dll",
+                                         "System.Text.Json.dll", "System.ComponentModel.dll",
+                                         "netstandard.dll", "System.Private.CoreLib.dll" })
+        {
+            var dllPath = Path.Combine(runtimeDir, dllName);
+            if (File.Exists(dllPath) && loadedPaths.Add(dllPath))
+            {
+                references.Add(MetadataReference.CreateFromFile(dllPath));
+            }
+        }
+
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] Compiling with {references.Count} assembly references...\n";
+        if (!_disposed) StateHasChanged();
+
+        // Compile
+        var compilation = CSharpCompilation.Create(
+            assemblyName: $"DynamicJob_{Guid.NewGuid():N}",
+            syntaxTrees: new[] { syntaxTree },
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Debug)
+                .WithAllowUnsafe(true));
+
+        using var ms = new MemoryStream();
+        var emitResult = compilation.Emit(ms);
+
+        if (!emitResult.Success)
+        {
+            var errors = emitResult.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => $"Line {d.Location.GetLineSpan().StartLinePosition.Line + 1}: {d.GetMessage()}")
+                .ToList();
+            var errorMsg = string.Join("\n", errors);
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Dynamic compilation failed:\n{errorMsg}\n";
+            if (!_disposed) StateHasChanged();
+            throw new InvalidOperationException($"Compilation failed:\n{errorMsg}");
+        }
+
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] Compilation succeeded. Loading assembly...\n";
+        if (!_disposed) StateHasChanged();
+
+        // Load into a collectible AssemblyLoadContext so it can be unloaded
+        ms.Seek(0, SeekOrigin.Begin);
+        var loadContext = new AssemblyLoadContext($"JobExec_{Guid.NewGuid():N}", isCollectible: true);
+        try
+        {
+            var assembly = loadContext.LoadFromStream(ms);
+
+            // Find the BlazorDataOrchestratorJob class
+            var jobType = assembly.GetType("BlazorDataOrchestratorJob");
+            if (jobType == null)
+            {
+                throw new InvalidOperationException("Class 'BlazorDataOrchestratorJob' not found in the compiled code.");
+            }
+
+            // Find ExecuteJob method (try 6-parameter signature first, then 5-parameter)
+            var executeMethod = jobType.GetMethod("ExecuteJob", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int), typeof(string) }, null);
+
+            object?[] args;
+            if (executeMethod != null)
+            {
+                args = new object?[] { appSettingsContent, -1, -1, jobInstanceId, -1, "" };
+            }
+            else
+            {
+                // Fallback: 5-parameter signature (without webAPIParameter)
+                executeMethod = jobType.GetMethod("ExecuteJob", BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) }, null);
+
+                if (executeMethod == null)
+                {
+                    throw new InvalidOperationException("Method 'ExecuteJob' with expected parameters not found on 'BlazorDataOrchestratorJob'.");
+                }
+                args = new object?[] { appSettingsContent, -1, -1, jobInstanceId, -1 };
+            }
+
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Invoking ExecuteJob...\n";
+            if (!_disposed) StateHasChanged();
+
+            // Invoke the method
+            var resultObj = executeMethod.Invoke(null, args);
+
+            // Handle async Task<List<string>> return type
+            if (resultObj is Task<List<string>> taskResult)
+            {
+                return await taskResult;
+            }
+            else if (resultObj is Task task)
+            {
+                await task;
+                // Try to get Result via reflection for generic tasks
+                var resultProp = task.GetType().GetProperty("Result");
+                if (resultProp?.GetValue(task) is List<string> listResult)
+                {
+                    return listResult;
+                }
+                return new List<string> { "Job completed (no results returned)." };
+            }
+            else if (resultObj is List<string> syncResult)
+            {
+                return syncResult;
+            }
+
+            return new List<string> { "Job completed." };
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    /// <summary>
+    /// Sends compilation errors to the Copilot chat for AI-assisted fix suggestions.
+    /// This runs in the background and posts the result to the chat panel.
+    /// </summary>
+    private async Task SendCompilationErrorsToCopilotAsync(string code, List<string> errors)
+    {
+        try
+        {
+            if (!CopilotHealth.IsReady || aiChat == null) return;
+
+            var errorSummary = string.Join("\n", errors.Take(20)); // Limit to first 20 errors
+            var prompt = $"The following code has compilation errors. Please analyze the errors and suggest fixes:\n\n" +
+                         $"**Compilation Errors:**\n```\n{errorSummary}\n```\n\n" +
+                         $"**Current Code ({selectedFile}):**\n```{(selectedLanguage == "python" ? "python" : "csharp")}\n{code}\n```\n\n" +
+                         $"Please provide the corrected code.";
+
+            // Update the chat context with the current code
+            ChatService.SetCurrentEditorCode(code);
+            ChatService.SetLanguage(selectedLanguage);
+            ChatService.SetCurrentFileName(selectedFile ?? "main.cs");
+
+            // Send to Copilot and collect response
+            var responseBuilder = new System.Text.StringBuilder();
+            await foreach (var chunk in ChatService.GetCompletionsAsync(prompt))
+            {
+                responseBuilder.Append(chunk);
+            }
+
+            if (responseBuilder.Length > 0)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Copilot fix suggestion available in the Chat panel.\n";
+                if (!_disposed) StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Copilot suggestion failed: {ex.Message}\n";
             if (!_disposed) StateHasChanged();
         }
     }
@@ -1390,7 +1664,5 @@ except Exception as e:
     public void Dispose()
     {
         _disposed = true;
-        _pollingTimer?.Stop();
-        _pollingTimer?.Dispose();
     }
 }
