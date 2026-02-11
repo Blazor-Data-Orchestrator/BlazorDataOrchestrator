@@ -53,8 +53,4 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Components\Shared\" />
-  </ItemGroup>
-
 </Project>
