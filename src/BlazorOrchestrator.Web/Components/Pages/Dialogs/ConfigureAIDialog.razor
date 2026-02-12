@@ -4,6 +4,10 @@
 @using BlazorDataOrchestrator.Core.Models
 @using OpenAI
 @using Azure.AI.OpenAI
+@using Anthropic.SDK
+@using Anthropic.SDK.Messaging
+@using Anthropic.SDK.Constants
+@using Mscc.GenerativeAI
 @using System.ClientModel
 @inject AISettingsService SettingsService
 @inject NotificationService NotificationService
@@ -23,7 +27,8 @@
     @if (aiServiceType == "OpenAI")
     {
         <RadzenFormField Text="Default AI Model:" Variant="Variant.Outlined">
-            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" />
+            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
+                           Placeholder="gpt-4-turbo-preview" />
         </RadzenFormField>
     }
     else if (aiServiceType == "Azure OpenAI")
@@ -46,6 +51,20 @@
                            Placeholder="2024-02-15-preview" />
         </RadzenFormField>
     }
+    else if (aiServiceType == "Anthropic")
+    {
+        <RadzenFormField Text="Anthropic Model:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
+                           Placeholder="claude-sonnet-4-20250514" />
+        </RadzenFormField>
+    }
+    else if (aiServiceType == "Google AI")
+    {
+        <RadzenFormField Text="Google AI Model:" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
+                           Placeholder="gemini-1.5-pro" />
+        </RadzenFormField>
+    }
 
     @if (!isSettingsEntered)
     {
@@ -61,6 +80,20 @@
             <RadzenButton Text="An Azure OpenAI API Key is required (Click here to get one)" 
                           ButtonStyle="ButtonStyle.Secondary"
                           Click="@GetAzureOpenAIApiKey"
+                          Style="width: 100%;" />
+        }
+        else if (aiServiceType == "Anthropic")
+        {
+            <RadzenButton Text="An Anthropic API Key is required (Click here to get one)" 
+                          ButtonStyle="ButtonStyle.Secondary"
+                          Click="@GetAnthropicApiKey"
+                          Style="width: 100%;" />
+        }
+        else if (aiServiceType == "Google AI")
+        {
+            <RadzenButton Text="A Google AI API Key is required (Click here to get one)" 
+                          ButtonStyle="ButtonStyle.Secondary"
+                          Click="@GetGoogleAIApiKey"
                           Style="width: 100%;" />
         }
     }
@@ -83,7 +116,7 @@
     private bool isSettingsEntered = false;
     private bool isSaving = false;
 
-    private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI" };
+    private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI", "Anthropic", "Google AI" };
 
     protected override async Task OnInitializedAsync()
     {
@@ -115,10 +148,13 @@
     {
         if (value is string serviceType)
         {
-            if (serviceType == "OpenAI")
+            aiModel = serviceType switch
             {
-                aiModel = "gpt-4-turbo-preview";
-            }
+                "OpenAI" => "gpt-4-turbo-preview",
+                "Anthropic" => "claude-sonnet-4-20250514",
+                "Google AI" => "gemini-1.5-pro",
+                _ => aiModel
+            };
         }
     }
 
@@ -136,6 +172,16 @@
     private async Task GetAzureOpenAIApiKey()
     {
         await JSRuntime.InvokeVoidAsync("open", "https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal");
+    }
+
+    private async Task GetAnthropicApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://console.anthropic.com/settings/keys");
+    }
+
+    private async Task GetGoogleAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://aistudio.google.com/app/apikey");
     }
 
     private async Task OnSave()
@@ -184,6 +230,26 @@
                         new ApiKeyCredential(apiKey));
                     var chatClient = azureClient.GetChatClient(aiModel);
                     await chatClient.CompleteChatAsync("Hello");
+                }
+                else if (aiServiceType == "Anthropic")
+                {
+                    var anthropicClient = new AnthropicClient(apiKey);
+                    var messageParams = new MessageParameters
+                    {
+                        Model = aiModel,
+                        MaxTokens = 10,
+                        Messages = new List<Anthropic.SDK.Messaging.Message> 
+                        { 
+                            new Anthropic.SDK.Messaging.Message(Anthropic.SDK.Messaging.RoleType.User, "Hello") 
+                        }
+                    };
+                    await anthropicClient.Messages.GetClaudeMessageAsync(messageParams);
+                }
+                else if (aiServiceType == "Google AI")
+                {
+                    var googleAI = new GoogleAI(apiKey);
+                    var model = googleAI.GenerativeModel(aiModel);
+                    await model.GenerateContent("Hello");
                 }
                 else
                 {

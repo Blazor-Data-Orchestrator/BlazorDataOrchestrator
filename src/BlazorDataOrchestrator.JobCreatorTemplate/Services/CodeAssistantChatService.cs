@@ -40,7 +40,18 @@ You help developers with:
 - Explaining programming concepts
 - Best practices and code optimization
 - Understanding libraries and frameworks
-Keep responses concise and focused on the code task at hand.";
+Keep responses concise and focused on the code task at hand.
+
+## Response Formatting Rules
+- When providing code snippets or examples, ALWAYS wrap them in markdown fenced code blocks using triple backticks with the language identifier (e.g. ```csharp or ```python).
+- When the response is a code update or a complete/modified version of the user's code, you MUST surround the full code with the markers ###UPDATED CODE BEGIN### and ###UPDATED CODE END### so the system can offer an 'Apply to Editor' action.
+- Place the fenced code block INSIDE the markers. Example:
+###UPDATED CODE BEGIN###
+```csharp
+// full updated code here
+```
+###UPDATED CODE END###
+- NEVER return code outside of fenced code blocks.";
 
     public CodeAssistantChatService(AISettingsService settingsService, IWebHostEnvironment environment)
     {
@@ -140,16 +151,14 @@ Keep responses concise and focused on the code task at hand.";
         var promptBuilder = new System.Text.StringBuilder();
         promptBuilder.AppendLine(BaseSystemPrompt);
         
-        // Add language-specific instructions for new sessions
-        if (isNewSession)
+        // Always include language-specific instructions so the AI consistently
+        // follows the code markers convention and project-specific constraints.
+        var instructions = await GetLanguageInstructionsAsync();
+        if (!string.IsNullOrWhiteSpace(instructions))
         {
-            var instructions = await GetLanguageInstructionsAsync();
-            if (!string.IsNullOrWhiteSpace(instructions))
-            {
-                promptBuilder.AppendLine();
-                promptBuilder.AppendLine("## Custom Instructions for Code Generation");
-                promptBuilder.AppendLine(instructions);
-            }
+            promptBuilder.AppendLine();
+            promptBuilder.AppendLine("## Custom Instructions for Code Generation");
+            promptBuilder.AppendLine(instructions);
         }
         
         return promptBuilder.ToString();
