@@ -3,10 +3,12 @@ using BlazorDataOrchestrator.Core.Data;
 using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
 using BlazorDataOrchestrator.JobCreatorTemplate.Services;
+using Azure.Data.Tables;
 using GitHub.Copilot.SDK;
 using Radzen;
 using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
 using CopilotChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CopilotChatService;
+using CoreTimeDisplayService = BlazorDataOrchestrator.Core.Services.TimeDisplayService;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
@@ -29,6 +31,16 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
                 .AddInteractiveServerComponents();
 
             builder.Services.AddRadzenComponents();
+
+            // Register Settings service (uses Azure Table Storage)
+            builder.Services.AddScoped<SettingsService>(sp =>
+            {
+                var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
+                return new SettingsService(tableServiceClient);
+            });
+
+            // Register shared TimeDisplayService from Core
+            builder.Services.AddScoped<CoreTimeDisplayService>();
             
             // Register Copilot Client as Singleton (one CLI process for the app)
             builder.Services.AddSingleton<CopilotClient>(sp =>

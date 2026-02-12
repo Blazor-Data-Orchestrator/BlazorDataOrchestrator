@@ -24,6 +24,7 @@
 @inject IJSRuntime JSRuntime
 @inject JobManager InjectedJobManager
 @inject CopilotHealthService CopilotHealth
+@inject BlazorDataOrchestrator.Core.Services.TimeDisplayService TimeDisplayService
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -168,7 +169,7 @@
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="LogDisplayEntry" Property="CreatedDate" Title="Created Date" Width="180px">
                                         <Template Context="log">
-                                            @log.CreatedDate.ToString("yyyy-MM-dd HH:mm:ss")
+                                            @TimeDisplayService.FormatDateTime(log.CreatedDate, "yyyy-MM-dd HH:mm:ss")
                                         </Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Message" Title="Message" />

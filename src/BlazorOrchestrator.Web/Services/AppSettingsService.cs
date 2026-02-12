@@ -1,36 +1,98 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
 /// <summary>
 /// Service for managing application settings stored in appsettings.json
+/// with Azure Table Storage via <see cref="SettingsService"/> as the primary store.
 /// </summary>
 public class AppSettingsService
 {
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _environment;
+    private readonly SettingsService _settingsService;
     private readonly string _appSettingsPath;
     private static readonly object _fileLock = new();
 
-    public AppSettingsService(IConfiguration configuration, IWebHostEnvironment environment)
+    // Cached offset to avoid repeated Azure Table calls on synchronous reads
+    private TimeSpan? _cachedOffset;
+    private DateTime _cacheExpiry = DateTime.MinValue;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    public AppSettingsService(IConfiguration configuration, IWebHostEnvironment environment, SettingsService settingsService)
     {
         _configuration = configuration;
         _environment = environment;
+        _settingsService = settingsService;
         _appSettingsPath = Path.Combine(_environment.ContentRootPath, "appsettings.json");
     }
 
     /// <summary>
-    /// Gets the configured timezone offset. Defaults to -08:00 (Pacific Time) if not set.
+    /// Gets the configured timezone offset synchronously from cache.
+    /// If cache is empty, falls back to IConfiguration, then default -08:00.
+    /// Use <see cref="GetTimezoneOffsetAsync"/> for the full Azure Table → config → default fallback.
     /// </summary>
     public TimeSpan GetTimezoneOffset()
     {
+        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        {
+            return _cachedOffset.Value;
+        }
+
+        // Synchronous fallback: IConfiguration → default
         var offsetString = _configuration["TimezoneOffset"] ?? "-08:00";
         if (TryParseTimezoneOffset(offsetString, out var offset))
         {
             return offset;
         }
         return TimeSpan.FromHours(-8); // Default to Pacific Time
+    }
+
+    /// <summary>
+    /// Gets the configured timezone offset asynchronously.
+    /// Fallback chain: Azure Table Storage → IConfiguration → hardcoded default.
+    /// </summary>
+    public async Task<TimeSpan> GetTimezoneOffsetAsync()
+    {
+        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        {
+            return _cachedOffset.Value;
+        }
+
+        string? offsetString = null;
+
+        // 1. Try Azure Table Storage
+        try
+        {
+            offsetString = await _settingsService.GetAsync("TimezoneOffset");
+        }
+        catch
+        {
+            // Swallow — fall through to config
+        }
+
+        // 2. Fallback to IConfiguration
+        if (string.IsNullOrEmpty(offsetString))
+        {
+            offsetString = _configuration["TimezoneOffset"];
+        }
+
+        // 3. Fallback to hardcoded default
+        if (string.IsNullOrEmpty(offsetString))
+        {
+            offsetString = "-08:00";
+        }
+
+        if (TryParseTimezoneOffset(offsetString, out var offset))
+        {
+            _cachedOffset = offset;
+            _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
+            return offset;
+        }
+
+        return TimeSpan.FromHours(-8);
     }
 
     /// <summary>
@@ -45,7 +107,7 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// Sets the timezone offset and saves it to appsettings.json
+    /// Sets the timezone offset — writes to both Azure Table Storage and appsettings.json.
     /// </summary>
     public async Task SetTimezoneOffsetAsync(string offsetString)
     {
@@ -54,7 +116,22 @@ public class AppSettingsService
             throw new ArgumentException($"Invalid timezone offset format: {offsetString}. Expected format: +HH:MM or -HH:MM");
         }
 
+        // Write to Azure Table Storage (primary)
+        try
+        {
+            await _settingsService.SetAsync("TimezoneOffset", offsetString, "Display timezone offset");
+        }
+        catch
+        {
+            // If Azure Table write fails, still write to file
+        }
+
+        // Write to appsettings.json (backward compatibility)
         await UpdateAppSettingsAsync("TimezoneOffset", offsetString);
+
+        // Invalidate cache so next read picks up the new value
+        _cachedOffset = null;
+        _cacheExpiry = DateTime.MinValue;
     }
 
     /// <summary>

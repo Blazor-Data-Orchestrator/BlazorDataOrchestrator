@@ -1,6 +1,8 @@
 @using BlazorOrchestrator.Web.Data.Data
+@using BlazorOrchestrator.Web.Services
 @using Radzen
 @using Radzen.Blazor
+@inject TimeDisplayService TimeDisplayService
 
 <RadzenStack Gap="1.5rem" Style="min-width: 600px;">
     <RadzenRow Gap="1rem">
@@ -54,7 +56,7 @@
             <RadzenStack Gap="0.25rem">
                 <RadzenLabel Text="Last Run" Style="font-weight: 500;" />
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
-                    @(Schedule.LastRun?.ToString("g") ?? "Never")
+                    @(TimeDisplayService.FormatDateTime(Schedule.LastRun, "g", "Never"))
                 </RadzenText>
             </RadzenStack>
         </RadzenColumn>
