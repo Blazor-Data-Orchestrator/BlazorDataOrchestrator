@@ -811,6 +811,17 @@ else
 
     private async Task OpenCreateProjectDialog()
     {
+        // Check if running on localhost
+        var uri = new Uri(NavigationManager.BaseUri);
+        if (!uri.IsLoopback)
+        {
+            await DialogService.Alert(
+                "The Create Visual Studio Project feature is only available when the application is running on localhost.",
+                "Feature Not Available",
+                new AlertOptions { OkButtonText = "OK" });
+            return;
+        }
+
         projectName = string.Empty;
         validationError = string.Empty;
         isCreating = false;
