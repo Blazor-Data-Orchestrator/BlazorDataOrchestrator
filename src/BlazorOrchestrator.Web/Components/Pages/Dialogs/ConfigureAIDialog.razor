@@ -10,6 +10,7 @@
 @using Mscc.GenerativeAI
 @using System.ClientModel
 @inject AISettingsService SettingsService
+@inject AIModelCacheService ModelCacheService
 @inject NotificationService NotificationService
 @inject IJSRuntime JSRuntime
 
@@ -27,14 +28,27 @@
     @if (aiServiceType == "OpenAI")
     {
         <RadzenFormField Text="Default AI Model:" Variant="Variant.Outlined">
-            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
-                           Placeholder="gpt-4-turbo-preview" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="4" AlignItems="AlignItems.Center">
+                <RadzenDropDown Data="@availableModels" @bind-Value="@aiModel" Style="width: 100%;" 
+                               AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" 
+                               AllowClear="true" Placeholder="Select or type a model..." />
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                              Click="@RefreshModels" IsBusy="@isLoadingModels" 
+                              title="Refresh models from API" Style="flex-shrink: 0;" />
+            </RadzenStack>
         </RadzenFormField>
     }
     else if (aiServiceType == "Azure OpenAI")
     {
         <RadzenFormField Text="Azure OpenAI Model Deployment Name:" Variant="Variant.Outlined">
-            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="4" AlignItems="AlignItems.Center">
+                <RadzenDropDown Data="@availableModels" @bind-Value="@aiModel" Style="width: 100%;" 
+                               AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" 
+                               AllowClear="true" Placeholder="Select or type a deployment..." />
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                              Click="@RefreshModels" IsBusy="@isLoadingModels" 
+                              title="Refresh models from API" Style="flex-shrink: 0;" />
+            </RadzenStack>
         </RadzenFormField>
 
         <RadzenFormField Text="Azure OpenAI Embedding Model Deployment Name:" Variant="Variant.Outlined">
@@ -54,16 +68,35 @@
     else if (aiServiceType == "Anthropic")
     {
         <RadzenFormField Text="Anthropic Model:" Variant="Variant.Outlined">
-            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
-                           Placeholder="claude-sonnet-4-20250514" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="4" AlignItems="AlignItems.Center">
+                <RadzenDropDown Data="@availableModels" @bind-Value="@aiModel" Style="width: 100%;" 
+                               AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" 
+                               AllowClear="true" Placeholder="Select a model..." />
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                              Click="@RefreshModels" IsBusy="@isLoadingModels" 
+                              title="Refresh models" Style="flex-shrink: 0;" />
+            </RadzenStack>
         </RadzenFormField>
     }
     else if (aiServiceType == "Google AI")
     {
         <RadzenFormField Text="Google AI Model:" Variant="Variant.Outlined">
-            <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" 
-                           Placeholder="gemini-1.5-pro" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="4" AlignItems="AlignItems.Center">
+                <RadzenDropDown Data="@availableModels" @bind-Value="@aiModel" Style="width: 100%;" 
+                               AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" 
+                               AllowClear="true" Placeholder="Select a model..." />
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                              Click="@RefreshModels" IsBusy="@isLoadingModels" 
+                              title="Refresh models from API" Style="flex-shrink: 0;" />
+            </RadzenStack>
         </RadzenFormField>
+    }
+
+    @if (isLoadingModels)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+            <RadzenIcon Icon="hourglass_empty" Style="font-size: 14px;" /> Loading available models...
+        </RadzenText>
     }
 
     @if (!isSettingsEntered)
@@ -115,6 +148,8 @@
     private string embeddingModel = "";
     private bool isSettingsEntered = false;
     private bool isSaving = false;
+    private bool isLoadingModels = false;
+    private List<string> availableModels = new();
 
     private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI", "Anthropic", "Google AI" };
 
@@ -131,6 +166,9 @@
             embeddingModel = settings.EmbeddingModel;
 
             isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
+
+            // Load models (from cache or API)
+            await LoadModelsAsync();
         }
         catch (Exception ex)
         {
@@ -144,7 +182,7 @@
         }
     }
 
-    private void OnServiceTypeChanged(object value)
+    private async void OnServiceTypeChanged(object value)
     {
         if (value is string serviceType)
         {
@@ -155,6 +193,8 @@
                 "Google AI" => "gemini-1.5-pro",
                 _ => aiModel
             };
+            await LoadModelsAsync();
+            StateHasChanged();
         }
     }
 
@@ -182,6 +222,86 @@
     private async Task GetGoogleAIApiKey()
     {
         await JSRuntime.InvokeVoidAsync("open", "https://aistudio.google.com/app/apikey");
+    }
+
+    private async Task LoadModelsAsync()
+    {
+        isLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            availableModels = await ModelCacheService.GetModelsAsync(
+                aiServiceType, apiKey, endpoint, apiVersion);
+
+            // Ensure the current model is in the list
+            if (!string.IsNullOrWhiteSpace(aiModel) && !availableModels.Contains(aiModel))
+            {
+                availableModels.Insert(0, aiModel);
+            }
+        }
+        catch
+        {
+            availableModels = AIModelCacheService.GetDefaultModels(aiServiceType);
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshModels()
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Warning,
+                Summary = "API Key Required",
+                Detail = "Enter an API key first to fetch available models from the provider.",
+                Duration = 3000
+            });
+            return;
+        }
+
+        isLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            availableModels = await ModelCacheService.RefreshModelsAsync(
+                aiServiceType, apiKey, endpoint, apiVersion);
+
+            if (!string.IsNullOrWhiteSpace(aiModel) && !availableModels.Contains(aiModel))
+            {
+                availableModels.Insert(0, aiModel);
+            }
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Models Refreshed",
+                Detail = $"Found {availableModels.Count} available models.",
+                Duration = 3000
+            });
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Refresh Failed",
+                Detail = $"Could not fetch models: {ex.Message}",
+                Duration = 4000
+            });
+            availableModels = AIModelCacheService.GetDefaultModels(aiServiceType);
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
     }
 
     private async Task OnSave()
