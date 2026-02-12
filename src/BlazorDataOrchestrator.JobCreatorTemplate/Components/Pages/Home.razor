@@ -159,7 +159,7 @@
                         else
                         {
                             <RadzenDataGrid Data="@logDisplayEntries" TItem="LogDisplayEntry"
-                                            AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
+                                            AllowPaging="true" PageSize="50" PagerHorizontalAlign="HorizontalAlign.Center"
                                             AllowSorting="true" AllowColumnResize="true" Style="flex-grow: 1;" Density="Density.Compact">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Level" Title="Level" Width="100px">
@@ -343,6 +343,12 @@
             await codeEditor.UpdateCodeAsync(currentCode);
             var lang = selectedFile != null ? GetLanguageFromFile(selectedFile) : GetMonacoLanguage();
             await codeEditor.UpdateLanguageAsync(lang);
+        }
+
+        // Auto-load logs on first render
+        if (firstRender)
+        {
+            await LoadLogsAsync();
         }
     }
 
@@ -1580,6 +1586,15 @@ except Exception as e:
     }
 
     private async Task OnRefreshLogs()
+    {
+        await LoadLogsAsync();
+    }
+
+    /// <summary>
+    /// Core method that fetches logs from Azure Table Storage for the current job
+    /// and populates logDisplayEntries. Called on initial page load and on manual refresh.
+    /// </summary>
+    private async Task LoadLogsAsync()
     {
         if (_disposed) return;
 
