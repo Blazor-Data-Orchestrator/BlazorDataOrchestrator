@@ -258,9 +258,10 @@ Content-Type: application/json
                                 {
                                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                                         <RadzenLabel Text="Language:" Style="font-weight: 500;" />
-                                        <RadzenDropDown @bind-Value="@codeLanguage" Data="@languageOptions"
+                                        <RadzenDropDown TValue="string" @bind-Value="@codeLanguage" Data="@languageOptions"
                                                         TextProperty="Name" ValueProperty="Value"
-                                                        Style="min-width: 120px;" Change="@OnLanguageChanged" />
+                                                        Style="min-width: 120px;" Change="@OnLanguageChanged"
+                                                        AllowClear="false" />
                                     </RadzenStack>
                                 }
                                 
@@ -958,37 +959,57 @@ Content-Type: application/json
     }
 
     // Code Editor Methods
-    private async Task OnLanguageChanged()
+    private async Task OnLanguageChanged(object value)
     {
-        // Reset loaded state when language changes
+        // The value parameter contains the new language selected by the user
+        // codeLanguage is already updated via @bind-Value before this fires
+        var newLanguage = value?.ToString() ?? codeLanguage;
+        
+        // Ensure codeLanguage is set correctly (defensive, should already be set by binding)
+        if (!string.IsNullOrEmpty(newLanguage))
+        {
+            codeLanguage = newLanguage;
+        }
+        
+        _logger.LogInformation("Language changed to: {Language}", codeLanguage);
+        
+        // Reset loaded package state - we're starting fresh with new language
+        // Don't reload from package because existing package is for the old language
         hasLoadedPackageFiles = false;
         loadedCodeModel = null;
+        codeEditorInitialized = false;
         
-        // Set default file list based on language
+        // Clear file storage for this job to start fresh
+        FileStorage.ClearFiles(JobId);
+        
+        // Set default file list based on new language
         if (codeLanguage == "csharp")
         {
             codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
         }
         else if (codeLanguage == "python")
         {
-            codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json" };
+            codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json", "requirements.txt" };
         }
         
         selectedCodeFile = codeFileList.FirstOrDefault();
+        previousSelectedFile = selectedCodeFile;
         
-        // If we have a package, reload files for the new language
-        if (Job != null && !string.IsNullOrEmpty(Job.JobCodeFile))
+        // Load default template for the new language (don't reload package)
+        currentJobCode = CodeEditorService.GetDefaultTemplate(codeLanguage);
+        
+        // Store files in file storage
+        if (!string.IsNullOrEmpty(selectedCodeFile))
         {
-            await LoadPackageFilesAsync();
+            FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
         }
-        else
+        
+        // Initialize other default files
+        FileStorage.SetFile(JobId, "appsettings.json", CodeEditorService.GetDefaultAppSettings());
+        FileStorage.SetFile(JobId, "appsettings.Production.json", CodeEditorService.GetDefaultAppSettings());
+        if (codeLanguage == "python")
         {
-            // Load default template for new language
-            currentJobCode = CodeEditorService.GetDefaultTemplate(codeLanguage);
-            if (!string.IsNullOrEmpty(selectedCodeFile))
-            {
-                FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
-            }
+            FileStorage.SetFile(JobId, "requirements.txt", "");
         }
         
         // Update editor state
@@ -997,6 +1018,8 @@ Content-Type: application/json
             Language = codeLanguage, 
             SelectedFile = selectedCodeFile 
         });
+        
+        codeEditorInitialized = true;
         
         if (jobCodeEditor != null)
         {

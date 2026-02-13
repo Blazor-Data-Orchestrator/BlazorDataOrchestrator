@@ -87,6 +87,10 @@ public class AISettingsService
         if (serviceType == "OpenAI" && !apiKey.StartsWith("sk-"))
             return false;
 
+        // Note: Anthropic and Google AI keys don't have a specific prefix requirement
+        // Anthropic keys typically start with "sk-ant-" but this is not always the case
+        // Google AI keys are alphanumeric and don't have a specific format
+
         return true;
     }
 }

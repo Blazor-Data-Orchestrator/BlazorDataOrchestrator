@@ -8,6 +8,7 @@
 @using System.Text.Json
 @using System.Text.RegularExpressions
 @using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.Core.Services
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
 @using Microsoft.CodeAnalysis.CSharp
@@ -15,7 +16,7 @@
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
-@inject CodeAssistantChatService ChatService
+@inject BlazorDataOrchestrator.Core.Services.IAIChatService ChatService
 @inject NuGetPackageService PackageService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime

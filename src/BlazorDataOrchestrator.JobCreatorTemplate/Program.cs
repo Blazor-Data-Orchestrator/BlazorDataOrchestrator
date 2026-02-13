@@ -4,8 +4,6 @@ using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
 using BlazorDataOrchestrator.JobCreatorTemplate.Services;
 using Radzen;
-using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
-using CodeAssistantChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CodeAssistantChatService;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate
 {
@@ -32,8 +30,8 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.Services.AddScoped<AISettingsService>();
             
             // Register AI Chat Service for code assistance
-            builder.Services.AddScoped<CodeAssistantChatService>();
-            builder.Services.AddScoped<IAIChatService>(sp => sp.GetRequiredService<CodeAssistantChatService>());
+            builder.Services.AddSingleton<IInstructionsProvider, EmbeddedInstructionsProvider>();
+            builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.IAIChatService, CodeAssistantChatService>();
             
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
