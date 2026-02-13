@@ -5,7 +5,7 @@ namespace BlazorDataOrchestrator.Core.Services;
 /// <summary>
 /// Provides access to embedded instruction files for AI code assistance.
 /// </summary>
-public class EmbeddedInstructionsProvider
+public class EmbeddedInstructionsProvider : IInstructionsProvider
 {
     private readonly Assembly _assembly;
     private string? _cachedCSharpInstructions;

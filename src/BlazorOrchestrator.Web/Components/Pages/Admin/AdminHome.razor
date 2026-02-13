@@ -13,6 +13,7 @@
 @inject AppSettingsService AppSettingsService
 @inject BlazorOrchestrator.Web.Services.TimeDisplayService TimeDisplayService
 @inject AISettingsService AISettingsService
+@inject AIModelCacheService AIModelCacheService
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Administration</PageTitle>
@@ -259,34 +260,32 @@
                                     <RadzenTextBox @bind-Value="@AIApiKey" 
                                                    Style="width: 100%; max-width: 400px;" 
                                                    Name="ApiKey"
-                                                   Placeholder="@(AIServiceType == "OpenAI" ? "sk-..." : "Your Azure OpenAI API Key")"
+                                                   Placeholder="@GetApiKeyPlaceholder()"
                                                    @oninput="@OnApiKeyInput" />
                                     <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
-                                        @if (AIServiceType == "OpenAI")
-                                        {
-                                            <text>Your OpenAI API key (starts with sk-).</text>
-                                        }
-                                        else
-                                        {
-                                            <text>Your Azure OpenAI API key from the Azure portal.</text>
-                                        }
+                                        @GetApiKeyHelpText()
                                     </RadzenText>
                                 </RadzenStack>
 
                                 <RadzenStack Gap="0.5rem">
-                                    <RadzenLabel Text="@(AIServiceType == "OpenAI" ? "Model" : "Model Deployment Name")" Component="AIModel" Style="font-weight: 600;" />
-                                    <RadzenTextBox @bind-Value="@AIModel" 
-                                                   Style="width: 100%; max-width: 400px;" 
-                                                   Name="AIModel"
-                                                   Placeholder="@(AIServiceType == "OpenAI" ? "gpt-4-turbo-preview" : "gpt-4")" />
+                                    <RadzenLabel Text="@GetModelLabel()" Component="AIModel" Style="font-weight: 600;" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                        <RadzenDropDown Data="@AvailableModels" @bind-Value="@AIModel" 
+                                                        Style="width: 100%; max-width: 350px;"
+                                                        Name="AIModel"
+                                                        AllowFiltering="true" 
+                                                        FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                                                        AllowClear="true"
+                                                        Placeholder="@GetModelPlaceholder()" />
+                                        <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                                                      Click="@RefreshModelsFromApi" IsBusy="@IsLoadingModels"
+                                                      title="Refresh models from API" />
+                                    </RadzenStack>
                                     <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
-                                        @if (AIServiceType == "OpenAI")
+                                        @GetModelHelpText()
+                                        @if (IsLoadingModels)
                                         {
-                                            <text>The OpenAI model to use (e.g., gpt-4-turbo-preview, gpt-4o).</text>
-                                        }
-                                        else
-                                        {
-                                            <text>The deployment name of your Azure OpenAI model.</text>
+                                            <text> Loading models...</text>
                                         }
                                     </RadzenText>
                                 </RadzenStack>
@@ -336,11 +335,23 @@
                                                           ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
                                                           Click="@GetOpenAIApiKey" Style="max-width: 400px;" />
                                         }
-                                        else
+                                        else if (AIServiceType == "Azure OpenAI")
                                         {
                                             <RadzenButton Text="Learn how to create Azure OpenAI resource" Icon="open_in_new" 
                                                           ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
                                                           Click="@GetAzureOpenAIApiKey" Style="max-width: 400px;" />
+                                        }
+                                        else if (AIServiceType == "Anthropic")
+                                        {
+                                            <RadzenButton Text="Get an Anthropic API Key" Icon="open_in_new" 
+                                                          ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                                                          Click="@GetAnthropicApiKey" Style="max-width: 400px;" />
+                                        }
+                                        else if (AIServiceType == "Google AI")
+                                        {
+                                            <RadzenButton Text="Get a Google AI API Key" Icon="open_in_new" 
+                                                          ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                                                          Click="@GetGoogleAIApiKey" Style="max-width: 400px;" />
                                         }
                                     </RadzenStack>
                                 }
@@ -410,7 +421,9 @@
     private bool IsLoadingAISettings { get; set; } = true;
     private bool IsSavingAISettings { get; set; } = false;
     private bool IsAISettingsEntered { get; set; } = false;
-    private List<string> AIServiceTypes { get; set; } = new() { "OpenAI", "Azure OpenAI" };
+    private bool IsLoadingModels { get; set; } = false;
+    private List<string> AvailableModels { get; set; } = new();
+    private List<string> AIServiceTypes { get; set; } = new() { "OpenAI", "Azure OpenAI", "Anthropic", "Google AI" };
 
     protected override async Task OnInitializedAsync()
     {
@@ -477,6 +490,9 @@
             AIApiVersion = AISettings.ApiVersion;
             AIEmbeddingModel = AISettings.EmbeddingModel;
             IsAISettingsEntered = !string.IsNullOrWhiteSpace(AIApiKey);
+
+            // Load available models from cache or API
+            await LoadAvailableModelsAsync();
         }
         catch (Exception ex)
         {
@@ -489,12 +505,16 @@
         }
     }
 
-    private void OnAIServiceTypeChanged()
+    private async void OnAIServiceTypeChanged()
     {
-        if (AIServiceType == "OpenAI")
+        AIModel = AIServiceType switch
         {
-            AIModel = string.IsNullOrWhiteSpace(AIModel) ? "gpt-4-turbo-preview" : AIModel;
-        }
+            "OpenAI" => string.IsNullOrWhiteSpace(AIModel) || !AIModel.StartsWith("gpt") ? "gpt-4-turbo-preview" : AIModel,
+            "Anthropic" => string.IsNullOrWhiteSpace(AIModel) || !AIModel.StartsWith("claude") ? "claude-sonnet-4-20250514" : AIModel,
+            "Google AI" => string.IsNullOrWhiteSpace(AIModel) || !AIModel.StartsWith("gemini") ? "gemini-1.5-pro" : AIModel,
+            _ => AIModel
+        };
+        await LoadAvailableModelsAsync();
         StateHasChanged();
     }
 
@@ -512,6 +532,123 @@
     private async Task GetAzureOpenAIApiKey()
     {
         await JSRuntime.InvokeVoidAsync("open", "https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal");
+    }
+
+    private async Task GetAnthropicApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://console.anthropic.com/settings/keys");
+    }
+
+    private async Task GetGoogleAIApiKey()
+    {
+        await JSRuntime.InvokeVoidAsync("open", "https://aistudio.google.com/app/apikey");
+    }
+
+    private string GetApiKeyPlaceholder() => AIServiceType switch
+    {
+        "OpenAI" => "sk-...",
+        "Azure OpenAI" => "Your Azure OpenAI API Key",
+        "Anthropic" => "sk-ant-...",
+        "Google AI" => "Your Google AI API Key",
+        _ => "API Key"
+    };
+
+    private string GetApiKeyHelpText() => AIServiceType switch
+    {
+        "OpenAI" => "Your OpenAI API key (starts with sk-).",
+        "Azure OpenAI" => "Your Azure OpenAI API key from the Azure portal.",
+        "Anthropic" => "Your Anthropic API key from the Anthropic Console.",
+        "Google AI" => "Your Google AI API key from Google AI Studio.",
+        _ => "Your API key for the selected AI service."
+    };
+
+    private string GetModelLabel() => AIServiceType switch
+    {
+        "Azure OpenAI" => "Model Deployment Name",
+        _ => "Model"
+    };
+
+    private string GetModelPlaceholder() => AIServiceType switch
+    {
+        "OpenAI" => "gpt-4-turbo-preview",
+        "Azure OpenAI" => "gpt-4",
+        "Anthropic" => "claude-sonnet-4-20250514",
+        "Google AI" => "gemini-1.5-pro",
+        _ => "Model name"
+    };
+
+    private string GetModelHelpText() => AIServiceType switch
+    {
+        "OpenAI" => "The OpenAI model to use (e.g., gpt-4-turbo-preview, gpt-4o).",
+        "Azure OpenAI" => "The deployment name of your Azure OpenAI model.",
+        "Anthropic" => "The Anthropic model to use (e.g., claude-sonnet-4-20250514, claude-3-5-haiku-latest).",
+        "Google AI" => "The Google AI model to use (e.g., gemini-1.5-pro, gemini-1.5-flash).",
+        _ => "The AI model to use for code assistance."
+    };
+
+    private async Task LoadAvailableModelsAsync()
+    {
+        IsLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            AvailableModels = await AIModelCacheService.GetModelsAsync(
+                AIServiceType, AIApiKey, AIEndpoint, AIApiVersion);
+
+            // Ensure the currently selected model is in the list
+            if (!string.IsNullOrWhiteSpace(AIModel) && !AvailableModels.Contains(AIModel))
+            {
+                AvailableModels.Insert(0, AIModel);
+            }
+        }
+        catch
+        {
+            AvailableModels = AIModelCacheService.GetDefaultModels(AIServiceType);
+        }
+        finally
+        {
+            IsLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshModelsFromApi()
+    {
+        if (string.IsNullOrWhiteSpace(AIApiKey))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "API Key Required", 
+                "Enter an API key first to fetch available models from the provider.");
+            return;
+        }
+
+        IsLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            AvailableModels = await AIModelCacheService.RefreshModelsAsync(
+                AIServiceType, AIApiKey, AIEndpoint, AIApiVersion);
+
+            if (!string.IsNullOrWhiteSpace(AIModel) && !AvailableModels.Contains(AIModel))
+            {
+                AvailableModels.Insert(0, AIModel);
+            }
+
+            NotificationService.Notify(NotificationSeverity.Success, "Models Refreshed", 
+                $"Found {AvailableModels.Count} available models.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Refresh Failed", 
+                $"Could not fetch models: {ex.Message}");
+            AvailableModels = AIModelCacheService.GetDefaultModels(AIServiceType);
+        }
+        finally
+        {
+            IsLoadingModels = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SaveAISettings()

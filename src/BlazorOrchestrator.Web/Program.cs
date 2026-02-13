@@ -98,8 +98,16 @@ builder.Services.AddScoped<AISettingsService>(sp =>
     return new AISettingsService(tableServiceClient);
 });
 
+// Register AI Model Cache service (fetches and caches provider models in Azure Table Storage)
+builder.Services.AddScoped<AIModelCacheService>(sp =>
+{
+    var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
+    var logger = sp.GetRequiredService<ILogger<AIModelCacheService>>();
+    return new AIModelCacheService(tableServiceClient, logger);
+});
+
 // Register AI Chat services
-builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
+builder.Services.AddSingleton<IInstructionsProvider, EmbeddedInstructionsProvider>();
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.IAIChatService, CodeAssistantChatService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)

@@ -405,16 +405,70 @@
 
     private void CheckForCodeUpdate(string response)
     {
-        if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
+        // Normalize line endings for reliable matching
+        var normalized = response.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Primary detection: explicit code markers
+        if (normalized.Contains(CodeBeginMarker) && normalized.Contains(CodeEndMarker))
         {
-            pendingCode = ExtractCodeFromResponse(response);
+            pendingCode = ExtractCodeFromResponse(normalized);
             HasPendingCodeUpdate = !string.IsNullOrEmpty(pendingCode);
+            StateHasChanged();
+            return;
+        }
+
+        // Fallback detection: look for a fenced code block that looks like a complete
+        // code file (e.g. starts with using/import, or is substantial enough).
+        var fallbackCode = ExtractFallbackCodeBlock(normalized);
+        if (!string.IsNullOrEmpty(fallbackCode))
+        {
+            pendingCode = fallbackCode;
+            HasPendingCodeUpdate = true;
             StateHasChanged();
         }
     }
 
+    /// <summary>
+    /// Extracts code from a fenced code block when markers are absent.
+    /// Only returns code if the block looks like a complete/substantial code file.
+    /// </summary>
+    private string? ExtractFallbackCodeBlock(string response)
+    {
+        // Try closed code block first
+        var match = System.Text.RegularExpressions.Regex.Match(
+            response,
+            @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]*?)```");
+
+        if (!match.Success)
+        {
+            // Try unclosed code block (response may have been truncated by token limit)
+            match = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]+)$");
+        }
+
+        if (!match.Success)
+            return null;
+
+        var code = match.Groups[1].Value.Trim();
+
+        // Only treat it as an applicable code block if it looks like a complete file
+        // (has a class/function definition or is substantial enough)
+        bool looksLikeCompleteCode =
+            code.Contains("class ") ||
+            code.Contains("def ") ||
+            code.Contains("public static") ||
+            code.Contains("namespace ") ||
+            code.Split('\n').Length >= 10;
+
+        return looksLikeCompleteCode ? code : null;
+    }
+
     private string? ExtractCodeFromResponse(string response)
     {
+        // Normalize line endings
+        response = response.Replace("\r\n", "\n").Replace("\r", "\n");
+
         var beginIndex = response.IndexOf(CodeBeginMarker);
         var endIndex = response.IndexOf(CodeEndMarker);
 
@@ -423,20 +477,14 @@
             var codeStart = beginIndex + CodeBeginMarker.Length;
             var code = response.Substring(codeStart, endIndex - codeStart);
             
-            // Clean up the code
+            // Clean up the code — strip surrounding fenced code block markers
             code = code.Trim();
-            if (code.StartsWith("```"))
-            {
-                var firstNewline = code.IndexOf('\n');
-                if (firstNewline >= 0)
-                {
-                    code = code.Substring(firstNewline + 1);
-                }
-            }
-            if (code.EndsWith("```"))
-            {
-                code = code.Substring(0, code.Length - 3);
-            }
+            // Remove opening fence: ```lang
+            code = System.Text.RegularExpressions.Regex.Replace(
+                code, @"^```[ \t]*\w*[ \t]*\n?", "", System.Text.RegularExpressions.RegexOptions.None);
+            // Remove closing fence: ```
+            code = System.Text.RegularExpressions.Regex.Replace(
+                code, @"\n?```\s*$", "", System.Text.RegularExpressions.RegexOptions.None);
             
             return code.Trim();
         }
@@ -448,25 +496,79 @@
         if (string.IsNullOrEmpty(content))
             return "";
 
-        // Basic markdown-like formatting for code blocks
+        // Normalize line endings to \n
+        content = content.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Strip code markers from display (they appear as raw text otherwise)
+        content = StripCodeMarkersForDisplay(content);
+
+        // HTML encode the content first
         var result = System.Web.HttpUtility.HtmlEncode(content);
-        
-        // Format code blocks
+
+        // Replace fenced code blocks with placeholders to protect from <br/> injection.
+        // The regex handles optional language identifiers and optional whitespace around them.
+        var codeBlockIndex = 0;
+        var codeBlocks = new System.Collections.Generic.Dictionary<string, string>();
         result = System.Text.RegularExpressions.Regex.Replace(
             result,
-            @"```(\w*)\n([\s\S]*?)```",
-            m => $"<pre><code>{m.Groups[2].Value}</code></pre>");
-        
-        // Format inline code
+            @"```[ \t]*(\w*)[ \t]*\n([\s\S]*?)```",
+            m =>
+            {
+                var placeholder = $"\x00CB{codeBlockIndex++}\x00";
+                var lang = m.Groups[1].Value;
+                var code = m.Groups[2].Value.TrimEnd('\n');
+                codeBlocks[placeholder] = $"<pre><code>{code}</code></pre>";
+                return placeholder;
+            });
+
+        // Handle unclosed code blocks (response may have been truncated by token limit)
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"```[ \t]*(\w*)[ \t]*\n([\s\S]+)$",
+            m =>
+            {
+                var placeholder = $"\x00CB{codeBlockIndex++}\x00";
+                var lang = m.Groups[1].Value;
+                var code = m.Groups[2].Value.TrimEnd('\n');
+                codeBlocks[placeholder] = $"<pre><code>{code}</code></pre>";
+                return placeholder;
+            });
+
+        // Format inline code (but not already-processed triple backtick blocks)
         result = System.Text.RegularExpressions.Regex.Replace(
             result,
             @"`([^`]+)`",
             "<code>$1</code>");
 
-        // Convert newlines to breaks (but not in code blocks)
+        // Convert newlines to <br/> only outside code blocks
         result = result.Replace("\n", "<br/>");
 
+        // Restore code blocks (newlines inside <pre> are preserved by the browser)
+        foreach (var kvp in codeBlocks)
+        {
+            result = result.Replace(kvp.Key, kvp.Value);
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// Strips ###UPDATED CODE BEGIN### / ###UPDATED CODE END### markers from the message
+    /// for display, leaving only the explanation text and the code block inside.
+    /// </summary>
+    private string StripCodeMarkersForDisplay(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        // Remove the marker lines themselves (they may appear on their own lines)
+        content = content.Replace(CodeBeginMarker, "");
+        content = content.Replace(CodeEndMarker, "");
+
+        // Clean up any blank lines left behind by marker removal
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"\n{3,}", "\n\n");
+
+        return content.Trim();
     }
 
     private async Task ApplyCodeToEditor()
