@@ -1,0 +1,162 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorDataOrchestrator.JobCreatorTemplate.Services
+@inject IConfiguration Configuration
+@inject NotificationService NotificationService
+@inject CopilotHealthService CopilotHealth
+@inject CopilotModelService ModelService
+
+<RadzenStack Gap="16" Style="padding: 8px;">
+    @if (!CopilotHealth.IsReady)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" AllowClose="false">
+            <strong>@CopilotHealth.StatusMessage</strong>
+            <p style="font-size: 0.85em; margin: 4px 0 0 0;">Copilot CLI is not connected. Model discovery may be limited.</p>
+        </RadzenAlert>
+    }
+
+    <RadzenText TextStyle="TextStyle.Body2" Style="color: #666;">
+        AI chat is powered by GitHub Copilot. Authentication is handled via the Copilot CLI.
+        Ensure the CLI is installed and authenticated on this machine.
+    </RadzenText>
+
+    <RadzenFormField Text="Model:" Variant="Variant.Outlined">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
+            <RadzenDropDown Data="@availableModels" @bind-Value="@selectedModel"
+                            Style="width: 100%;" AllowClear="false"
+                            Disabled="@isLoadingModels" />
+            <RadzenButton Icon="refresh" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                          title="Refresh available models" Click="@OnRefreshModels"
+                          IsBusy="@isLoadingModels"
+                          Style="padding: 4px 8px; min-width: auto;" />
+        </RadzenStack>
+    </RadzenFormField>
+
+    @if (ModelService.LastRefreshed.HasValue)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #999;">
+            Models last refreshed: @ModelService.LastRefreshed.Value.ToLocalTime().ToString("g")
+        </RadzenText>
+    }
+
+    <RadzenText TextStyle="TextStyle.Caption" Style="color: #999;">
+        <em>ⓘ Some models may not be available if your organization restricts them,
+        your subscription tier does not include them, or they are in preview.</em>
+    </RadzenText>
+
+    <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary"
+                  Click="@OnSave" Style="width: 100%;" />
+</RadzenStack>
+
+@code {
+    [Parameter] public EventCallback OnSettingsSaved { get; set; }
+
+    private string selectedModel = "gpt-4.1";
+    private List<string> availableModels = new();
+    private bool isLoadingModels = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var configuredModel = Configuration.GetValue<string>("Copilot:Model");
+        if (!string.IsNullOrWhiteSpace(configuredModel))
+        {
+            selectedModel = configuredModel;
+        }
+
+        await LoadModelsAsync();
+    }
+
+    private async Task LoadModelsAsync()
+    {
+        isLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            availableModels = await ModelService.GetAvailableModelsAsync();
+
+            // Ensure the currently configured model is in the list
+            if (!string.IsNullOrWhiteSpace(selectedModel) && !availableModels.Contains(selectedModel))
+            {
+                availableModels.Insert(0, selectedModel);
+            }
+        }
+        catch
+        {
+            // Keep whatever we have
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnRefreshModels()
+    {
+        isLoadingModels = true;
+        StateHasChanged();
+
+        try
+        {
+            availableModels = await ModelService.GetAvailableModelsAsync(forceRefresh: true);
+
+            if (!string.IsNullOrWhiteSpace(selectedModel) && !availableModels.Contains(selectedModel))
+            {
+                availableModels.Insert(0, selectedModel);
+            }
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Info,
+                Summary = "Models refreshed",
+                Detail = $"Found {availableModels.Count} models.",
+                Duration = 3000
+            });
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Warning,
+                Summary = "Refresh failed",
+                Detail = ex.Message,
+                Duration = 4000
+            });
+        }
+        finally
+        {
+            isLoadingModels = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnSave()
+    {
+        try
+        {
+            // Update the in-memory configuration
+            Configuration["Copilot:Model"] = selectedModel;
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "Success",
+                Detail = $"Copilot model set to: {selectedModel}",
+                Duration = 4000
+            });
+
+            await OnSettingsSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "Error",
+                Detail = $"Failed to save settings: {ex.Message}",
+                Duration = 4000
+            });
+        }
+    }
+}

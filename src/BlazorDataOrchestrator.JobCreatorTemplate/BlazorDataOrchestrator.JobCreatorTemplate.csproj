@@ -8,17 +8,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.0" />
-    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.0" />
-    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.0" />
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.0" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
-	<PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
+    <EmbeddedResource Include="Resources\csharp.instructions.md" />
+    <EmbeddedResource Include="Resources\python.instructions.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.1" />
+    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.1" />
+    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.1" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.1" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
+	<PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.1" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.0.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.2.0-preview.1.26063.2" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.1" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="*" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
 	<PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />  
   </ItemGroup>

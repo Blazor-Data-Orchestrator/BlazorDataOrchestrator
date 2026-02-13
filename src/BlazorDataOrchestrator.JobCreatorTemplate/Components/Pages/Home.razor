@@ -12,15 +12,20 @@
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
 @using Microsoft.CodeAnalysis.CSharp
+@using Microsoft.CodeAnalysis.Emit
+@using System.Reflection
+@using System.Runtime.Loader
 @using Microsoft.JSInterop
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
 @inject DialogService DialogService
-@inject BlazorDataOrchestrator.Core.Services.IAIChatService ChatService
+@inject CopilotChatService ChatService
 @inject NuGetPackageService PackageService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject JobManager InjectedJobManager
+@inject CopilotHealthService CopilotHealth
+@inject BlazorDataOrchestrator.Core.Services.TimeDisplayService TimeDisplayService
 
 <PageTitle>Job Creator</PageTitle>
 
@@ -87,7 +92,7 @@
                             <RadzenStack Gap="0" Style="height: 100%; background: #f8f9fa; border-left: 1px solid #e8e8e8;">
                                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                              JustifyContent="JustifyContent.SpaceBetween"
-                                             Style="padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #e8e8e8;">
+                                             Style="padding: 14px 20px; background: #fffffF; border-bottom: 1px solid #e8e8e8;">
                                     <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: #333; margin: 0; font-weight: 600;">
                                         <RadzenIcon Icon="chat" Style="vertical-align: middle; margin-right: 8px; color: #5c6bc0;" />Chat
                                     </RadzenText>
@@ -95,6 +100,25 @@
                                                   title="Configure AI Service" Click="@OpenAISettingsDialog"
                                                   Style="padding: 4px 8px; min-width: auto;" />
                                 </RadzenStack>
+                                @if (!CopilotHealth.IsReady)
+                                {
+                                    <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat"
+                                                 Style="margin: 8px 12px 0 12px;" AllowClose="false">
+                                        <strong>⚠️ @CopilotHealth.StatusMessage</strong>
+                                        <p style="margin: 8px 0 4px 0; font-size: 0.85em;">
+                                            The AI Chat feature requires the GitHub Copilot CLI to be installed and authenticated.
+                                        </p>
+                                        <ol style="font-size: 0.82em; padding-left: 18px; margin: 0;">
+                                            <li>Download from <a href="https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli" target="_blank">https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli</a> or run <code>winget install GitHub.Copilot</code></li>
+                                            <li>Run <code>copilot --version</code> to verify</li>
+                                            <li>Run <code>copilot login</code> or set <code>GITHUB_TOKEN</code></li>
+                                            <li>Restart your computer</li>
+                                        </ol>
+                                        <RadzenButton Text="Check Again" Size="ButtonSize.ExtraSmall"
+                                                      ButtonStyle="ButtonStyle.Warning" Style="margin-top: 8px;"
+                                                      Click="@OnCheckCopilotHealth" />
+                                    </RadzenAlert>
+                                }
                                 <div class="chat-container" style="flex-grow: 1; overflow: hidden; padding: 12px; position: relative;">
                                     <div style="position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; overflow: hidden;">
                                         <RadzenAIChat @ref="aiChat"
@@ -110,37 +134,49 @@
                     </RadzenSplitter>
                 </RadzenTabsItem>
                 <RadzenTabsItem Text="Logs" Icon="list_alt">
-                    <RadzenStack Gap="8" Style="height: calc(100vh - 180px); padding: 12px;">
+                    <RadzenStack Gap="1rem" Style="height: calc(100vh - 180px); padding: 12px;">
                         @* Log Controls *@
-                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="12" Style="padding: 8px 12px; background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8;">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="12" JustifyContent="JustifyContent.SpaceBetween" Style="padding: 8px 12px; background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8;">
                             <RadzenText TextStyle="TextStyle.Body2" Style="color: #666;">
                                 Job ID: <strong>@currentJobId</strong> | Instance ID: <strong>@currentJobInstanceId</strong>
                             </RadzenText>
-                            <RadzenButton Text="Refresh Logs" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@OnRefreshLogs" Style="margin-left: auto;" />
+                            <RadzenButton Text="Refresh Logs" Icon="refresh" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small" Click="@OnRefreshLogs" />
                         </RadzenStack>
                         @* Log Output *@
-                        <RadzenCard Style="flex-grow: 1; background: #f8f9fa; color: #333; overflow: auto; padding: 12px; font-family: 'Consolas', 'Monaco', monospace; border-radius: 8px;">
-                            @if (jobLogs.Any())
-                            {
-                                <RadzenDataList Data="@jobLogs" Style="background: transparent;">
-                                    <Template Context="log">
-                                        <div style="padding: 8px 12px; margin-bottom: 4px; background: #ffffff; border-radius: 6px; border-left: 4px solid @GetLogLevelColor(log.Level);">
-                                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="8">
-                                                <RadzenBadge BadgeStyle="@GetLogLevelBadgeStyle(log.Level)" Text="@log.Level" Style="min-width: 60px; text-align: center;" />
-                                                <RadzenStack Gap="2" Style="flex-grow: 1;">
-                                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #888;">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
-                                                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #333; word-break: break-word;">@log.Details</RadzenText>
-                                                </RadzenStack>
-                                            </RadzenStack>
-                                        </div>
-                                    </Template>
-                                </RadzenDataList>
-                            }
-                            else
-                            {
-                                <pre style="margin: 0; white-space: pre-wrap; background: #ffffff; padding: 16px; border-radius: 8px; border: 1px solid #e8e8e8;">@logOutput</pre>
-                            }
-                        </RadzenCard>
+                        @if (isLoadingLogs)
+                        {
+                            <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+                                <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading logs...</RadzenText>
+                            </RadzenStack>
+                        }
+                        else if (!logDisplayEntries.Any())
+                        {
+                            <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="padding: 2rem;">
+                                <RadzenIcon Icon="info" Style="font-size: 2rem; color: #6b7280;" />
+                                <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">No logs available for this job.</RadzenText>
+                            </RadzenStack>
+                        }
+                        else
+                        {
+                            <RadzenDataGrid Data="@logDisplayEntries" TItem="LogDisplayEntry"
+                                            AllowPaging="true" PageSize="50" PagerHorizontalAlign="HorizontalAlign.Center"
+                                            AllowSorting="true" AllowColumnResize="true" Style="flex-grow: 1;" Density="Density.Compact">
+                                <Columns>
+                                    <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Level" Title="Level" Width="100px">
+                                        <Template Context="log">
+                                            <RadzenBadge BadgeStyle="@GetLogBadgeStyle(log.Level)" Text="@log.Level" />
+                                        </Template>
+                                    </RadzenDataGridColumn>
+                                    <RadzenDataGridColumn TItem="LogDisplayEntry" Property="CreatedDate" Title="Created Date" Width="180px">
+                                        <Template Context="log">
+                                            @TimeDisplayService.FormatDateTime(log.CreatedDate, "yyyy-MM-dd HH:mm:ss")
+                                        </Template>
+                                    </RadzenDataGridColumn>
+                                    <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Message" Title="Message" />
+                                </Columns>
+                            </RadzenDataGrid>
+                        }
                     </RadzenStack>
                 </RadzenTabsItem>
             </Tabs>
@@ -208,6 +244,8 @@
 
     private List<string> fileList = new List<string>();
     private List<JobLogEntry> jobLogs = new List<JobLogEntry>();
+    private List<LogDisplayEntry> logDisplayEntries = new List<LogDisplayEntry>();
+    private bool isLoadingLogs = false;
     private int currentJobId = 0;
     private int currentJobInstanceId = 0;
     private JobManager? jobManager;
@@ -277,12 +315,6 @@
                 currentCode = await File.ReadAllTextAsync(path);
             }
         }
-
-        // Start polling for changes
-        _pollingTimer = new System.Timers.Timer(2000);
-        _pollingTimer.Elapsed += async (s, e) => await CheckForChanges();
-        _pollingTimer.AutoReset = true;
-        _pollingTimer.Start();
     }
 
     private void InitializeJobManager()
@@ -312,6 +344,12 @@
             await codeEditor.UpdateCodeAsync(currentCode);
             var lang = selectedFile != null ? GetLanguageFromFile(selectedFile) : GetMonacoLanguage();
             await codeEditor.UpdateLanguageAsync(lang);
+        }
+
+        // Auto-load logs on first render
+        if (firstRender)
+        {
+            await LoadLogsAsync();
         }
     }
 
@@ -654,8 +692,10 @@
             {
                 if (selectedLanguage == "csharp")
                 {
-                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
-                    results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1, "");
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Dynamically compiling current editor code...\n";
+                    StateHasChanged();
+
+                    results = await CompileAndExecuteCodeAsync(currentCode ?? "", appSettingsContent, currentJobInstanceId);
                     if (_disposed) return;
                 }
                 else if (selectedLanguage == "python")
@@ -839,7 +879,7 @@ except Exception as e:
 
     private async Task OpenAISettingsDialog()
     {
-        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
+        await DialogService.OpenAsync<ConfigureCopilotDialog>("Configure Copilot",
             new Dictionary<string, object>
             {
                 { "OnSettingsSaved", EventCallback.Factory.Create(this, OnAISettingsSaved) }
@@ -896,6 +936,15 @@ except Exception as e:
                 _pendingCodeUpdate = extractedCode;
             }
         }
+
+        // Also check for tool-based code updates (apply_code_to_editor)
+        var toolUpdate = ChatService.ConsumePendingCodeUpdate();
+        if (!string.IsNullOrEmpty(toolUpdate))
+        {
+            _pendingCodeUpdate = toolUpdate;
+        }
+
+        StateHasChanged();
     }
     
     private void OnChatMessageAdded(Radzen.Blazor.ChatMessage message)
@@ -912,8 +961,20 @@ except Exception as e:
             // Apply any pending code update to the editor
             if (!string.IsNullOrEmpty(_pendingCodeUpdate))
             {
-                _ = ApplyCodeUpdateAsync(_pendingCodeUpdate);
+                var codeToApply = _pendingCodeUpdate;
                 _pendingCodeUpdate = null;
+                _ = InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await ApplyCodeUpdateAsync(codeToApply);
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
+                        if (!_disposed) StateHasChanged();
+                    }
+                });
             }
         }
     }
@@ -995,43 +1056,26 @@ except Exception as e:
                 // Apply the new code to the editor
                 currentCode = code;
                 await codeEditor.UpdateCodeAsync(code);
+
+                // Force Monaco to re-layout so the change is visually reflected
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("forceMonacoLayout");
+                }
+                catch
+                {
+                    // Ignore if the JS function is not yet available
+                }
                 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Code updated from AI response.\n";
-                if (!_disposed) StateHasChanged();
+                if (!_disposed) await InvokeAsync(StateHasChanged);
             }
         }
         catch (Exception ex)
         {
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Error applying code update: {ex.Message}\n";
-            if (!_disposed) StateHasChanged();
+            if (!_disposed) await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private System.Timers.Timer? _pollingTimer;
-
-    private async Task CheckForChanges()
-    {
-        if (_disposed) return;
-        try
-        {
-            await InvokeAsync(async () =>
-            {
-                if (_disposed) return;
-                if (codeEditor != null)
-                {
-                    var code = await codeEditor.GetCodeAsync();
-                    if (!string.IsNullOrEmpty(code) && code != currentCode)
-                    {
-                        undoStack.Push(currentCode);
-                        currentCode = code;
-                        redoStack.Clear();
-                        StateHasChanged();
-                    }
-                }
-            });
-        }
-        catch (ObjectDisposedException) { }
-        catch (Exception) { }
     }
 
     private async Task OnUndo()
@@ -1101,36 +1145,64 @@ except Exception as e:
                 var code = await codeEditor.GetCodeAsync();
                 if (!string.IsNullOrEmpty(selectedFile) && code != null)
                 {
-                    // Compilation check for main.cs
+                    // Save the file first so dotnet build picks up the latest code
+                    try 
+                    {
+                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
+                        await File.WriteAllTextAsync(path, code);
+                    }
+                    catch (Exception ex)
+                    {
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
+                        if (!_disposed) StateHasChanged();
+                        return false;
+                    }
+
+                    // Full compilation check via CLI
                     if (selectedFile.Equals("main.cs", StringComparison.OrdinalIgnoreCase))
                     {
-                        try
-                        {
-                            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-                            var diagnostics = syntaxTree.GetDiagnostics();
-                            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Compiling project via dotnet build CLI...\n";
+                        if (!_disposed) StateHasChanged();
 
-                            if (errors.Any())
-                            {
-                                var errorMsg = string.Join("\n", errors.Select(e => $"Line {e.Location.GetLineSpan().StartLinePosition.Line + 1}: {e.GetMessage()}"));
-                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
-                                
-                                await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Save Error");
-                                if (!_disposed) StateHasChanged();
-                                return false;
-                            }
-                        }
-                        catch (Exception ex)
+                        var (buildSuccess, buildOutput, buildErrors) = await CompileWithDotnetCliAsync();
+
+                        if (!buildSuccess)
                         {
-                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
-                             if (!_disposed) StateHasChanged();
-                             return false;
+                            var errorMsg = buildErrors.Any()
+                                ? string.Join("\n", buildErrors)
+                                : buildOutput;
+                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{errorMsg}\n";
+
+                            // If Copilot is available, offer AI-assisted fix suggestions
+                            if (CopilotHealth.IsReady)
+                            {
+                                logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending compilation errors to Copilot for fix suggestions...\n";
+                                if (!_disposed) StateHasChanged();
+
+                                _ = SendCompilationErrorsToCopilotAsync(code, buildErrors);
+                            }
+
+                            await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Build Error");
+                            if (!_disposed) StateHasChanged();
+                            return false;
+                        }
+
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Build succeeded.\n";
+
+                        // Show warnings if any
+                        var warnings = buildErrors.Where(e => e.Contains(": warning ")).ToList();
+                        if (warnings.Any())
+                        {
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Warnings:\n{string.Join("\n", warnings)}\n";
                         }
                     }
 
-                    // Compilation check for main.py
+                    // Compilation check for main.py via Python CLI
                     if (selectedFile.Equals("main.py", StringComparison.OrdinalIgnoreCase))
                     {
+                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Compiling Python via CLI...\n";
+                        if (!_disposed) StateHasChanged();
+
                         try
                         {
                             var startInfo = new System.Diagnostics.ProcessStartInfo
@@ -1147,10 +1219,8 @@ except Exception as e:
                             using var process = new System.Diagnostics.Process { StartInfo = startInfo };
                             process.Start();
 
-                            // Start reading stderr asynchronously before writing to avoid deadlocks
                             var errorTask = process.StandardError.ReadToEndAsync();
                             
-                            // Write to stdin and close it to signal EOF
                             try
                             {
                                 using (var writer = process.StandardInput)
@@ -1160,26 +1230,38 @@ except Exception as e:
                             }
                             catch (System.IO.IOException)
                             {
-                                // Pipe was closed - Python may have crashed or not started properly
+                                // Pipe was closed
                             }
 
                             var error = await errorTask;
                             
-                            // Wait for process with timeout
                             var exited = process.WaitForExit(5000);
                             if (!exited)
                             {
                                 process.Kill();
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
                                 if (!_disposed) StateHasChanged();
-                                // Continue with save
                             }
                             else if (process.ExitCode != 0)
                             {
                                 logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
-                                await DialogService.Alert($"Compilation Failed:\n{error}", "Save Error");
+
+                                // If Copilot is available, offer AI-assisted fix suggestions
+                                if (CopilotHealth.IsReady)
+                                {
+                                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending errors to Copilot for fix suggestions...\n";
+                                    if (!_disposed) StateHasChanged();
+
+                                    _ = SendCompilationErrorsToCopilotAsync(code, new List<string> { error });
+                                }
+
+                                await DialogService.Alert($"Compilation Failed:\n{error}", "Build Error");
                                 if (!_disposed) StateHasChanged();
                                 return false;
+                            }
+                            else
+                            {
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python compilation succeeded.\n";
                             }
                         }
                         catch (System.ComponentModel.Win32Exception)
@@ -1190,11 +1272,10 @@ except Exception as e:
                                 "To resolve this:\n" +
                                 "1. Download Python from https://www.python.org/downloads/\n" +
                                 "2. During installation, check 'Add Python to PATH'\n" +
-                                "3. Restart your application after installation\n\n" +
+                                "3. Restart your computer after installation\n\n" +
                                 "The file will be saved without syntax validation.", 
                                 "Python Not Found");
                             if (!_disposed) StateHasChanged();
-                            // Continue with save even if Python is not available
                         }
                         catch (Exception ex)
                         {
@@ -1204,25 +1285,13 @@ except Exception as e:
                         }
                     }
 
-                    try 
-                    {
-                        var path = Path.Combine(CurrentCodeFolderPath, selectedFile);
-                        await File.WriteAllTextAsync(path, code);
-                        
-                        // Update the undo stack after successful save
-                        undoStack.Push(code);
-                        redoStack.Clear();
-                        
-                        logOutput = $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
-                        if (!_disposed) StateHasChanged();
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        logOutput = $"[{DateTime.Now:HH:mm:ss}] Error saving file '{selectedFile}': {ex.Message}\n";
-                        if (!_disposed) StateHasChanged();
-                        return false;
-                    }
+                    // Update the undo stack after successful save
+                    undoStack.Push(code);
+                    redoStack.Clear();
+                    
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] File '{selectedFile}' saved successfully.\n";
+                    if (!_disposed) StateHasChanged();
+                    return true;
                 }
             }
             return false;
@@ -1234,7 +1303,299 @@ except Exception as e:
         }
     }
 
+    /// <summary>
+    /// Compiles the project using the dotnet build CLI.
+    /// Returns a tuple of (Success, FullOutput, ErrorLines).
+    /// </summary>
+    private async Task<(bool Success, string Output, List<string> Errors)> CompileWithDotnetCliAsync()
+    {
+        var projectDir = Environment.ContentRootPath;
+        var projectFile = Path.Combine(projectDir, "BlazorDataOrchestrator.JobCreatorTemplate.csproj");
+
+        if (!File.Exists(projectFile))
+        {
+            return (false, "Project file not found.", new List<string> { "Project file not found at: " + projectFile });
+        }
+
+        // Use a temporary output directory to avoid file-lock conflicts with the running process.
+        // Also use --no-dependencies so we don't try to rebuild/copy referenced projects (e.g. Core)
+        // whose DLLs are locked by the running application.
+        var tempOutputDir = Path.Combine(Path.GetTempPath(), $"bdo-build-{Guid.NewGuid():N}");
+
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{projectFile}\" --no-restore --no-dependencies --nologo -v q -o \"{tempOutputDir}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = projectDir
+            };
+
+            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+            process.Start();
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+
+            var exited = process.WaitForExit(120_000); // 2 minute timeout
+            if (!exited)
+            {
+                process.Kill();
+                return (false, "Build timed out.", new List<string> { "Build process timed out after 120 seconds." });
+            }
+
+            var output = await outputTask;
+            var error = await errorTask;
+            var fullOutput = (output + "\n" + error).Trim();
+
+            // Parse error and warning lines from build output
+            var diagnosticLines = new List<string>();
+            foreach (var line in fullOutput.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Contains(": error ") || trimmed.Contains(": warning "))
+                {
+                    // Skip MSB3026/MSB3027/MSB3021 file-copy warnings/errors (file lock noise)
+                    if (trimmed.Contains("MSB3026") || trimmed.Contains("MSB3027") || trimmed.Contains("MSB3021"))
+                        continue;
+                    diagnosticLines.Add(trimmed);
+                }
+            }
+
+            return (process.ExitCode == 0, fullOutput, diagnosticLines);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return (false, "dotnet CLI not found.", new List<string> { "The dotnet CLI is not installed or not found in your system PATH." });
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message, new List<string> { $"Build error: {ex.Message}" });
+        }
+        finally
+        {
+            // Clean up the temporary output directory
+            try
+            {
+                if (Directory.Exists(tempOutputDir))
+                {
+                    Directory.Delete(tempOutputDir, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort cleanup
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dynamically compiles the current C# code from the editor using Roslyn and executes
+    /// BlazorDataOrchestratorJob.ExecuteJob via reflection. This ensures the latest editor
+    /// code is always executed rather than the statically compiled version.
+    /// </summary>
+    private async Task<List<string>> CompileAndExecuteCodeAsync(string code, string appSettingsContent, int jobInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            throw new InvalidOperationException("No code to compile.");
+        }
+
+        // Parse the code into a syntax tree
+        var syntaxTree = CSharpSyntaxTree.ParseText(code);
+
+        // Collect all runtime assembly references
+        var references = new List<MetadataReference>();
+        var loadedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Add references from all currently loaded assemblies (covers System, EF Core, etc.)
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (asm.IsDynamic) continue;
+            try
+            {
+                var location = asm.Location;
+                if (!string.IsNullOrEmpty(location) && File.Exists(location) && loadedPaths.Add(location))
+                {
+                    references.Add(MetadataReference.CreateFromFile(location));
+                }
+            }
+            catch
+            {
+                // Skip assemblies that can't provide a location
+            }
+        }
+
+        // Also add key runtime assemblies from the shared framework that may not be loaded yet
+        var runtimeDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        foreach (var dllName in new[] { "System.Runtime.dll", "System.Collections.dll", "System.Linq.dll",
+                                         "System.Net.Http.dll", "System.Threading.Tasks.dll",
+                                         "System.Text.Json.dll", "System.ComponentModel.dll",
+                                         "netstandard.dll", "System.Private.CoreLib.dll" })
+        {
+            var dllPath = Path.Combine(runtimeDir, dllName);
+            if (File.Exists(dllPath) && loadedPaths.Add(dllPath))
+            {
+                references.Add(MetadataReference.CreateFromFile(dllPath));
+            }
+        }
+
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] Compiling with {references.Count} assembly references...\n";
+        if (!_disposed) StateHasChanged();
+
+        // Compile
+        var compilation = CSharpCompilation.Create(
+            assemblyName: $"DynamicJob_{Guid.NewGuid():N}",
+            syntaxTrees: new[] { syntaxTree },
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Debug)
+                .WithAllowUnsafe(true));
+
+        using var ms = new MemoryStream();
+        var emitResult = compilation.Emit(ms);
+
+        if (!emitResult.Success)
+        {
+            var errors = emitResult.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => $"Line {d.Location.GetLineSpan().StartLinePosition.Line + 1}: {d.GetMessage()}")
+                .ToList();
+            var errorMsg = string.Join("\n", errors);
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Dynamic compilation failed:\n{errorMsg}\n";
+            if (!_disposed) StateHasChanged();
+            throw new InvalidOperationException($"Compilation failed:\n{errorMsg}");
+        }
+
+        logOutput += $"[{DateTime.Now:HH:mm:ss}] Compilation succeeded. Loading assembly...\n";
+        if (!_disposed) StateHasChanged();
+
+        // Load into a collectible AssemblyLoadContext so it can be unloaded
+        ms.Seek(0, SeekOrigin.Begin);
+        var loadContext = new AssemblyLoadContext($"JobExec_{Guid.NewGuid():N}", isCollectible: true);
+        try
+        {
+            var assembly = loadContext.LoadFromStream(ms);
+
+            // Find the BlazorDataOrchestratorJob class
+            var jobType = assembly.GetType("BlazorDataOrchestratorJob");
+            if (jobType == null)
+            {
+                throw new InvalidOperationException("Class 'BlazorDataOrchestratorJob' not found in the compiled code.");
+            }
+
+            // Find ExecuteJob method (try 6-parameter signature first, then 5-parameter)
+            var executeMethod = jobType.GetMethod("ExecuteJob", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int), typeof(string) }, null);
+
+            object?[] args;
+            if (executeMethod != null)
+            {
+                args = new object?[] { appSettingsContent, -1, -1, jobInstanceId, -1, "" };
+            }
+            else
+            {
+                // Fallback: 5-parameter signature (without webAPIParameter)
+                executeMethod = jobType.GetMethod("ExecuteJob", BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) }, null);
+
+                if (executeMethod == null)
+                {
+                    throw new InvalidOperationException("Method 'ExecuteJob' with expected parameters not found on 'BlazorDataOrchestratorJob'.");
+                }
+                args = new object?[] { appSettingsContent, -1, -1, jobInstanceId, -1 };
+            }
+
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Invoking ExecuteJob...\n";
+            if (!_disposed) StateHasChanged();
+
+            // Invoke the method
+            var resultObj = executeMethod.Invoke(null, args);
+
+            // Handle async Task<List<string>> return type
+            if (resultObj is Task<List<string>> taskResult)
+            {
+                return await taskResult;
+            }
+            else if (resultObj is Task task)
+            {
+                await task;
+                // Try to get Result via reflection for generic tasks
+                var resultProp = task.GetType().GetProperty("Result");
+                if (resultProp?.GetValue(task) is List<string> listResult)
+                {
+                    return listResult;
+                }
+                return new List<string> { "Job completed (no results returned)." };
+            }
+            else if (resultObj is List<string> syncResult)
+            {
+                return syncResult;
+            }
+
+            return new List<string> { "Job completed." };
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    /// <summary>
+    /// Sends compilation errors to the Copilot chat for AI-assisted fix suggestions.
+    /// This runs in the background and posts the result to the chat panel.
+    /// </summary>
+    private async Task SendCompilationErrorsToCopilotAsync(string code, List<string> errors)
+    {
+        try
+        {
+            if (!CopilotHealth.IsReady || aiChat == null) return;
+
+            var errorSummary = string.Join("\n", errors.Take(20)); // Limit to first 20 errors
+            var prompt = $"The following code has compilation errors. Please analyze the errors and suggest fixes:\n\n" +
+                         $"**Compilation Errors:**\n```\n{errorSummary}\n```\n\n" +
+                         $"**Current Code ({selectedFile}):**\n```{(selectedLanguage == "python" ? "python" : "csharp")}\n{code}\n```\n\n" +
+                         $"Please provide the corrected code.";
+
+            // Update the chat context with the current code
+            ChatService.SetCurrentEditorCode(code);
+            ChatService.SetLanguage(selectedLanguage);
+            ChatService.SetCurrentFileName(selectedFile ?? "main.cs");
+
+            // Send to Copilot and collect response
+            var responseBuilder = new System.Text.StringBuilder();
+            await foreach (var chunk in ChatService.GetCompletionsAsync(prompt))
+            {
+                responseBuilder.Append(chunk);
+            }
+
+            if (responseBuilder.Length > 0)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Copilot fix suggestion available in the Chat panel.\n";
+                if (!_disposed) StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] Copilot suggestion failed: {ex.Message}\n";
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
     private async Task OnRefreshLogs()
+    {
+        await LoadLogsAsync();
+    }
+
+    /// <summary>
+    /// Core method that fetches logs from Azure Table Storage for the current job
+    /// and populates logDisplayEntries. Called on initial page load and on manual refresh.
+    /// </summary>
+    private async Task LoadLogsAsync()
     {
         if (_disposed) return;
 
@@ -1244,6 +1605,9 @@ except Exception as e:
             if (!_disposed) StateHasChanged();
             return;
         }
+
+        isLoadingLogs = true;
+        if (!_disposed) StateHasChanged();
 
         try
         {
@@ -1259,35 +1623,56 @@ except Exception as e:
 
             if (currentJobId > 0)
             {
-                // Get logs for the latest job instance of the current job
-                if (currentJobInstanceId == 0)
+                // Always fetch the latest job instance for this job so we
+                // show the most recent run, not a stale persisted value.
+                var latestInstanceId = await jobManager.GetLatestJobInstanceIdAsync(currentJobId);
+                if (latestInstanceId.HasValue)
                 {
-                    var latestInstanceId = await jobManager.GetLatestJobInstanceIdAsync(currentJobId);
-                    if (latestInstanceId.HasValue)
-                    {
-                        currentJobInstanceId = latestInstanceId.Value;
-                    }
+                    currentJobInstanceId = latestInstanceId.Value;
+                    SaveConfiguration(); // Persist the updated instance ID
                 }
 
-                if (currentJobInstanceId > 0)
+                // Load all logs for this job from Azure Table Storage
+                var allLogs = new List<LogDisplayEntry>();
+
+                try
                 {
-                    jobLogs = await jobManager.GetLogsForJobInstanceAsync(currentJobId, currentJobInstanceId);
-                    if (_disposed) return;
-                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Loaded {jobLogs.Count} log entries for Job {currentJobId}, Instance {currentJobInstanceId}\n";
+                    var azureLogs = await jobManager.GetAllLogsForJobAsync(currentJobId);
+                    var tableLogEntries = azureLogs.Select(l => new LogDisplayEntry
+                    {
+                        Id = 0,
+                        JobInstanceId = l.JobInstanceId,
+                        Level = l.Level ?? "Info",
+                        CreatedDate = l.Timestamp,
+                        Message = $"[{l.Action}] {l.Details}",
+                        Source = "AzureTable"
+                    });
+                    allLogs.AddRange(tableLogEntries);
                 }
-                else
+                catch
                 {
-                    logOutput = $"[{DateTime.Now:HH:mm:ss}] No job instances found for Job {currentJobId}\n";
+                    // If Azure Table logs fail, continue with empty list
                 }
+
+                // Sort all logs by date descending
+                logDisplayEntries = allLogs.OrderByDescending(l => l.CreatedDate).ToList();
+
+                if (_disposed) return;
+                logOutput = $"[{DateTime.Now:HH:mm:ss}] Loaded {logDisplayEntries.Count} log entries for Job {currentJobId}\n";
             }
             else
             {
+                logDisplayEntries = new List<LogDisplayEntry>();
                 logOutput = $"[{DateTime.Now:HH:mm:ss}] No job selected. Run a job first to see logs.\n";
             }
         }
         catch (Exception ex)
         {
             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error loading logs: {ex.Message}\n";
+        }
+        finally
+        {
+            isLoadingLogs = false;
         }
 
         if (!_disposed)
@@ -1318,6 +1703,28 @@ except Exception as e:
         };
     }
 
+    private BadgeStyle GetLogBadgeStyle(string level)
+    {
+        return level switch
+        {
+            "Error" => BadgeStyle.Danger,
+            "Warning" => BadgeStyle.Warning,
+            "Info" => BadgeStyle.Info,
+            "Success" => BadgeStyle.Success,
+            _ => BadgeStyle.Light
+        };
+    }
+
+    private class LogDisplayEntry
+    {
+        public int Id { get; set; }
+        public int JobInstanceId { get; set; }
+        public string Level { get; set; } = string.Empty;
+        public DateTime CreatedDate { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+    }
+
     private class DesignerConfiguration
     {
         public string SelectedLanguage { get; set; } = "csharp";
@@ -1325,10 +1732,14 @@ except Exception as e:
         public int LastJobInstanceId { get; set; }
     }
 
+    private async Task OnCheckCopilotHealth()
+    {
+        await CopilotHealth.RefreshAsync();
+        if (!_disposed) StateHasChanged();
+    }
+
     public void Dispose()
     {
         _disposed = true;
-        _pollingTimer?.Stop();
-        _pollingTimer?.Dispose();
     }
 }

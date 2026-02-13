@@ -2,7 +2,7 @@
   "Dependencies": [
     {
       "Id": "Azure.Storage.Blobs",
-      "Version": "12.26.0"
+      "Version": "12.27.0"
     },
     {
       "Id": "Microsoft.EntityFrameworkCore",

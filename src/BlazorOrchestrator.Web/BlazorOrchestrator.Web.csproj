@@ -27,11 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.0" />
-    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.0" />
-    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.0" />
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.0" />
-    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.0" />
+    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.1" />
+    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.1" />
+    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.1" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.1" />
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.1" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
@@ -53,10 +53,6 @@
     <None Update="!SQL\01.00.00.sql">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Components\Shared\" />
   </ItemGroup>
 
 </Project>

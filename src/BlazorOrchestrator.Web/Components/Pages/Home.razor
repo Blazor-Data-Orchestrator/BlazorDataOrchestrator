@@ -511,19 +511,20 @@ else
         if (!lastRun.HasValue)
             return "Never";
 
-        var now = DateTime.UtcNow;
-        var diff = now - lastRun.Value;
+        var displayTime = TimeDisplayService.ConvertToDisplayTime(lastRun.Value);
+        var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
+        var diff = nowDisplay - displayTime;
 
         if (diff.TotalMinutes < 1)
             return "Just now";
         if (diff.TotalHours < 1)
             return $"{(int)diff.TotalMinutes}m ago";
-        if (lastRun.Value.Date == now.Date)
-            return $"Today {lastRun.Value:HH:mm}";
-        if (lastRun.Value.Date == now.Date.AddDays(-1))
-            return $"Yesterday {lastRun.Value:HH:mm}";
+        if (displayTime.Date == nowDisplay.Date)
+            return $"Today {displayTime:HH:mm}";
+        if (displayTime.Date == nowDisplay.Date.AddDays(-1))
+            return $"Yesterday {displayTime:HH:mm}";
 
-        return lastRun.Value.ToString("MMM d, HH:mm");
+        return TimeDisplayService.FormatDateTime(lastRun.Value, "MMM d, HH:mm");
     }
 
     private string GetNextRunDisplay(Job job)
@@ -540,13 +541,14 @@ else
             var lastRun = enabledSchedule.LastRun ?? DateTime.UtcNow;
             var nextRun = lastRun.AddHours(enabledSchedule.RunEveryHour.Value);
 
-            var now = DateTime.UtcNow;
-            if (nextRun.Date == now.Date)
-                return $"Today {nextRun:HH:mm}";
-            if (nextRun.Date == now.Date.AddDays(1))
-                return $"Tomorrow {nextRun:HH:mm}";
+            var displayTime = TimeDisplayService.ConvertToDisplayTime(nextRun);
+            var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
+            if (displayTime.Date == nowDisplay.Date)
+                return $"Today {displayTime:HH:mm}";
+            if (displayTime.Date == nowDisplay.Date.AddDays(1))
+                return $"Tomorrow {displayTime:HH:mm}";
 
-            return nextRun.ToString("MMM d, HH:mm");
+            return TimeDisplayService.FormatDateTime(nextRun, "MMM d, HH:mm");
         }
 
         return "See schedule";
@@ -809,6 +811,17 @@ else
 
     private async Task OpenCreateProjectDialog()
     {
+        // Check if running on localhost
+        var uri = new Uri(NavigationManager.BaseUri);
+        if (!uri.IsLoopback)
+        {
+            await DialogService.Alert(
+                "The Create Visual Studio Project feature is only available when the application is running on localhost.",
+                "Feature Not Available",
+                new AlertOptions { OkButtonText = "OK" });
+            return;
+        }
+
         projectName = string.Empty;
         validationError = string.Empty;
         isCreating = false;

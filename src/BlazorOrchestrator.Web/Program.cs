@@ -73,9 +73,22 @@ builder.Services.AddScoped<WebhookService>();
 // Add controllers for webhook API
 builder.Services.AddControllers();
 
+// Register Settings service (uses Azure Table Storage)
+builder.Services.AddScoped<SettingsService>(sp =>
+{
+    var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
+    return new SettingsService(tableServiceClient);
+});
+
 // Register settings and display services
-builder.Services.AddSingleton<AppSettingsService>();
-builder.Services.AddScoped<TimeDisplayService>();
+builder.Services.AddScoped<AppSettingsService>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var environment = sp.GetRequiredService<IWebHostEnvironment>();
+    var settingsService = sp.GetRequiredService<SettingsService>();
+    return new AppSettingsService(configuration, environment, settingsService);
+});
+builder.Services.AddScoped<BlazorOrchestrator.Web.Services.TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
 
 // Register AI Settings service (uses Azure Table Storage)
