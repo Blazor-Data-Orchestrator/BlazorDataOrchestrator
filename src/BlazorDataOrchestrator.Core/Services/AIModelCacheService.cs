@@ -310,9 +310,9 @@ public class AIModelCacheService
 
     private static string GetCacheRowKey(string apiKey)
     {
-        // Use a hash to avoid storing full API keys; take last 8 chars + hash for uniqueness
+        // Trim to avoid duplicate entries from whitespace variations in the key
         using var sha = System.Security.Cryptography.SHA256.Create();
-        var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(apiKey));
+        var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(apiKey.Trim()));
         return Convert.ToHexString(hash)[..16];
     }
 

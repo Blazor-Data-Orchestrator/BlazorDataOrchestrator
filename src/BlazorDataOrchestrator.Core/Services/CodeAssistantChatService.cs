@@ -20,7 +20,7 @@ public class CodeAssistantChatService : IAIChatService
 {
     private readonly ConcurrentDictionary<string, ConversationSession> _sessions = new();
     private readonly AISettingsService _settingsService;
-    private readonly EmbeddedInstructionsProvider _instructionsProvider;
+    private readonly IInstructionsProvider _instructionsProvider;
     private AISettings? _cachedSettings;
     private IChatClient? _chatClient;
     private string _currentEditorCode = "";
@@ -47,7 +47,7 @@ Keep responses concise and focused on the code task at hand.
 
     public CodeAssistantChatService(
         AISettingsService settingsService, 
-        EmbeddedInstructionsProvider instructionsProvider)
+        IInstructionsProvider instructionsProvider)
     {
         _settingsService = settingsService;
         _instructionsProvider = instructionsProvider;
@@ -121,6 +121,14 @@ Keep responses concise and focused on the code task at hand.
                     new ApiKeyCredential(settings.ApiKey));
                 _chatClient = azureClient.GetChatClient(settings.AIModel).AsIChatClient();
             }
+            else if (settings.AIServiceType == "Anthropic")
+            {
+                _chatClient = new AnthropicChatClientAdapter(settings.ApiKey, settings.AIModel);
+            }
+            else if (settings.AIServiceType == "Google AI")
+            {
+                _chatClient = new GoogleAIChatClientAdapter(settings.ApiKey, settings.AIModel);
+            }
             else // OpenAI
             {
                 var openAIClient = new OpenAIClient(new ApiKeyCredential(settings.ApiKey));
@@ -155,7 +163,7 @@ Keep responses concise and focused on the code task at hand.
         
         if (chatClient == null)
         {
-            var fallbackResponse = "⚠️ AI service is not configured. Please click the gear icon (⚙️) to configure your OpenAI or Azure OpenAI settings.";
+            var fallbackResponse = "⚠️ AI service is not configured. Please click the gear icon (⚙️) to configure your AI provider settings (OpenAI, Azure OpenAI, Anthropic, or Google AI).";
             session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = fallbackResponse });
             yield return fallbackResponse;
             yield break;
@@ -218,18 +226,20 @@ Keep responses concise and focused on the code task at hand.
                 }
             }
 
-            // GPT-5 and o1 models only support temperature=1, so don't set it for those models
+            // Some models only support temperature=1 or don't support temperature at all
             var modelName = _cachedSettings?.AIModel?.ToLowerInvariant() ?? "";
+            var serviceType = _cachedSettings?.AIServiceType ?? "OpenAI";
             var isRestrictedModel = modelName.Contains("gpt-5") || 
                                     modelName.Contains("gpt5") || 
                                     modelName.StartsWith("o1") ||
                                     modelName.Contains("o1-preview") ||
                                     modelName.Contains("o1-mini");
             
+            // Anthropic and Google handle temperature internally through their adapters
             var options = new ChatOptions
             {
                 Temperature = isRestrictedModel ? null : (float?)temperature ?? 0.7f,
-                MaxOutputTokens = maxTokens ?? 2048
+                MaxOutputTokens = maxTokens ?? 4096
             };
 
             var responseBuilder = new System.Text.StringBuilder();

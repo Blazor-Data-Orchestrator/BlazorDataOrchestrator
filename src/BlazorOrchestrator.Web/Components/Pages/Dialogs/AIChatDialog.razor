@@ -434,9 +434,18 @@
     /// </summary>
     private string? ExtractFallbackCodeBlock(string response)
     {
+        // Try closed code block first
         var match = System.Text.RegularExpressions.Regex.Match(
             response,
             @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]*?)```");
+
+        if (!match.Success)
+        {
+            // Try unclosed code block (response may have been truncated by token limit)
+            match = System.Text.RegularExpressions.Regex.Match(
+                response,
+                @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]+)$");
+        }
 
         if (!match.Success)
             return null;
@@ -503,6 +512,19 @@
         result = System.Text.RegularExpressions.Regex.Replace(
             result,
             @"```[ \t]*(\w*)[ \t]*\n([\s\S]*?)```",
+            m =>
+            {
+                var placeholder = $"\x00CB{codeBlockIndex++}\x00";
+                var lang = m.Groups[1].Value;
+                var code = m.Groups[2].Value.TrimEnd('\n');
+                codeBlocks[placeholder] = $"<pre><code>{code}</code></pre>";
+                return placeholder;
+            });
+
+        // Handle unclosed code blocks (response may have been truncated by token limit)
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"```[ \t]*(\w*)[ \t]*\n([\s\S]+)$",
             m =>
             {
                 var placeholder = $"\x00CB{codeBlockIndex++}\x00";
