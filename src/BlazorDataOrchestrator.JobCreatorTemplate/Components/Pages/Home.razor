@@ -800,11 +800,37 @@ except Exception as e:
             }
             catch (Exception ex)
             {
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Error executing code: {ex.Message}\n";
-                if (ex.InnerException != null)
+                // Extract the most useful error message (unwrap TargetInvocationException)
+                var rootEx = ex is System.Reflection.TargetInvocationException tie && tie.InnerException != null
+                    ? tie.InnerException : ex;
+                var errorDetail = rootEx.InnerException != null
+                    ? $"{rootEx.Message}\n{rootEx.InnerException.Message}"
+                    : rootEx.Message;
+                var fullDetail = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Instance: {currentJobInstanceId}\n" +
+                    $"Type: {rootEx.GetType().FullName}\nMessage: {errorDetail}\n" +
+                    $"StackTrace:\n{rootEx.StackTrace}\n---\nOriginal: {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}";
+
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Error executing code: {errorDetail}\n";
+
+                // Write error to file for diagnostics
+                try { await File.AppendAllTextAsync(Path.Combine(Environment.ContentRootPath, "execution_errors.log"), fullDetail + "\n\n"); } catch { }
+
+                if (!_disposed) StateHasChanged();
+
+                // Show the error in a visible dialog so the user sees it
+                try
                 {
-                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Inner Error: {ex.InnerException.Message}\n";
+                    await DialogService.OpenAsync("Execution Error", ds =>
+                        @<RadzenStack Gap="10">
+                            <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" AllowClose="false"
+                                         Style="white-space: pre-wrap; word-break: break-word;">
+                                @errorDetail
+                            </RadzenAlert>
+                            <RadzenButton Text="Close" Click="() => ds.Close(true)" Style="width: 100px; align-self: center;" />
+                        </RadzenStack>
+                    );
                 }
+                catch { /* Dialog might fail if disposed */ }
 
                 if (activeJobManager != null && currentJobInstanceId > 0)
                 {
@@ -1405,8 +1431,17 @@ except Exception as e:
             throw new InvalidOperationException("No code to compile.");
         }
 
-        // Parse the code into a syntax tree
-        var syntaxTree = CSharpSyntaxTree.ParseText(code);
+        // Resolve the full canonical path for the source file so VS can match its breakpoint location.
+        var sourceFilePath = Path.GetFullPath(Path.Combine(CurrentCodeFolderPath, selectedFile ?? "main.cs"));
+
+        // CRITICAL FOR DEBUGGING: Save the editor code to disk before compiling.
+        // Roslyn embeds a SHA-256 checksum of the source in the PDB. VS compares this checksum
+        // against the file on disk when binding breakpoints. If they differ by even one byte
+        // (whitespace, line endings, etc.), the breakpoint won't bind. Writing ensures they match.
+        await File.WriteAllTextAsync(sourceFilePath, code, System.Text.Encoding.UTF8);
+
+        var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(code, System.Text.Encoding.UTF8);
+        var syntaxTree = CSharpSyntaxTree.ParseText(sourceText, path: sourceFilePath);
 
         // Collect all runtime assembly references
         var references = new List<MetadataReference>();
@@ -1447,9 +1482,10 @@ except Exception as e:
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Compiling with {references.Count} assembly references...\n";
         if (!_disposed) StateHasChanged();
 
-        // Compile
+        // Compile with a stable assembly name so the embedded PDB reference is predictable
+        const string dynamicAssemblyName = "DynamicJob";
         var compilation = CSharpCompilation.Create(
-            assemblyName: $"DynamicJob_{Guid.NewGuid():N}",
+            assemblyName: dynamicAssemblyName,
             syntaxTrees: new[] { syntaxTree },
             references: references,
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
@@ -1457,7 +1493,10 @@ except Exception as e:
                 .WithAllowUnsafe(true));
 
         using var ms = new MemoryStream();
-        var emitResult = compilation.Emit(ms);
+        // Use Embedded PDB so debug symbols are stored inside the DLL itself.
+        // This avoids PDB filename discovery issues and ensures VS can always find symbols.
+        var emitOptions = new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded);
+        var emitResult = compilation.Emit(ms, options: emitOptions);
 
         if (!emitResult.Success)
         {
@@ -1474,12 +1513,34 @@ except Exception as e:
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Compilation succeeded. Loading assembly...\n";
         if (!_disposed) StateHasChanged();
 
-        // Load into a collectible AssemblyLoadContext so it can be unloaded
+        // Write DLL to disk so Visual Studio's debugger can bind breakpoints.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"BDO_Debug_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var tempDllPath = Path.Combine(tempDir, $"{dynamicAssemblyName}.dll");
+
         ms.Seek(0, SeekOrigin.Begin);
-        var loadContext = new AssemblyLoadContext($"JobExec_{Guid.NewGuid():N}", isCollectible: true);
+        using (var dllFile = File.Create(tempDllPath))
+            await ms.CopyToAsync(dllFile);
+
+        // When a debugger is attached, load into the default AssemblyLoadContext.
+        // Collectible ALCs have limited debugger support — VS may not bind breakpoints in them.
+        // When no debugger, use a collectible ALC so the assembly can be unloaded.
+        var debuggerAttached = System.Diagnostics.Debugger.IsAttached;
+        AssemblyLoadContext? loadContext = null;
         try
         {
-            var assembly = loadContext.LoadFromStream(ms);
+            Assembly assembly;
+            if (debuggerAttached)
+            {
+                // Assembly.LoadFrom loads into the default context; VS fully supports debugging it
+                assembly = Assembly.LoadFrom(tempDllPath);
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Debugger detected — loaded into default context for breakpoint support.\n";
+            }
+            else
+            {
+                loadContext = new AssemblyLoadContext($"JobExec_{Guid.NewGuid():N}", isCollectible: true);
+                assembly = loadContext.LoadFromAssemblyPath(tempDllPath);
+            }
 
             // Find the BlazorDataOrchestratorJob class
             var jobType = assembly.GetType("BlazorDataOrchestratorJob");
@@ -1541,7 +1602,11 @@ except Exception as e:
         }
         finally
         {
-            loadContext.Unload();
+            // Only unload if we created a collectible context (non-debug path)
+            loadContext?.Unload();
+
+            // Best-effort cleanup of temp DLL file (may still be locked until GC collects)
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
 
