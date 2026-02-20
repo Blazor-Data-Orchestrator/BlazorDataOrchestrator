@@ -35,30 +35,42 @@ public static class DatabaseInitializer
 
             onProgress?.Invoke($"🔍 Checking if database '{databaseName}' exists...");
 
-            // Connect to master to check/create database
-            builder.InitialCatalog = "master";
-            var masterConnStr = builder.ConnectionString;
-
-            await using (var masterConnection = new SqlConnection(masterConnStr))
+            // Try to connect to master to check/create database (works for local SQL Server).
+            // For Azure SQL, the provisioned user may not have master access,
+            // so we skip database creation (Aspire provisions it automatically).
+            try
             {
-                await masterConnection.OpenAsync();
-                onProgress?.Invoke("✅ Connected to SQL Server (master database).");
+                builder.InitialCatalog = "master";
+                var masterConnStr = builder.ConnectionString;
 
-                // Check if database exists
-                var dbExistsQuery = "SELECT database_id FROM sys.databases WHERE name = @dbName";
-                var dbExists = await masterConnection.ExecuteScalarAsync<int?>(dbExistsQuery, new { dbName = databaseName });
+                await using (var masterConnection = new SqlConnection(masterConnStr))
+                {
+                    await masterConnection.OpenAsync();
+                    onProgress?.Invoke("✅ Connected to SQL Server (master database).");
 
-                if (dbExists == null)
-                {
-                    onProgress?.Invoke($"📦 Creating database '{databaseName}'...");
-                    await masterConnection.ExecuteAsync($"CREATE DATABASE [{databaseName}]");
-                    logger.LogInformation("Database '{DatabaseName}' created successfully.", databaseName);
-                    onProgress?.Invoke($"✅ Database '{databaseName}' created successfully!");
+                    // Check if database exists
+                    var dbExistsQuery = "SELECT database_id FROM sys.databases WHERE name = @dbName";
+                    var dbExists = await masterConnection.ExecuteScalarAsync<int?>(dbExistsQuery, new { dbName = databaseName });
+
+                    if (dbExists == null)
+                    {
+                        onProgress?.Invoke($"📦 Creating database '{databaseName}'...");
+                        await masterConnection.ExecuteAsync($"CREATE DATABASE [{databaseName}]");
+                        logger.LogInformation("Database '{DatabaseName}' created successfully.", databaseName);
+                        onProgress?.Invoke($"✅ Database '{databaseName}' created successfully!");
+                    }
+                    else
+                    {
+                        onProgress?.Invoke($"✅ Database '{databaseName}' already exists.");
+                    }
                 }
-                else
-                {
-                    onProgress?.Invoke($"✅ Database '{databaseName}' already exists.");
-                }
+            }
+            catch (SqlException ex) when (ex.Number == 18456 || ex.Number == 916)
+            {
+                // Login failed for master (Azure SQL restricts master access for provisioned users).
+                // The database should already exist (provisioned by Aspire/azd), so continue.
+                logger.LogInformation("Cannot access master database (Azure SQL). Assuming database '{DatabaseName}' is already provisioned.", databaseName);
+                onProgress?.Invoke($"ℹ️ Skipping database creation (Azure SQL - database is pre-provisioned).");
             }
 
             // Now connect to the actual database and run scripts

@@ -4,25 +4,25 @@ using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Define a secret parameter for SA
-var saPassword = builder.AddParameter("sqlServer-password", secret: true);
-
-// Pass that parameter into AddSqlServer
-// Add a SQL Server container with fixed port
-var sqlServer = builder.AddSqlServer("sqlServer", saPassword, port: 1433)
-    .WithEnvironment("ACCEPT_EULA", "Y")
-    .WithDataVolume()
-    .WithLifetime(ContainerLifetime.Persistent);
+// Database configuration:
+// - Local dev: SQL Server container via RunAsContainer()
+// - Azure deployment (azd up): Managed Azure SQL Database is provisioned automatically.
+//   Users can change the database later via the app's built-in Install Wizard.
+var sqlServer = builder.AddAzureSqlServer("sqlserver")
+    .RunAsContainer(container =>
+    {
+        container.WithEnvironment("ACCEPT_EULA", "Y");
+        container.WithDataVolume();
+        container.WithLifetime(ContainerLifetime.Persistent);
+    });
 
 var db = sqlServer.AddDatabase("blazororchestratordb");
 
-// Add Azurite storage emulator for development
-// This will automatically start Azurite container or use local installation
-var storage = builder.AddAzureStorage("storage");
-
-if (builder.Environment.IsDevelopment())
-{
-    storage.RunAsEmulator(emulator =>
+// Storage configuration:
+// - Local dev: Azurite emulator via RunAsEmulator()
+// - Azure deployment (azd up): Azure Storage Account is provisioned automatically.
+var storage = builder.AddAzureStorage("storage")
+    .RunAsEmulator(emulator =>
     {
         emulator.WithLifetime(ContainerLifetime.Persistent);
         emulator.WithDataVolume();  // Persist Azurite data across restarts
@@ -30,39 +30,25 @@ if (builder.Environment.IsDevelopment())
         emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);
         emulator.WithEndpoint("table", endpoint => endpoint.Port = 10002);
     });
-}
 
-// Add Blob storage resource
 var blobs = storage.AddBlobs("blobs");
-
-// Add Table storage resource  
 var tables = storage.AddTables("tables");
-
-// Add Queue storage resource
 var queues = storage.AddQueues("queues");
 
-// Blazor Server Web App
+// Blazor Server Web App — WithExternalHttpEndpoints for public ingress in ACA
 var webApp = builder.AddProject<Projects.BlazorOrchestrator_Web>("webapp")
-    .WithReference(db)
-    .WithReference(blobs)
-    .WithReference(tables)
-    .WithReference(queues)
-    .WaitFor(db);
+    .WithExternalHttpEndpoints()
+    .WithReference(db).WaitFor(db)
+    .WithReference(blobs).WithReference(tables).WithReference(queues);
 
 // Scheduler service
 var scheduler = builder.AddProject<Projects.BlazorOrchestrator_Scheduler>("scheduler")
-    .WithReference(db)
-    .WithReference(blobs)
-    .WithReference(tables)
-    .WithReference(queues)
-    .WaitFor(db);
+    .WithReference(db).WaitFor(db)
+    .WithReference(blobs).WithReference(tables).WithReference(queues);
 
-// Agent service - changed from container to project
+// Agent service
 var agent = builder.AddProject<Projects.BlazorOrchestrator_Agent>("agent")
-    .WithReference(db)
-    .WithReference(blobs)
-    .WithReference(tables)
-    .WithReference(queues)
-    .WaitFor(db);
+    .WithReference(db).WaitFor(db)
+    .WithReference(blobs).WithReference(tables).WithReference(queues);
 
 builder.Build().Run();

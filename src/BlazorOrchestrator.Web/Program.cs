@@ -14,8 +14,8 @@ using System.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Note: Not using Aspire service defaults - this project uses its own connection strings from appsettings.json
-// builder.AddServiceDefaults();
+// Add Aspire service defaults (health checks, resilience, OpenTelemetry)
+builder.AddServiceDefaults();
 
 // Add Azure clients using local connection strings from appsettings.json
 builder.AddAzureBlobServiceClient("blobs");
@@ -133,11 +133,11 @@ builder.Services.AddScoped<JobManager>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
     var sqlConnectionString = config.GetConnectionString("blazororchestratordb") ?? "";
-    var blobConnectionString = config.GetConnectionString("blobs") ?? "";
-    var queueConnectionString = config.GetConnectionString("queues") ?? "";
-    var tableConnectionString = config.GetConnectionString("tables") ?? "";
+    var blobServiceClient = sp.GetRequiredService<BlobServiceClient>();
+    var queueServiceClient = sp.GetRequiredService<QueueServiceClient>();
+    var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
     
-    return new JobManager(sqlConnectionString, blobConnectionString, queueConnectionString, tableConnectionString);
+    return new JobManager(sqlConnectionString, blobServiceClient, queueServiceClient, tableServiceClient);
 });
 
 // Register code editor services
@@ -173,8 +173,6 @@ app.MapRazorComponents<App>()
 app.MapControllers();
 
 app.MapDefaultEndpoints();
-// Note: Not using Aspire's MapDefaultEndpoints - this project runs standalone
-// app.MapDefaultEndpoints();
 
 app.Run();
 

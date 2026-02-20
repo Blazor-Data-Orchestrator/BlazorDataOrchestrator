@@ -40,7 +40,14 @@ namespace BlazorDataOrchestrator.Core
         private readonly TableClient _logTableClient;
         private readonly QueueClient _jobQueueClient;
         private readonly BlobContainerClient _packageContainerClient;
+        private readonly TableServiceClient? _tableServiceClient;
+        private readonly QueueServiceClient? _queueServiceClient;
+        private readonly BlobServiceClient? _blobServiceClient;
 
+        /// <summary>
+        /// Creates a JobManager using raw connection strings. Suitable for local dev with Azurite
+        /// or when using traditional storage account connection strings with account keys.
+        /// </summary>
         public JobManager(string sqlConnectionString, string blobConnectionString, string queueConnectionString, string tableConnectionString)
         {
             _sqlConnectionString = sqlConnectionString;
@@ -48,16 +55,43 @@ namespace BlazorDataOrchestrator.Core
             _queueConnectionString = queueConnectionString;
             _tableConnectionString = tableConnectionString;
 
-            // Initialize clients
+            // Initialize clients from connection strings
             var tableServiceClient = new TableServiceClient(_tableConnectionString);
+            _tableServiceClient = tableServiceClient;
             _logTableClient = tableServiceClient.GetTableClient("JobLogs");
             _logTableClient.CreateIfNotExists();
 
             var queueServiceClient = new QueueServiceClient(_queueConnectionString);
+            _queueServiceClient = queueServiceClient;
             _jobQueueClient = queueServiceClient.GetQueueClient("default");
             _jobQueueClient.CreateIfNotExists();
 
             var blobServiceClient = new BlobServiceClient(_blobConnectionString);
+            _blobServiceClient = blobServiceClient;
+            _packageContainerClient = blobServiceClient.GetBlobContainerClient("jobs");
+            _packageContainerClient.CreateIfNotExists();
+        }
+
+        /// <summary>
+        /// Creates a JobManager using pre-configured Azure SDK clients from DI.
+        /// Suitable for Azure deployment where Aspire injects managed-identity-backed clients.
+        /// </summary>
+        public JobManager(string sqlConnectionString, BlobServiceClient blobServiceClient, QueueServiceClient queueServiceClient, TableServiceClient tableServiceClient)
+        {
+            _sqlConnectionString = sqlConnectionString;
+            _blobConnectionString = string.Empty;
+            _queueConnectionString = string.Empty;
+            _tableConnectionString = string.Empty;
+
+            _tableServiceClient = tableServiceClient;
+            _logTableClient = tableServiceClient.GetTableClient("JobLogs");
+            _logTableClient.CreateIfNotExists();
+
+            _queueServiceClient = queueServiceClient;
+            _jobQueueClient = queueServiceClient.GetQueueClient("default");
+            _jobQueueClient.CreateIfNotExists();
+
+            _blobServiceClient = blobServiceClient;
             _packageContainerClient = blobServiceClient.GetBlobContainerClient("jobs");
             _packageContainerClient.CreateIfNotExists();
         }
@@ -915,8 +949,7 @@ namespace BlazorDataOrchestrator.Core
             await LogAsync("RunJobNow", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
 
             // Get or create the target queue client
-            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
-            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            var targetQueueClient = _queueServiceClient!.GetQueueClient(targetQueueName);
             await targetQueueClient.CreateIfNotExistsAsync();
 
             // Create and send queue message with environment and queue name
@@ -1010,8 +1043,7 @@ namespace BlazorDataOrchestrator.Core
             await LogAsync("WebhookTrigger", $"Target queue: {targetQueueName}", jobId: jobId, jobInstanceId: instance.Id);
 
             // Get or create the target queue client
-            var queueServiceClient = new QueueServiceClient(_queueConnectionString);
-            var targetQueueClient = queueServiceClient.GetQueueClient(targetQueueName);
+            var targetQueueClient = _queueServiceClient!.GetQueueClient(targetQueueName);
             await targetQueueClient.CreateIfNotExistsAsync();
 
             // Create and send queue message with webhook parameters

@@ -51,7 +51,7 @@ public class JobService
             JobName = jobName,
             JobOrganizationId = organizationId,
             JobEnvironment = environment ?? "Development",
-            JobEnabled = false,
+            JobEnabled = true,
             JobQueued = false,
             JobInProcess = false,
             JobInError = false,

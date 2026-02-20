@@ -12,7 +12,11 @@
       		"type": "stdio",
       		"command": "radzen.mcp",
       		"args": []
-    	}
+    	},
+		"aspire": {
+      "command": "aspire",
+      "args": ["mcp-server"]
+    }
 	},
 	"inputs": []
 }
