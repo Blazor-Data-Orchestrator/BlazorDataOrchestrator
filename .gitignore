@@ -75,3 +75,4 @@ Thumbs.db
 /src/Test7
 /tests
 /.playwright-mcp
+.azure
