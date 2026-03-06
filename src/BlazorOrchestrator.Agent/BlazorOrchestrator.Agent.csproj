@@ -10,7 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.1.2" />
     <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.2" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.2" />
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.2" />

@@ -17,19 +17,19 @@
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.1.2" />
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.2" />
     <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.2" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.2" />
-    <PackageReference Include="CS-Script" Version="4.13.1" />
+    <PackageReference Include="CS-Script" Version="4.14.2" />
     <PackageReference Include="CSnakes.Runtime" Version="1.*" />
     <!-- AI functionality packages -->
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.2.0-preview.1.26063.2" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.3.0" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
-    <PackageReference Include="OpenAI" Version="2.8.0" />
+    <PackageReference Include="OpenAI" Version="2.9.1" />
     <!-- Anthropic AI packages -->
-    <PackageReference Include="Anthropic.SDK" Version="4.0.0" />
+    <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
     <!-- Google AI packages -->
-    <PackageReference Include="Mscc.GenerativeAI" Version="2.0.0" />
+    <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
   </ItemGroup>
 

@@ -310,7 +310,7 @@ Keep responses concise and focused on the code task at hand.";
         try
         {
             // Try to resume an existing session first
-            var session = await _client.ResumeSessionAsync(sessionId);
+            var session = await _client.ResumeSessionAsync(sessionId, new ResumeSessionConfig());
             _copilotSessions[sessionId] = session;
             return session;
         }
@@ -330,7 +330,8 @@ Keep responses concise and focused on the code task at hand.";
                 Content = systemPrompt
             },
             Tools = CreateTools(),
-            InfiniteSessions = new InfiniteSessionConfig { Enabled = false }
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+            OnPermissionRequest = PermissionHandler.ApproveAll
         });
 
         _copilotSessions[sessionId] = newSession;

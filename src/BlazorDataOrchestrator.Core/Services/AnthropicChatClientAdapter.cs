@@ -42,7 +42,7 @@ public class AnthropicChatClientAdapter : IChatClient
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            parameters.SystemMessage = systemPrompt;
+            parameters.System = new List<SystemMessage> { new SystemMessage(systemPrompt) };
         }
 
         if (options?.Temperature.HasValue == true)
@@ -76,7 +76,7 @@ public class AnthropicChatClientAdapter : IChatClient
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            parameters.SystemMessage = systemPrompt;
+            parameters.System = new List<SystemMessage> { new SystemMessage(systemPrompt) };
         }
 
         if (options?.Temperature.HasValue == true)

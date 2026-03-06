@@ -32,16 +32,16 @@
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.1.2" />
     <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.1.2" />
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.1.2" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
     <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />
     <!-- AI packages for ConfigureAIDialog connection testing -->
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
-    <PackageReference Include="OpenAI" Version="2.8.0" />
-    <PackageReference Include="Anthropic.SDK" Version="4.0.0" />
-    <PackageReference Include="Mscc.GenerativeAI" Version="2.0.0" />
+    <PackageReference Include="OpenAI" Version="2.9.1" />
+    <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
+    <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
   </ItemGroup>
 
   <ItemGroup>

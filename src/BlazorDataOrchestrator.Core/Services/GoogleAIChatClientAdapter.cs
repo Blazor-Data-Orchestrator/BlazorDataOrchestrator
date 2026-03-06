@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Mscc.GenerativeAI;
+using Mscc.GenerativeAI.Types;
 
 // Alias to avoid ambiguity with Mscc.GenerativeAI.ChatMessage
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
