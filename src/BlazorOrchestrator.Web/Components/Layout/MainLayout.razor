@@ -10,8 +10,15 @@
     <main>
         <div class="top-row px-4">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Style="margin-left: auto;">
-                <RadzenButton Icon="notifications" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" Size="ButtonSize.Medium" />
-                <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                <AuthorizeView>
+                    <Authorized>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280; margin: 0;">@context.User.Identity?.Name</RadzenText>
+                        <RadzenButton Icon="notifications" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" Size="ButtonSize.Medium" />
+                        <a href="/account/logout" data-enhance="false" style="text-decoration: none;">
+                            <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
             </RadzenStack>
         </div>
 

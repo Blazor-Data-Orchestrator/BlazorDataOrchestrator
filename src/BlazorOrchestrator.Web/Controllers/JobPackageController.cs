@@ -1,4 +1,5 @@
 using BlazorDataOrchestrator.Core;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BlazorOrchestrator.Web.Controllers;
@@ -7,6 +8,7 @@ namespace BlazorOrchestrator.Web.Controllers;
 /// API controller for handling job package downloads.
 /// </summary>
 [ApiController]
+[AllowAnonymous]
 [Route("api/job-package")]
 public class JobPackageController : ControllerBase
 {

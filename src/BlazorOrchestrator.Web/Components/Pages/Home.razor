@@ -7,7 +7,10 @@
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorOrchestrator.Web.Components.Pages.InstallUpgrade
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
+@attribute [AllowAnonymous]
 @inject IConfiguration Configuration
 @inject IServiceProvider ServiceProvider
 @inject WizardStateService WizardState
@@ -198,12 +201,26 @@ else
     private List<FilterOption> JobGroupFilterOptions { get; set; } = new();
     private int? selectedJobGroupId = null;
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await CheckSystemStatus();
 
         if (!IsInstalling && !IsLoading)
         {
+            // Redirect unauthenticated users to login when not in install/wizard mode
+            if (AuthStateTask != null)
+            {
+                var authState = await AuthStateTask;
+                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+                {
+                    NavigationManager.NavigateTo("/account/login", forceLoad: true);
+                    return;
+                }
+            }
+
             // Load dashboard data in the background so the UI becomes interactive immediately
             _ = InvokeAsync(async () =>
             {
