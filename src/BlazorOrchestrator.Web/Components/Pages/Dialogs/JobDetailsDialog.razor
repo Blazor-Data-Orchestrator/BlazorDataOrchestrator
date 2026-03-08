@@ -402,6 +402,9 @@ Content-Type: application/json
     [Parameter]
     public EventCallback OnJobSaved { get; set; }
 
+    [Parameter]
+    public int InitialTabIndex { get; set; } = 0;
+
     private Job? Job { get; set; }
     private List<JobSchedule> Schedules { get; set; } = new();
     private List<JobDatum> Parameters { get; set; } = new();
@@ -471,6 +474,7 @@ Content-Type: application/json
 
     protected override async Task OnInitializedAsync()
     {
+        SelectedTabIndex = InitialTabIndex;
         await LoadJobData();
     }
 

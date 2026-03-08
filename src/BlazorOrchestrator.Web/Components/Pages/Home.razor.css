@@ -1,0 +1,23 @@
+.quick-create-card {
+    border: 2px dashed #d1d5db;
+    border-radius: 12px;
+    padding: 1.25rem;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    background-color: transparent;
+}
+
+.quick-create-card:hover,
+.quick-create-card:focus {
+    border-color: #9ca3af;
+    background-color: #f9fafb;
+}
+
+.quick-create-card:focus {
+    outline: 2px solid #4f46e5;
+    outline-offset: 2px;
+}
