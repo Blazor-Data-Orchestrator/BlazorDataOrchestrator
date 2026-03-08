@@ -80,7 +80,7 @@ else
                 <RadzenButton Text="Create New Job" Icon="rocket_launch" ButtonStyle="ButtonStyle.Success"
                               Style="background-color: #16a34a; color: #fff; border: none;" Click="@OpenCreateJobDialog" />
                 <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text"
-                              Style="color: #6b7280;" Click="@LoadJobsAsync" Disabled="@isLoading" />
+                              Style="color: #6b7280;" Click="@LoadJobsAsync" Disabled="@isLoading" AriaLabel="Refresh jobs" />
             </RadzenStack>
         </RadzenStack>
 
@@ -168,7 +168,7 @@ else
                                     <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                   Style="border-color: #d1d5db; color: #374151;" Click="@(() => OpenJobDetailsDialog(job.Id))" />
                                     <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
-                                                  Style="border-color: #d1d5db; color: #374151;" Click="@(() => OpenJobDetailsDialog(job.Id))" />
+                                                  Style="border-color: #d1d5db; color: #374151;" Click="@(() => OpenJobScheduleDialog(job.Id))" />
                                     @if (job.IsRunning)
                                     {
                                         <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small"
@@ -178,7 +178,7 @@ else
                                     }
                                     else if (job.IsEnabled)
                                     {
-                                        <RadzenButton Text="Start" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small"
+                                        <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small"
                                                       Style="background-color: #16a34a; color: #fff; border: none;" Click="@(() => RunJobNow(job))" />
                                     }
                                     <span style="flex: 1;"></span>
@@ -193,11 +193,10 @@ else
                 @* Quick Create Job card *@
                 <RadzenColumn Size="12" SizeMD="6">
                     <div @onclick="OpenCreateJobDialog"
-                         style="border: 2px dashed #d1d5db; border-radius: 12px; padding: 1.25rem; min-height: 220px;
-                                display: flex; align-items: center; justify-content: center; cursor: pointer;
-                                transition: border-color 0.2s, background-color 0.2s;"
-                         onmouseover="this.style.borderColor='#9ca3af'; this.style.backgroundColor='#f9fafb';"
-                         onmouseout="this.style.borderColor='#d1d5db'; this.style.backgroundColor='transparent';">
+                         @onkeydown="HandleQuickCreateKeyDown"
+                         class="quick-create-card"
+                         role="button"
+                         tabindex="0">
                         <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
                             <div style="width: 48px; height: 48px; border-radius: 50%; background-color: #f3f4f6; display: flex; align-items: center; justify-content: center;">
                                 <RadzenIcon Icon="add" Style="font-size: 1.5rem; color: #9ca3af;" />
@@ -597,7 +596,7 @@ else
         if (job.IsRunning) return "Running";
         if (job.IsQueued) return "Queued";
         if (job.IsEnabled) return "Ready";
-        return "Stopped";
+        return "Disabled";
     }
 
     private string GetJobIcon(JobViewModel job)
@@ -621,16 +620,16 @@ else
 
     private string GetJobIconBg(JobViewModel job)
     {
-        if (job.IsRunning) return "#dcfce7";
         if (job.HasError) return "#fee2e2";
+        if (job.IsRunning) return "#dcfce7";
         if (job.IsEnabled) return "#dbeafe";
         return "#f3f4f6";
     }
 
     private string GetJobIconColor(JobViewModel job)
     {
-        if (job.IsRunning) return "#16a34a";
         if (job.HasError) return "#dc2626";
+        if (job.IsRunning) return "#16a34a";
         if (job.IsEnabled) return "#2563eb";
         return "#6b7280";
     }
@@ -643,6 +642,8 @@ else
             return "background-color: #dcfce7; color: #16a34a; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;";
         if (job.IsQueued)
             return "background-color: #fef3c7; color: #d97706; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;";
+        if (job.IsEnabled)
+            return "background-color: #dbeafe; color: #2563eb; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;";
         return "background-color: #f3f4f6; color: #6b7280; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;";
     }
 
@@ -678,6 +679,30 @@ else
             new Dictionary<string, object>
             {
                 { "JobId", jobId },
+                { "OnClose", EventCallback.Factory.Create(this, () => DialogService.Close()) },
+                { "OnJobDeleted", EventCallback.Factory.Create(this, async () =>
+                    {
+                        DialogService.Close();
+                        await LoadJobsAsync();
+                    }) },
+                { "OnJobSaved", EventCallback.Factory.Create(this, async () =>
+                    {
+                        await LoadJobsAsync();
+                    }) }
+            },
+            new DialogOptions { Width = "950px", CloseDialogOnEsc = false, CloseDialogOnOverlayClick = false });
+    }
+
+    private async Task OpenJobScheduleDialog(int jobId)
+    {
+        var job = AllJobs.FirstOrDefault(j => j.Id == jobId);
+        var title = job != null ? $"Schedule - {job.Name}" : "Schedule Job";
+
+        await DialogService.OpenAsync<JobDetailsDialog>(title,
+            new Dictionary<string, object>
+            {
+                { "JobId", jobId },
+                { "InitialTabIndex", 1 },
                 { "OnClose", EventCallback.Factory.Create(this, () => DialogService.Close()) },
                 { "OnJobDeleted", EventCallback.Factory.Create(this, async () =>
                     {
@@ -789,6 +814,14 @@ else
         public DateTime CreatedDate { get; set; }
         public string Message { get; set; } = string.Empty;
         public string Source { get; set; } = string.Empty; // "Instance" or "AzureTable"
+    }
+
+    private async Task HandleQuickCreateKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            await OpenCreateJobDialog();
+        }
     }
 
     private async Task OpenCreateJobDialog()
