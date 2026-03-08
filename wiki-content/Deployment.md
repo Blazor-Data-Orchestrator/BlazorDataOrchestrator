@@ -1,6 +1,6 @@
 # Deployment
 
-This guide covers deploying Blazor Data Orchestrator to production environments.
+This guide covers deploying Blazor Data Orchestrator to production environments. The platform is designed to go from `git clone` to a fully deployed Azure Container Apps environment with a single `azd up` command — including Azure SQL, Storage, and Container Registry provisioning.
 
 ---
 
@@ -58,9 +58,26 @@ graph TB
 
 ## Azure Deployment with Azure Developer CLI
 
-The repository includes an `azure.yaml` file in the AppHost project, enabling deployment via the [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/overview).
+The repository includes an `azure.yaml` file in the AppHost project, enabling deployment via the [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/overview). This is the recommended deployment path — it provisions all required Azure resources and deploys all services in one operation.
 
-### Steps
+### One-Command Deployment
+
+The fastest way to deploy is a single command that combines provisioning and deployment:
+
+```bash
+azd up
+```
+
+This command:
+1. Creates all required Azure resources (Container Apps Environment, Azure SQL Database, Storage Account, Container Registry)
+2. Builds and containerizes all services (Web, Scheduler, Agent)
+3. Deploys everything to Azure Container Apps
+
+No manual infrastructure setup is required. The Aspire AppHost defines the entire application topology, and `azd` translates it into Azure resources automatically.
+
+### Step-by-Step Deployment
+
+If you prefer more control, you can run each step separately:
 
 1. **Install Azure Developer CLI**
 
@@ -97,14 +114,6 @@ The repository includes an `azure.yaml` file in the AppHost project, enabling de
    ```
 
    This builds, containerizes, and deploys all services (Web, Scheduler, Agent) to Azure Container Apps.
-
-### One-step deployment
-
-You can combine provision and deploy:
-
-```bash
-azd up
-```
 
 ---
 

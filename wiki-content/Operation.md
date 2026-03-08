@@ -169,7 +169,7 @@ Navigate to the **Administration** page via the navigation link on the home page
 
 ## Agent Behavior
 
-The Agent is a background worker service that processes job execution messages. Here is what happens when a job is executed:
+The Agent is a background worker service that processes job execution messages. It implements several production reliability patterns — queue-based scaling, NuGet packaging for job distribution, and heartbeat-based reliability for long-running tasks. Here is what happens when a job is executed:
 
 1. **Poll queue** — The agent polls its configured queue every 5 seconds for new messages.
 2. **Receive message** — When a message is received, the visibility timeout is set to 5 minutes.
@@ -182,9 +182,21 @@ The Agent is a background worker service that processes job execution messages. 
 9. **Update status** — The JobInstance record is updated with completion or error status.
 10. **Delete message** — On success, the queue message is deleted. On failure, it becomes visible again after the timeout.
 
-### Visibility Timeout Renewal
+### Visibility Timeout Renewal (Heartbeat)
 
-For jobs that run longer than 5 minutes, a background task renews the message visibility every 3 minutes. This prevents the message from becoming visible to other agents while the job is still running. If the agent crashes, the message becomes visible after the timeout, allowing another agent to pick it up.
+For jobs that run longer than 5 minutes, a background task renews the message visibility every 3 minutes. This **heartbeat pattern** is critical for production reliability:
+
+- It prevents the message from becoming visible to other agents while the job is still running.
+- If the agent crashes, the message becomes visible after the timeout, allowing another agent to pick it up — ensuring no job is silently lost.
+- Combined with the Scheduler's **stuck instance detection** (which marks unresponsive instances as errors after a configurable timeout), this provides end-to-end reliability for long-running workloads.
+
+### Horizontal Scaling
+
+Agents scale horizontally across multiple queues. You can:
+
+- **Scale replicas** — Deploy multiple replicas of the same agent for parallel processing on a single queue.
+- **Create dedicated pools** — Deploy separate agents with different `QueueName` values to create specialized processing pools (e.g., `default` for lightweight jobs, `jobs-large-container` for resource-intensive workloads).
+- **Mix environments** — Run cloud-based agents alongside on-premises agents monitoring different queues.
 
 ---
 

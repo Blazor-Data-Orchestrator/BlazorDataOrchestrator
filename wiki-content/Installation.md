@@ -1,8 +1,10 @@
 # Installation
 
-This guide walks you through setting up Blazor Data Orchestrator from a fresh clone to a running application.
+This guide walks you through setting up Blazor Data Orchestrator from a fresh clone to a running application. The entire process takes minutes — Aspire handles all infrastructure (SQL Server, Azure Storage emulator) automatically, and a guided Install Wizard walks you through first-time configuration.
 
 > **Prerequisites:** Make sure you have met all the [Requirements](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Requirements) before starting.
+>
+> **Deploying to Azure?** See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide to go from `git clone` to a fully deployed Azure Container Apps environment with a single `azd up` command.
 
 ---
 

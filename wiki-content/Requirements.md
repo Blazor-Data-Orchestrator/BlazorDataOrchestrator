@@ -1,6 +1,6 @@
 # Requirements
 
-This page lists all prerequisites and infrastructure requirements for running Blazor Data Orchestrator.
+This page lists all prerequisites and infrastructure requirements for running Blazor Data Orchestrator. The platform is designed to run on Azure services developers already know — Azure Storage (Blob, Queue, Table), Azure SQL, and Azure Container Apps — with .NET Aspire handling orchestration in development and production.
 
 ---
 

@@ -1,6 +1,6 @@
 # Features
 
-Blazor Data Orchestrator provides a comprehensive set of features for distributed job orchestration. This page catalogues every major capability of the platform.
+Blazor Data Orchestrator provides a comprehensive set of features for distributed job orchestration. It fills the gap between simple scheduled tasks (like Azure Functions with Timer Triggers) and heavyweight enterprise platforms (like Azure Data Factory or Apache Airflow) — giving Azure developers a lightweight, self-hosted job platform built on services they already know.
 
 ```mermaid
 mindmap
@@ -138,13 +138,15 @@ All job execution logs are stored in **Azure Table Storage** (`JobLogs` table) a
 
 ---
 
-## Queue Visibility Timeout Renewal
+## Queue Visibility Timeout Renewal (Heartbeat)
 
-For long-running jobs, the Agent implements a **heartbeat pattern** to prevent duplicate processing:
+For long-running jobs, the Agent implements a **heartbeat pattern** to prevent duplicate processing and ensure reliability:
 
 - The initial visibility timeout is set to **5 minutes** when a message is received.
 - A background task renews the visibility timeout every **3 minutes**, keeping the message hidden from other agents.
 - If the Agent crashes, the message becomes visible again after the timeout expires and can be picked up by another agent.
+
+This pattern is critical for production workloads — it ensures that jobs are never silently lost, even when agents fail unexpectedly.
 
 ---
 
@@ -156,6 +158,18 @@ On first launch, the web application detects that no database schema exists and 
 2. **Storage** — Configure the Azure Storage connection (or use Azurite for local development).
 3. **Admin User** — Create the initial administrator account.
 4. **Summary** — Review the configuration and complete the setup.
+
+---
+
+## One-Command Azure Deployment
+
+The repository includes full Azure Developer CLI (`azd`) integration. A single command provisions all required Azure resources — Azure SQL, Storage Account, Container Registry, and Container Apps Environment — then builds, containerizes, and deploys all services:
+
+```bash
+azd up
+```
+
+This takes you from `git clone` to a fully deployed Azure Container Apps environment with no manual infrastructure setup. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
 ---
 

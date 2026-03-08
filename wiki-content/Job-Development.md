@@ -2,6 +2,8 @@
 
 This page provides an overview of job development in Blazor Data Orchestrator — what a job is, how it is structured, and the two development approaches available.
 
+You can write, compile, and deploy C# and Python automation jobs from an **in-browser Monaco editor** with AI code assistance — no local tooling required beyond a web browser. For complex jobs that benefit from full IDE support and debugging, a Visual Studio-based workflow is also available.
+
 ---
 
 ## What is a Job?

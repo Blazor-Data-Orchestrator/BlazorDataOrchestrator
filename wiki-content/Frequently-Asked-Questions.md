@@ -6,7 +6,15 @@
 
 ### What is Blazor Data Orchestrator?
 
-Blazor Data Orchestrator is a distributed job orchestration platform built on .NET Aspire and Blazor Server. It lets you create, schedule, and run automated jobs written in C# or Python through a web-based interface.
+Blazor Data Orchestrator is an open-source distributed job orchestration platform built on .NET Aspire and Blazor Server. It lets you create, schedule, and run automated jobs written in C# or Python through a web-based interface with an in-browser Monaco code editor and AI-assisted development. It fills the gap between simple scheduled tasks and enterprise-grade orchestration platforms.
+
+### How does this compare to Azure Functions with Timer Triggers?
+
+Azure Functions with Timer Triggers work well for basic scheduled tasks, but they break down when you need job grouping, parameterization, execution history, horizontal scaling across multiple queues, and a unified management UI. Blazor Data Orchestrator provides all of these on top of Azure services you already know — without the operational overhead of enterprise platforms like Azure Data Factory or Apache Airflow.
+
+### How does this compare to Azure Data Factory or Apache Airflow?
+
+Azure Data Factory and Apache Airflow are powerful platforms, but they carry significant operational overhead and learning curves that many teams cannot justify for internal automation workloads. Blazor Data Orchestrator is a lightweight, self-hosted alternative built on .NET Aspire and Azure Storage — you can clone the repo and deploy to Azure Container Apps with a single `azd up` command.
 
 ### What technologies does it use?
 
@@ -21,6 +29,10 @@ Blazor Data Orchestrator is a distributed job orchestration platform built on .N
 ### Do I need Azure to run this locally?
 
 No. Aspire automatically starts an **Azurite** container (Azure Storage emulator) and a **SQL Server** container for local development. No Azure subscription is required to develop and test locally.
+
+### How do I deploy to Azure?
+
+Run `azd up` from the repository root. This single command provisions all required Azure resources (Azure SQL, Storage Account, Container Registry, Container Apps Environment), builds and containerizes all services, and deploys them to Azure Container Apps. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
 ---
 

@@ -1,12 +1,12 @@
 # Online Code Editor
 
-The online code editor allows you to write, compile, and deploy jobs directly in your browser — no local tooling required beyond a web browser.
+The online code editor allows you to write, compile, and deploy jobs directly in your browser — no local tooling required beyond a web browser. Write a C# or Python job, hit compile, and have it running on Azure in minutes.
 
 ---
 
 ## Overview
 
-The editor is embedded in the **Code Tab** of the Job Details dialog. It uses the [Monaco Editor](https://microsoft.github.io/monaco-editor/) (the same editor that powers Visual Studio Code) and supports both C# and Python.
+The editor is embedded in the **Code Tab** of the Job Details dialog. It uses the [Monaco Editor](https://microsoft.github.io/monaco-editor/) (the same editor that powers Visual Studio Code) and supports both C# and Python. Combined with the AI Code Assistant, it provides a complete development environment for automation jobs without any local setup.
 
 ---
 
