@@ -26,7 +26,7 @@ Blazor Data Orchestrator fills this gap — a **lightweight, self-hosted job pla
 
 ## Architecture Overview
 
-<img width="800" height="600" alt="Blazor Data Orchestrator Architecture" src="https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/raw/main/wiki-content/images/BlazorDataOrchestratorArchitecture.png" />
+<img alt="Blazor Data Orchestrator Architecture" src="https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/raw/main/wiki-content/images/BlazorDataOrchestratorArchitecture.png" />
 
 ## Quick Start
 
