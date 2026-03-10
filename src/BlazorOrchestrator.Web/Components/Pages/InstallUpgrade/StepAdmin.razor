@@ -8,6 +8,9 @@
     private bool IsEmailValid => !string.IsNullOrWhiteSpace(Model.AdminEmail) && Model.AdminEmail.Contains("@");
     private bool IsPasswordValid => !string.IsNullOrWhiteSpace(Model.AdminPassword) && Model.AdminPassword.Length >= 8;
     public bool IsValid => IsUsernameValid && IsEmailValid && IsPasswordValid;
+
+    private bool _showPassword = false;
+    private void TogglePasswordVisibility() => _showPassword = !_showPassword;
 }
 
 <div class="rz-p-2">
@@ -46,7 +49,22 @@
     <div class="row rz-mb-3">
         <div class="col-md-12">
             <RadzenText TextStyle="TextStyle.Subtitle2"><span style="color: red;">*</span> Password</RadzenText>
-            <RadzenPassword @bind-Value="Model.AdminPassword" Style="width: 100%;" Name="AdminPassword" />
+            <div style="position: relative;">
+                @if (_showPassword)
+                {
+                    <RadzenTextBox @bind-Value="Model.AdminPassword" Style="width: 100%; padding-right: 40px;" Name="AdminPassword" />
+                }
+                else
+                {
+                    <RadzenPassword @bind-Value="Model.AdminPassword" Style="width: 100%; padding-right: 40px;" Name="AdminPassword" />
+                }
+                <RadzenButton Icon="@(_showPassword ? "visibility_off" : "visibility")"
+                              Variant="Variant.Text"
+                              Size="ButtonSize.Small"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Click="@TogglePasswordVisibility"
+                              Style="position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 4px; min-width: unset;" />
+            </div>
             @if (!IsPasswordValid && !string.IsNullOrEmpty(Model.AdminPassword))
             {
                 <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-danger">Password must be at least 8 characters.</RadzenText>

@@ -26,7 +26,6 @@ public class JobService
 
         return await query
             .Include(j => j.JobSchedules)
-            .Include(j => j.JobData)
             .OrderBy(j => j.JobName)
             .ToListAsync();
     }

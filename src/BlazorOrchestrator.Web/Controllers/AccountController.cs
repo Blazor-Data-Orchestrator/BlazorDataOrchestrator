@@ -56,7 +56,11 @@ public class AccountController : Controller
                 ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30)
             });
 
-        return LocalRedirect(returnUrl ?? "/");
+        // Ensure returnUrl is local to prevent open-redirect and LocalRedirect errors
+        if (string.IsNullOrEmpty(returnUrl) || !Url.IsLocalUrl(returnUrl))
+            returnUrl = "/";
+
+        return LocalRedirect(returnUrl);
     }
 
     /// <summary>

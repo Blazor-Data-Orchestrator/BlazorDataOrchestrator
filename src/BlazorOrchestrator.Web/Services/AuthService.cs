@@ -26,8 +26,12 @@ public class AuthService
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             return null;
 
+        var normalizedInput = username.ToUpperInvariant();
+
+        // Try matching by username first, then fall back to email
         var user = await _context.AspNetUsers
-            .FirstOrDefaultAsync(u => u.NormalizedUserName == username.ToUpperInvariant());
+            .FirstOrDefaultAsync(u => u.NormalizedUserName == normalizedInput
+                                   || u.NormalizedEmail == normalizedInput);
 
         if (user == null || string.IsNullOrEmpty(user.PasswordHash))
             return null;
@@ -46,5 +50,22 @@ public class AuthService
         }
 
         return user;
+    }
+
+    /// <summary>
+    /// Changes the password for a user after verifying the current password.
+    /// Returns true if the password was changed successfully, false if the current password is incorrect.
+    /// </summary>
+    public async Task<bool> ChangePasswordAsync(string username, string currentPassword, string newPassword)
+    {
+        var user = await ValidateCredentialsAsync(username, currentPassword);
+        if (user == null)
+            return false;
+
+        var passwordHasher = new PasswordHasher<AspNetUser>();
+        user.PasswordHash = passwordHasher.HashPassword(user, newPassword);
+        user.SecurityStamp = Guid.NewGuid().ToString();
+        await _context.SaveChangesAsync();
+        return true;
     }
 }

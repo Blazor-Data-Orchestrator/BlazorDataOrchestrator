@@ -37,11 +37,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
 builder.Services.AddAuthorization(options =>
 {
-    // Require authenticated users for all endpoints by default.
-    // Pages/controllers that should be public must use [AllowAnonymous].
-    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
-        .RequireAuthenticatedUser()
-        .Build();
+    // NOTE: Do NOT use FallbackPolicy with Blazor Server interactive mode.
+    // FallbackPolicy applies to ALL endpoints including the /_blazor SignalR hub,
+    // which blocks unauthenticated users from establishing the circuit — breaking
+    // interactivity on [AllowAnonymous] pages (e.g., install wizard, login).
+    // Component-level auth is handled by AuthorizeRouteView in Routes.razor.
 });
 builder.Services.AddCascadingAuthenticationState();
 

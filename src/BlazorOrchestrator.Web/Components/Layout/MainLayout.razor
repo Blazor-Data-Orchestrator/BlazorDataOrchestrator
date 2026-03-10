@@ -1,6 +1,10 @@
 ﻿@using Radzen
 @using Radzen.Blazor
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
 @inherits LayoutComponentBase
+@inject BlazorOrchestrator.Web.Services.AuthService AuthService
+@inject Radzen.NotificationService NotificationService
 <RadzenComponents @rendermode="InteractiveServer" />
 <div class="page">
     <div class="sidebar">
@@ -13,9 +17,11 @@
                 <AuthorizeView>
                     <Authorized>
                         <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280; margin: 0;">@context.User.Identity?.Name</RadzenText>
-                        <RadzenButton Icon="notifications" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" Size="ButtonSize.Medium" />
+                        <RadzenButton Icon="lock_reset" ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Text" Size="ButtonSize.Medium"
+                                      Title="Change Password" Click="@(() => ShowChangePassword = true)" Style="color: #6b7280;" />
+                        <RadzenButton Icon="notifications" ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Text" Size="ButtonSize.Medium" Style="color: #6b7280;" />
                         <a href="/account/logout" data-enhance="false" style="text-decoration: none;">
-                            <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small" />
+                            <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Flat" Size="ButtonSize.Small" />
                         </a>
                     </Authorized>
                 </AuthorizeView>
@@ -28,6 +34,44 @@
     </main>
 </div>
 
+@if (ShowChangePassword)
+{
+    <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9999; display: flex; justify-content: center; align-items: center;"
+         @onclick="@(() => ShowChangePassword = false)">
+        <RadzenCard Style="width: 420px; padding: 2rem;" @onclick:stopPropagation="true">
+            <RadzenStack Gap="1rem">
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0;">Change Password</RadzenText>
+
+                @if (!string.IsNullOrEmpty(ChangePasswordMessage))
+                {
+                    <RadzenAlert AlertStyle="@(ChangePasswordSuccess ? AlertStyle.Success : AlertStyle.Danger)"
+                                 ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="false">
+                        @ChangePasswordMessage
+                    </RadzenAlert>
+                }
+
+                <div>
+                    <RadzenText TextStyle="TextStyle.Subtitle2">Current Password</RadzenText>
+                    <RadzenPassword @bind-Value="CurrentPassword" Style="width: 100%;" />
+                </div>
+                <div>
+                    <RadzenText TextStyle="TextStyle.Subtitle2">New Password</RadzenText>
+                    <RadzenPassword @bind-Value="NewPassword" Style="width: 100%;" />
+                </div>
+                <div>
+                    <RadzenText TextStyle="TextStyle.Subtitle2">Confirm New Password</RadzenText>
+                    <RadzenPassword @bind-Value="ConfirmPassword" Style="width: 100%;" />
+                </div>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End">
+                    <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@CloseChangePassword" />
+                    <RadzenButton Text="Change Password" ButtonStyle="ButtonStyle.Primary" Click="@HandleChangePassword" Disabled="@IsChangingPassword" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
 <footer class="footer px-4">
     Version: @CurrentVersion
 </footer>
@@ -39,6 +83,90 @@
 </div>
 
 @code {
-    // This should match the CurrentVersion constant in Home.razor
     private const string CurrentVersion = "1.0";
+
+    // Change password state
+    private bool ShowChangePassword;
+    private string CurrentPassword = "";
+    private string NewPassword = "";
+    private string ConfirmPassword = "";
+    private string ChangePasswordMessage = "";
+    private bool ChangePasswordSuccess;
+    private bool IsChangingPassword;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private void CloseChangePassword()
+    {
+        ShowChangePassword = false;
+        CurrentPassword = "";
+        NewPassword = "";
+        ConfirmPassword = "";
+        ChangePasswordMessage = "";
+    }
+
+    private async Task HandleChangePassword()
+    {
+        ChangePasswordMessage = "";
+        ChangePasswordSuccess = false;
+
+        if (string.IsNullOrWhiteSpace(CurrentPassword))
+        {
+            ChangePasswordMessage = "Current password is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(NewPassword) || NewPassword.Length < 8)
+        {
+            ChangePasswordMessage = "New password must be at least 8 characters.";
+            return;
+        }
+
+        if (NewPassword != ConfirmPassword)
+        {
+            ChangePasswordMessage = "New passwords do not match.";
+            return;
+        }
+
+        IsChangingPassword = true;
+        try
+        {
+            // Get current user's name from auth state
+            string? username = null;
+            if (AuthStateTask != null)
+            {
+                var authState = await AuthStateTask;
+                username = authState.User.Identity?.Name;
+            }
+
+            if (string.IsNullOrEmpty(username))
+            {
+                ChangePasswordMessage = "Unable to identify current user.";
+                return;
+            }
+
+            var result = await AuthService.ChangePasswordAsync(username, CurrentPassword, NewPassword);
+            if (result)
+            {
+                ChangePasswordSuccess = true;
+                ChangePasswordMessage = "Password changed successfully!";
+                CurrentPassword = "";
+                NewPassword = "";
+                ConfirmPassword = "";
+            }
+            else
+            {
+                ChangePasswordMessage = "Current password is incorrect.";
+            }
+        }
+        catch (Exception ex)
+        {
+            ChangePasswordMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsChangingPassword = false;
+        }
+    }
 }
