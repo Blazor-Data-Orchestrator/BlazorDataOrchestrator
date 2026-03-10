@@ -75,6 +75,12 @@
             else if (CurrentStep == 3)
             {
                 <StepAdmin Model="@Model" />
+                @if (!string.IsNullOrEmpty(ValidationError))
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Class="rz-mt-2">
+                        @ValidationError
+                    </RadzenAlert>
+                }
             }
             else if (CurrentStep == 4)
             {
@@ -110,6 +116,8 @@
     public bool InstallationSuccess { get; set; } = false;
     public List<string> InstallationLogs { get; set; } = new();
     public InstallationModel Model { get; set; } = new InstallationModel();
+    public string ValidationError { get; set; } = string.Empty;
+    private bool _initialStepSet = false;
 
     public class WizardStep { public int Id { get; set; } public string Label { get; set; } = string.Empty; public string Icon { get; set; } = string.Empty; }
 
@@ -122,6 +130,10 @@
 
     protected override void OnParametersSet()
     {
+        // Only set the initial step once to prevent resetting when the parent re-renders
+        if (_initialStepSet) return;
+        _initialStepSet = true;
+
         // Adjust starting step based on wizard mode
         if (WizardMode == "CreateAdministrator")
         {
@@ -162,20 +174,25 @@
 
     private async Task NextStep()
     {
+        ValidationError = string.Empty;
+
         // Validate admin fields on step 3 before proceeding
         if (CurrentStep == 3)
         {
             if (string.IsNullOrWhiteSpace(Model.AdminUser) || Model.AdminUser.Length < 3)
             {
-                return; // Don't proceed - username invalid
+                ValidationError = "Username must be at least 3 characters.";
+                return;
             }
             if (string.IsNullOrWhiteSpace(Model.AdminEmail) || !Model.AdminEmail.Contains("@"))
             {
-                return; // Don't proceed - email invalid
+                ValidationError = "Please enter a valid email address.";
+                return;
             }
             if (string.IsNullOrWhiteSpace(Model.AdminPassword) || Model.AdminPassword.Length < 8)
             {
-                return; // Don't proceed - password invalid
+                ValidationError = "Password must be at least 8 characters.";
+                return;
             }
         }
 

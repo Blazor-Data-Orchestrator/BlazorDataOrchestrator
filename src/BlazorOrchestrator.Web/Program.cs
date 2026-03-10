@@ -7,6 +7,7 @@ using BlazorDataOrchestrator.Core.Services;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Radzen;
@@ -21,6 +22,28 @@ builder.AddServiceDefaults();
 builder.AddAzureBlobServiceClient("blobs");
 builder.AddAzureTableServiceClient("tables");
 builder.AddAzureQueueServiceClient("queues");
+
+// Add authentication with cookie scheme
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/account/login";
+        options.LogoutPath = "/account/logout";
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    // NOTE: Do NOT use FallbackPolicy with Blazor Server interactive mode.
+    // FallbackPolicy applies to ALL endpoints including the /_blazor SignalR hub,
+    // which blocks unauthenticated users from establishing the circuit — breaking
+    // interactivity on [AllowAnonymous] pages (e.g., install wizard, login).
+    // Component-level auth is handled by AuthorizeRouteView in Routes.razor.
+});
+builder.Services.AddCascadingAuthenticationState();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -62,6 +85,9 @@ else
     // Register IDbConnection that returns null - services should handle this gracefully
     builder.Services.AddScoped<IDbConnection>(sp => null!);
 }
+
+// Register authentication service
+builder.Services.AddScoped<AuthService>();
 
 // Register custom services
 builder.Services.AddScoped<ProjectCreatorService>();
@@ -164,6 +190,10 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseStaticFiles();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseAntiforgery();
 
 app.MapRazorComponents<App>()

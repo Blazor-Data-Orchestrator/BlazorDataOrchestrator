@@ -1,0 +1,51 @@
+@page "/account/login"
+@using Microsoft.AspNetCore.Authorization
+@using BlazorOrchestrator.Web.Components.Layout
+@attribute [AllowAnonymous]
+@layout LoginLayout
+
+<PageTitle>Sign In - Blazor Data Orchestrator</PageTitle>
+
+<div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f5f5f5;">
+    <div style="width: 400px; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <span style="background-color: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em;">
+                BLAZOR DATA ORCHESTRATOR
+            </span>
+            <h3 style="margin-top: 1rem; font-weight: 600;">Sign in to your account</h3>
+        </div>
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div style="background: #fee2e2; color: #dc2626; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.875rem;">
+                @ErrorMessage
+            </div>
+        }
+
+        <form method="post" action="/account/do-login" data-enhance="false">
+            <div style="margin-bottom: 1rem;">
+                <label for="username" style="display: block; font-weight: 500; margin-bottom: 0.25rem; font-size: 0.875rem;">Username or Email</label>
+                <input type="text" id="username" name="username" required autofocus
+                       style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.875rem; box-sizing: border-box;" />
+            </div>
+            <div style="margin-bottom: 1.5rem;">
+                <label for="password" style="display: block; font-weight: 500; margin-bottom: 0.25rem; font-size: 0.875rem;">Password</label>
+                <input type="password" id="password" name="password" required
+                       style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.875rem; box-sizing: border-box;" />
+            </div>
+            <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+            <button type="submit"
+                    style="width: 100%; padding: 0.625rem; background-color: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 0.875rem; font-weight: 500; cursor: pointer;">
+                Sign In
+            </button>
+        </form>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorMessage { get; set; }
+}
