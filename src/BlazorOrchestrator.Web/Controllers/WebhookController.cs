@@ -1,5 +1,6 @@
 using BlazorOrchestrator.Web.Services;
 using BlazorDataOrchestrator.Core;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BlazorOrchestrator.Web.Controllers;
@@ -8,6 +9,7 @@ namespace BlazorOrchestrator.Web.Controllers;
 /// API controller for handling webhook requests to trigger job execution.
 /// </summary>
 [ApiController]
+[AllowAnonymous]
 [Route("webhook")]
 public class WebhookController : ControllerBase
 {

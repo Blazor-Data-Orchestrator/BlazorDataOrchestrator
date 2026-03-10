@@ -7,7 +7,11 @@
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorOrchestrator.Web.Components.Pages.InstallUpgrade
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
+@using BlazorOrchestrator.Web.Components.Pages.Account
+@attribute [AllowAnonymous]
 @inject IConfiguration Configuration
 @inject IServiceProvider ServiceProvider
 @inject WizardStateService WizardState
@@ -21,6 +25,12 @@
 @inject TimeDisplayService TimeDisplayService
 
 <PageTitle>@(IsInstalling ? "Setup Wizard" : "Dashboard")</PageTitle>
+
+@if (ShouldRedirectToLogin)
+{
+    <RedirectToLogin />
+    return;
+}
 
 @if (IsLoading)
 {
@@ -188,6 +198,7 @@ else
     private bool IsLoading { get; set; } = true;
     private bool isLoading { get; set; } = true;
     private bool IsInstalling { get; set; } = true;
+    private bool ShouldRedirectToLogin { get; set; }
     private string WizardMode { get; set; } = "";
     private string ErrorMessage { get; set; } = "";
     private string GitHubVersion { get; set; } = "";
@@ -198,12 +209,29 @@ else
     private List<FilterOption> JobGroupFilterOptions { get; set; } = new();
     private int? selectedJobGroupId = null;
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await CheckSystemStatus();
 
         if (!IsInstalling && !IsLoading)
         {
+            // Redirect unauthenticated users to login when not in install/wizard mode
+            if (AuthStateTask != null)
+            {
+                var authState = await AuthStateTask;
+                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+                {
+                    // Set flag to render RedirectToLogin declaratively.
+                    // This avoids the NavigationException thrown by imperative
+                    // NavigateTo calls during server-side prerendering.
+                    ShouldRedirectToLogin = true;
+                    return;
+                }
+            }
+
             // Load dashboard data in the background so the UI becomes interactive immediately
             _ = InvokeAsync(async () =>
             {
@@ -303,28 +331,36 @@ else
         IsLoading = false;
     }
 
+    /// <summary>
+    /// Timeout for database operations during system status checks.
+    /// Prevents the page from hanging indefinitely if the DB is unreachable.
+    /// </summary>
+    private static readonly TimeSpan DbCheckTimeout = TimeSpan.FromSeconds(15);
+
     private async Task<bool> CanConnectToDatabase()
     {
+        using var cts = new CancellationTokenSource(DbCheckTimeout);
         using var scope = ServiceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        return await context.Database.CanConnectAsync();
+        return await context.Database.CanConnectAsync(cts.Token);
     }
 
     private async Task<bool> IsDatabaseSetUpAsync()
     {
         try
         {
+            using var cts = new CancellationTokenSource(DbCheckTimeout);
             using var scope = ServiceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             
             // Check if essential tables exist by trying to query them
             // If tables don't exist, this will throw an exception
-            _ = await context.AspNetUsers.AsNoTracking().FirstOrDefaultAsync();
+            _ = await context.AspNetUsers.AsNoTracking().FirstOrDefaultAsync(cts.Token);
             return true;
         }
         catch
         {
-            // Tables don't exist
+            // Tables don't exist or DB timeout
             return false;
         }
     }
@@ -333,12 +369,13 @@ else
     {
         try
         {
+            using var cts = new CancellationTokenSource(DbCheckTimeout);
             using var scope = ServiceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // Check if any user exists with SuperAdmin role
             // For now, just check if any user exists
-            var userExists = await context.AspNetUsers.AsNoTracking().AnyAsync();
+            var userExists = await context.AspNetUsers.AsNoTracking().AnyAsync(cts.Token);
             return userExists;
         }
         catch

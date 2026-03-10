@@ -41,7 +41,8 @@ public class Worker : BackgroundService
         _jobManager = jobManager;
         _packageProcessor = packageProcessor;
         _codeExecutor = codeExecutor;
-        _agentId = $"Agent-{Environment.MachineName}-{Guid.NewGuid():N}".Substring(0, 50);
+        var rawAgentId = $"Agent-{Environment.MachineName}-{Guid.NewGuid():N}";
+        _agentId = rawAgentId[..Math.Min(rawAgentId.Length, 50)];
         
         // Get queue name from configuration, default to "default"
         _queueName = _configuration.GetValue<string>("QueueName") ?? "default";
