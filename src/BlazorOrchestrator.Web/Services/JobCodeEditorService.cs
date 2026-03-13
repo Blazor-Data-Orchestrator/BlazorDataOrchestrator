@@ -574,7 +574,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     ""blobs"": ""UseDevelopmentStorage=true"",
     ""tables"": ""UseDevelopmentStorage=true"",
     ""queues"": ""UseDevelopmentStorage=true"",
-    ""blazororchestratordb"": ""Server=127.0.0.1,1433;Database=blazororchestratordb;User ID=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true""
+    ""blazororchestratordb"": ""Server=127.0.0.1,14330;Database=blazororchestratordb;User ID=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true""
   },
   ""Logging"": {
     ""LogLevel"": {

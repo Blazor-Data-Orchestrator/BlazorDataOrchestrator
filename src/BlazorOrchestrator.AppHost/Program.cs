@@ -14,7 +14,7 @@ var sqlServer = builder.AddAzureSqlServer("sqlserver")
         container.WithEnvironment("ACCEPT_EULA", "Y");
         container.WithDataVolume();
         container.WithLifetime(ContainerLifetime.Persistent);
-        container.WithEndpoint("tcp", endpoint => endpoint.Port = 1433);
+        container.WithEndpoint("tcp", endpoint => endpoint.Port = 14330);
     });
 
 var db = sqlServer.AddDatabase("blazororchestratordb");
