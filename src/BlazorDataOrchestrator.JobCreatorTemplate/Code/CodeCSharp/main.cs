@@ -106,7 +106,7 @@ public class BlazorDataOrchestratorJob
                 }
             }
 
-            string WeatherAPIParam = "Los+Angeles,CA";
+            string WeatherAPIParam = "90746";
 
             // If webAPIParameter is passed, use it to fetch weather data
             if (!string.IsNullOrEmpty(webAPIParameter))
@@ -130,21 +130,31 @@ public class BlazorDataOrchestratorJob
                 // Make the HTTP GET request
                 var response = await httpClient.GetStringAsync(weatherUrl);
 
-                // Parse the JSON response
-                var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
+                try
+                {
+                    // Parse the JSON response
+                    var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
 
-                // Extract current weather information
-                var currentCondition = weatherData.GetProperty("current_condition")[0];
-                string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
-                string tempF = currentCondition.GetProperty("temp_F").GetString() ?? "";
-                string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
-                string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
+                    // Extract current weather information
+                    var currentCondition = weatherData.GetProperty("current_condition")[0];
+                    string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
+                    string tempF = currentCondition.GetProperty("temp_F").GetString() ?? "";
+                    string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
+                    string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
 
-                // Log the weather information
-                string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
-                Console.WriteLine(weatherInfo);
-                await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
-                colLogs.Add(weatherInfo);
+                    // Log the weather information
+                    string weatherInfo = $"{WeatherAPIParam} - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
+                    Console.WriteLine(weatherInfo);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
+                    colLogs.Add(weatherInfo);
+                }
+                catch (Exception)
+                {
+                    string notFoundMsg = $"Location '{WeatherAPIParam}' was not found.";
+                    Console.WriteLine(notFoundMsg);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, notFoundMsg, "Warning", tableConnectionString);
+                    colLogs.Add(notFoundMsg);
+                }
             }
             catch (HttpRequestException ex)
             {

@@ -163,37 +163,47 @@ public class BlazorDataOrchestratorJob
                 }
             }
 
-            // Fetch weather data for Los Angeles, CA
-            await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for Los Angeles, CA", "Info", tableConnectionString);
-            logs.Add("Fetching weather data for Los Angeles, CA");
+            // Fetch weather data for the specified location
+            await JobManager.LogProgress(dbContext, jobInstanceId, "Fetching weather data for 90746", "Info", tableConnectionString);
+            logs.Add("Fetching weather data for 90746");
 
             // Set up HTTP client                 
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "BlazorDataOrchestrator/1.0");
                 
             // Using wttr.in as a free weather API (weather.com requires API key)
-            string weatherUrl = "https://wttr.in/Los+Angeles,CA?format=j1";
+            string weatherUrl = "https://wttr.in/90746?format=j1";
                 
             try
             {
                 // Make the HTTP GET request
                 var response = await httpClient.GetStringAsync(weatherUrl);
 
-                // Parse the JSON response
-                var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
-                    
-                // Extract current weather information
-                var currentCondition = weatherData.GetProperty("current_condition")[0];
-                string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
-                string tempF = currentCondition.GetProperty("temp_F").GetString() ?? "";
-                string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
-                string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
+                try
+                {
+                    // Parse the JSON response
+                    var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
+                        
+                    // Extract current weather information
+                    var currentCondition = weatherData.GetProperty("current_condition")[0];
+                    string tempC = currentCondition.GetProperty("temp_C").GetString() ?? "";
+                    string tempF = currentCondition.GetProperty("temp_F").GetString() ?? "";
+                    string humidity = currentCondition.GetProperty("humidity").GetString() ?? "";
+                    string weatherDesc = currentCondition.GetProperty("weatherDesc")[0].GetProperty("value").GetString() ?? "";
 
-                // Log the weather information
-                string weatherInfo = $"Los Angeles, CA - Temperature: {tempF}�F ({tempC}�C), Humidity: {humidity}%, Conditions: {weatherDesc}";
-                Console.WriteLine(weatherInfo);
-                await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
-                logs.Add(weatherInfo);
+                    // Log the weather information
+                    string weatherInfo = $"90746 - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}";
+                    Console.WriteLine(weatherInfo);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, "Info", tableConnectionString);
+                    logs.Add(weatherInfo);
+                }
+                catch (Exception)
+                {
+                    string notFoundMsg = "Location '90746' was not found.";
+                    Console.WriteLine(notFoundMsg);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, notFoundMsg, "Warning", tableConnectionString);
+                    logs.Add(notFoundMsg);
+                }
             }
             catch (HttpRequestException ex)
             {

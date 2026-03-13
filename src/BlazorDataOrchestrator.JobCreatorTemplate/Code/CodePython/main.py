@@ -247,8 +247,8 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 print(f"Warning: Failed to read Last Job Run Time: {e}")
         
         # Set default weather API parameter
-        weather_api_param = "Los+Angeles,CA"
-        weather_location = "Los Angeles,CA"
+        weather_api_param = "90746"
+        weather_location = "90746"
         
         # If web_api_parameter is passed, use it to fetch weather data
         if web_api_parameter:
@@ -270,17 +270,23 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             with urllib.request.urlopen(req, timeout=30) as response:
                 weather_data = json.loads(response.read().decode("utf-8"))
                 
-                # Extract current weather information
-                current_condition = weather_data["current_condition"][0]
-                temp_c = current_condition["temp_C"]
-                temp_f = current_condition["temp_F"]
-                humidity = current_condition["humidity"]
-                weather_desc = current_condition["weatherDesc"][0]["value"]
-                
-                weather_info = f"{weather_location} - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
-                print(weather_info)
-                logger.log_progress(weather_info)
-                logs.append(weather_info)
+                try:
+                    # Extract current weather information
+                    current_condition = weather_data["current_condition"][0]
+                    temp_c = current_condition["temp_C"]
+                    temp_f = current_condition["temp_F"]
+                    humidity = current_condition["humidity"]
+                    weather_desc = current_condition["weatherDesc"][0]["value"]
+                    
+                    weather_info = f"{weather_location} - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
+                    print(weather_info)
+                    logger.log_progress(weather_info)
+                    logs.append(weather_info)
+                except (KeyError, IndexError, TypeError):
+                    not_found_msg = f"Location '{weather_location}' was not found."
+                    print(not_found_msg)
+                    logger.log_progress(not_found_msg, "Warning")
+                    logs.append(not_found_msg)
                 
         except urllib.error.URLError as e:
             error_msg = f"Failed to fetch weather data: {e.reason}"
@@ -288,7 +294,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             logger.log_progress(error_msg, "Warning")
             logs.append(error_msg)
         except Exception as e:
-            error_msg = f"Error processing weather data: {str(e)}"
+            error_msg = f"Location '{weather_location}' was not found."
             print(error_msg)
             logger.log_progress(error_msg, "Warning")
             logs.append(error_msg)

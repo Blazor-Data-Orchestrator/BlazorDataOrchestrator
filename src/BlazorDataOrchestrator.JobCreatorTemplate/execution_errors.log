@@ -1,0 +1,13 @@
+[2026-03-12 19:40:35] Instance: 25
+Type: System.IO.FileLoadException
+Message: Could not load file or assembly 'DynamicJob, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'. Assembly with same name is already loaded
+StackTrace:
+   at System.Runtime.Loader.AssemblyLoadContext.LoadFromAssemblyPath(String assemblyPath)
+   at BlazorDataOrchestrator.JobCreatorTemplate.Components.Pages.Home.CompileAndExecuteCodeAsync(String code, String appSettingsContent, Int32 jobInstanceId) in C:\Users\webma\Source\Repos\Blazor-Data-Orchestrator\BlazorDataOrchestrator\src\BlazorDataOrchestrator.JobCreatorTemplate\Components\Pages\Home.razor:line 1536
+   at BlazorDataOrchestrator.JobCreatorTemplate.Components.Pages.Home.OnRunCode(RadzenSplitButtonItem item) in C:\Users\webma\Source\Repos\Blazor-Data-Orchestrator\BlazorDataOrchestrator\src\BlazorDataOrchestrator.JobCreatorTemplate\Components\Pages\Home.razor:line 698
+---
+Original: System.IO.FileLoadException: Could not load file or assembly 'DynamicJob, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'. Assembly with same name is already loaded
+   at System.Runtime.Loader.AssemblyLoadContext.LoadFromAssemblyPath(String assemblyPath)
+   at BlazorDataOrchestrator.JobCreatorTemplate.Components.Pages.Home.CompileAndExecuteCodeAsync(String code, String appSettingsContent, Int32 jobInstanceId) in C:\Users\webma\Source\Repos\Blazor-Data-Orchestrator\BlazorDataOrchestrator\src\BlazorDataOrchestrator.JobCreatorTemplate\Components\Pages\Home.razor:line 1536
+   at BlazorDataOrchestrator.JobCreatorTemplate.Components.Pages.Home.OnRunCode(RadzenSplitButtonItem item) in C:\Users\webma\Source\Repos\Blazor-Data-Orchestrator\BlazorDataOrchestrator\src\BlazorDataOrchestrator.JobCreatorTemplate\Components\Pages\Home.razor:line 698
+

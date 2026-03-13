@@ -124,7 +124,7 @@ public class BlazorDataOrchestratorJob
                 }
             }
 
-            string WeatherAPIParam = ""Los+Angeles,CA"";
+            string WeatherAPIParam = ""90746"";
 
             // If webAPIParameter is passed, use it to fetch weather data
             if (!string.IsNullOrEmpty(webAPIParameter))
@@ -148,21 +148,31 @@ public class BlazorDataOrchestratorJob
                 // Make the HTTP GET request
                 var response = await httpClient.GetStringAsync(weatherUrl);
 
-                // Parse the JSON response
-                var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
+                try
+                {
+                    // Parse the JSON response
+                    var weatherData = JsonSerializer.Deserialize<JsonElement>(response);
 
-                // Extract current weather information
-                var currentCondition = weatherData.GetProperty(""current_condition"")[0];
-                string tempC = currentCondition.GetProperty(""temp_C"").GetString() ?? """";
-                string tempF = currentCondition.GetProperty(""temp_F"").GetString() ?? """";
-                string humidity = currentCondition.GetProperty(""humidity"").GetString() ?? """";
-                string weatherDesc = currentCondition.GetProperty(""weatherDesc"")[0].GetProperty(""value"").GetString() ?? """";
+                    // Extract current weather information
+                    var currentCondition = weatherData.GetProperty(""current_condition"")[0];
+                    string tempC = currentCondition.GetProperty(""temp_C"").GetString() ?? """";
+                    string tempF = currentCondition.GetProperty(""temp_F"").GetString() ?? """";
+                    string humidity = currentCondition.GetProperty(""humidity"").GetString() ?? """";
+                    string weatherDesc = currentCondition.GetProperty(""weatherDesc"")[0].GetProperty(""value"").GetString() ?? """";
 
-                // Log the weather information
-                string weatherInfo = $""Los Angeles, CA - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}"";
-                Console.WriteLine(weatherInfo);
-                await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, ""Info"", tableConnectionString);
-                colLogs.Add(weatherInfo);
+                    // Log the weather information
+                    string weatherInfo = $""{WeatherAPIParam} - Temperature: {tempF}°F ({tempC}°C), Humidity: {humidity}%, Conditions: {weatherDesc}"";
+                    Console.WriteLine(weatherInfo);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, weatherInfo, ""Info"", tableConnectionString);
+                    colLogs.Add(weatherInfo);
+                }
+                catch (Exception)
+                {
+                    string notFoundMsg = $""Location '{WeatherAPIParam}' was not found."";
+                    Console.WriteLine(notFoundMsg);
+                    await JobManager.LogProgress(dbContext, jobInstanceId, notFoundMsg, ""Warning"", tableConnectionString);
+                    colLogs.Add(notFoundMsg);
+                }
             }
             catch (HttpRequestException ex)
             {
@@ -480,8 +490,8 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 print(f""Warning: Failed to read Last Job Run Time: {e}"")
         
         # Set default weather API parameter
-        weather_api_param = ""Los+Angeles,CA""
-        weather_location = ""Los Angeles,CA""
+        weather_api_param = ""90746""
+        weather_location = ""90746""
         
         # If web_api_parameter is passed, use it to fetch weather data
         if web_api_parameter:
@@ -503,17 +513,23 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             with urllib.request.urlopen(req, timeout=30) as response:
                 weather_data = json.loads(response.read().decode(""utf-8""))
                 
-                # Extract current weather information
-                current_condition = weather_data[""current_condition""][0]
-                temp_c = current_condition[""temp_C""]
-                temp_f = current_condition[""temp_F""]
-                humidity = current_condition[""humidity""]
-                weather_desc = current_condition[""weatherDesc""][0][""value""]
-                
-                weather_info = f""{weather_location} - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}""
-                print(weather_info)
-                logger.log_progress(weather_info)
-                logs.append(weather_info)
+                try:
+                    # Extract current weather information
+                    current_condition = weather_data[""current_condition""][0]
+                    temp_c = current_condition[""temp_C""]
+                    temp_f = current_condition[""temp_F""]
+                    humidity = current_condition[""humidity""]
+                    weather_desc = current_condition[""weatherDesc""][0][""value""]
+                    
+                    weather_info = f""{weather_location} - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}""
+                    print(weather_info)
+                    logger.log_progress(weather_info)
+                    logs.append(weather_info)
+                except (KeyError, IndexError, TypeError):
+                    not_found_msg = f""Location '{weather_location}' was not found.""
+                    print(not_found_msg)
+                    logger.log_progress(not_found_msg, ""Warning"")
+                    logs.append(not_found_msg)
                 
         except urllib.error.URLError as e:
             error_msg = f""Failed to fetch weather data: {e.reason}""
@@ -521,7 +537,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             logger.log_progress(error_msg, ""Warning"")
             logs.append(error_msg)
         except Exception as e:
-            error_msg = f""Error processing weather data: {str(e)}""
+            error_msg = f""Location '{weather_location}' was not found.""
             print(error_msg)
             logger.log_progress(error_msg, ""Warning"")
             logs.append(error_msg)

@@ -299,12 +299,12 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             except Exception as e:
                 print(f"Warning: Failed to read Last Job Run Time: {e}")
         
-        # Fetch weather data for Los Angeles, CA
-        logger.log_progress("Fetching weather data for Los Angeles, CA")
-        logs.append("Fetching weather data for Los Angeles, CA")
+        # Fetch weather data for the specified location
+        logger.log_progress("Fetching weather data for 90746")
+        logs.append("Fetching weather data for 90746")
         
         # Using wttr.in as a free weather API (weather.com requires API key)
-        weather_url = "https://wttr.in/Los+Angeles,CA?format=j1"
+        weather_url = "https://wttr.in/90746?format=j1"
         
         try:
             req = urllib.request.Request(
@@ -314,17 +314,23 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             with urllib.request.urlopen(req, timeout=30) as response:
                 weather_data = json.loads(response.read().decode("utf-8"))
                 
-                # Extract current weather information
-                current_condition = weather_data["current_condition"][0]
-                temp_c = current_condition["temp_C"]
-                temp_f = current_condition["temp_F"]
-                humidity = current_condition["humidity"]
-                weather_desc = current_condition["weatherDesc"][0]["value"]
-                
-                weather_info = f"Los Angeles, CA - Temperature: {temp_f}°F ({temp_c}°C), Humidity: {humidity}%, Conditions: {weather_desc}"
-                print(weather_info)
-                logger.log_progress(weather_info)
-                logs.append(weather_info)
+                try:
+                    # Extract current weather information
+                    current_condition = weather_data["current_condition"][0]
+                    temp_c = current_condition["temp_C"]
+                    temp_f = current_condition["temp_F"]
+                    humidity = current_condition["humidity"]
+                    weather_desc = current_condition["weatherDesc"][0]["value"]
+                    
+                    weather_info = f"90746 - Temperature: {temp_f}Â°F ({temp_c}Â°C), Humidity: {humidity}%, Conditions: {weather_desc}"
+                    print(weather_info)
+                    logger.log_progress(weather_info)
+                    logs.append(weather_info)
+                except (KeyError, IndexError, TypeError):
+                    not_found_msg = "Location '90746' was not found."
+                    print(not_found_msg)
+                    logger.log_progress(not_found_msg, "Warning")
+                    logs.append(not_found_msg)
                 
         except urllib.error.URLError as e:
             error_msg = f"Failed to fetch weather data: {e.reason}"
@@ -332,7 +338,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
             logger.log_progress(error_msg, "Warning")
             logs.append(error_msg)
         except Exception as e:
-            error_msg = f"Error processing weather data: {str(e)}"
+            error_msg = "Location '90746' was not found."
             print(error_msg)
             logger.log_progress(error_msg, "Warning")
             logs.append(error_msg)
