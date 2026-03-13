@@ -85,8 +85,11 @@ else
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #6b7280;">Manage, monitor, and schedule your automated tasks.</RadzenText>
             </RadzenStack>
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
-                <RadzenButton Text="Create Visual Studio Project" Icon="add" ButtonStyle="ButtonStyle.Secondary"
-                              Style="background-color: #4f46e5; color: #fff; border: none;" Click="@OpenCreateProjectDialog" />
+                @if (IsRunningLocally)
+                {
+                    <RadzenButton Text="Create Visual Studio Project" Icon="add" ButtonStyle="ButtonStyle.Secondary"
+                                  Style="background-color: #4f46e5; color: #fff; border: none;" Click="@OpenCreateProjectDialog" />
+                }
                 <RadzenButton Text="Create New Job" Icon="rocket_launch" ButtonStyle="ButtonStyle.Success"
                               Style="background-color: #16a34a; color: #fff; border: none;" Click="@OpenCreateJobDialog" />
                 <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text"
@@ -230,6 +233,8 @@ else
     // GitHub URL for the latest version
     private const string GitHubVersionUrl = "https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion";
     // ********************************
+
+    private bool IsRunningLocally => new Uri(NavigationManager.BaseUri).IsLoopback;
 
     private bool IsLoading { get; set; } = true;
     private bool isLoading { get; set; } = true;
