@@ -52,8 +52,11 @@ var scheduler = builder.AddProject<Projects.BlazorOrchestrator_Scheduler>("sched
     .WithReference(db).WaitFor(db)
     .WithReference(blobs).WithReference(tables).WithReference(queues);
 
-// Agent service
-var agent = builder.AddProject<Projects.BlazorOrchestrator_Agent>("agent")
+// Agent service — uses Dockerfile (AddDockerfile) instead of AddProject so that
+// Python 3 is installed in the container image for Python job execution.
+// The build context is the src/ directory (one level up from AppHost) so that
+// project references to Core and ServiceDefaults resolve correctly.
+var agent = builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Dockerfile")
     .WithReference(db).WaitFor(db)
     .WithReference(blobs).WithReference(tables).WithReference(queues);
 
