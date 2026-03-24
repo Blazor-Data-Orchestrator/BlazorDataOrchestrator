@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/BlazorOrchestrator.AppHost/BlazorOrchestrator.AppHost.csproj"
+  }
+}

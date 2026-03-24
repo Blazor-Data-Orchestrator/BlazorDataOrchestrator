@@ -4,6 +4,9 @@ using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Add the following line to configure the Azure App Container environment
+builder.AddAzureContainerAppEnvironment("env");
+
 // Database configuration:
 // - Local dev: SQL Server container via RunAsContainer()
 // - Azure deployment (azd up): Managed Azure SQL Database is provisioned automatically.
