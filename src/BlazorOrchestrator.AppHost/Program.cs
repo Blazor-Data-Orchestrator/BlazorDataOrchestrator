@@ -4,7 +4,9 @@ using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Add the following line to configure the Azure App Container environment
+// Configure the Azure App Container environment
+// See https://learn.microsoft.com/en-us/azure/app-service/configure-language-dotnet-aspire
+// https://learn.microsoft.com/en-us/azure/app-service/quickstart-dotnet-aspire
 builder.AddAzureContainerAppEnvironment("env");
 
 // Database configuration:
