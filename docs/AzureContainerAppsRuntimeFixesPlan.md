@@ -311,7 +311,7 @@ sequenceDiagram
 
 ### 4.1 Current Behaviour
 
-`JobCodeEditorService` defines a hard-coded `DefaultAppSettings` constant:
+`JobCodeEditorService` defines a hard-coded `DefaultAppSettings` constant for C# jobs:
 
 ```json
 {
@@ -324,31 +324,45 @@ sequenceDiagram
 }
 ```
 
-This constant is used in:
-- `GetDefaultAppSettings()` (called by `JobDetailsDialog.razor`)
-- `ExtractCodeFromPackageAsync()` as fallback
-- `ExtractAllFilesFromPackageAsync()` as fallback
+It also defines a hard-coded `DefaultPythonConfig` constant used as the default `config.json` for Python jobs:
 
-When the app runs in Azure, these localhost connection strings are baked into every job's `appsettings.json`, causing database connections to fail.
+```json
+{
+  "connection_strings": {
+    "blobs": "UseDevelopmentStorage=true",
+    "tables": "UseDevelopmentStorage=true",
+    "queues": "UseDevelopmentStorage=true",
+    "blazororchestratordb": "Server=127.0.0.1,14330;Database=blazororchestratordb;..."
+  }
+}
+```
+
+These constants are used in:
+- `GetDefaultAppSettings()` (called by `JobDetailsDialog.razor` for C# jobs)
+- `GetDefaultPythonConfig()` (called by `JobDetailsDialog.razor` for Python jobs)
+- `ExtractCodeFromPackageAsync()` as fallback for both languages
+- `ExtractAllFilesFromPackageAsync()` as fallback for both languages
+
+When the app runs in Azure, these localhost connection strings are baked into every job's configuration, causing database and storage connections to fail for **both C# and Python jobs**.
 
 ### 4.2 Known Environment Variables
 
 Azure Container Apps and Aspire expose connection strings as environment variables using the `ConnectionStrings__<key>` convention:
 
-| Environment Variable | Maps To (`appsettings.json` Path) |
-|----------------------|-----------------------------------|
-| `ConnectionStrings__blazororchestratordb` | `ConnectionStrings.blazororchestratordb` |
-| `ConnectionStrings__blobs` | `ConnectionStrings.blobs` |
-| `ConnectionStrings__queues` | `ConnectionStrings.queues` |
-| `ConnectionStrings__tables` | `ConnectionStrings.tables` |
-| `BLAZORORCHESTRATORDB_JDBCCONNECTIONSTRING` | `ConnectionStrings.blazororchestratordb` *(JDBC → ADO.NET conversion required)* |
+| Environment Variable | Maps To (C# `appsettings.json` Path) | Maps To (Python `config.json` Path) |
+|----------------------|---------------------------------------|--------------------------------------|
+| `ConnectionStrings__blazororchestratordb` | `ConnectionStrings.blazororchestratordb` | `connection_strings.blazororchestratordb` |
+| `ConnectionStrings__blobs` | `ConnectionStrings.blobs` | `connection_strings.blobs` |
+| `ConnectionStrings__queues` | `ConnectionStrings.queues` | `connection_strings.queues` |
+| `ConnectionStrings__tables` | `ConnectionStrings.tables` | `connection_strings.tables` |
+| `BLAZORORCHESTRATORDB_JDBCCONNECTIONSTRING` | `ConnectionStrings.blazororchestratordb` | `connection_strings.blazororchestratordb` *(JDBC → ADO.NET conversion)* |
 
 ### 4.3 Solution Design
 
 ```mermaid
 flowchart TD
-    A["GetDefaultAppSettings() called"] --> B{"AzureEnvironmentDetector<br/>.IsAzureContainerApp?"}
-    B -- "false (local)" --> C["Return hard-coded<br/>DefaultAppSettings"]
+    A["GetDefaultAppSettings() or<br/>GetDefaultPythonConfig() called"] --> B{"AzureEnvironmentDetector<br/>.IsAzureContainerApp?"}
+    B -- "false (local)" --> C["Return hard-coded<br/>defaults"]
     B -- "true (Azure)" --> D["Read environment variables"]
     D --> E{"ConnectionStrings__*<br/>variables found?"}
     E -- Yes --> F["Map to JSON paths"]
@@ -356,8 +370,11 @@ flowchart TD
     G -- Yes --> H["Convert JDBC → ADO.NET"]
     H --> F
     G -- No --> C
-    F --> I["Build JSON object"]
-    I --> J["Return dynamically<br/>generated appsettings"]
+    F --> I{"Which format?"}
+    I -- "C# (appsettings.json)" --> J["Build JSON with<br/>ConnectionStrings key"]
+    I -- "Python (config.json)" --> K["Build JSON with<br/>connection_strings key"]
+    J --> L["Return dynamically<br/>generated config"]
+    K --> L
 ```
 
 ### 4.4 Detailed Changes
@@ -373,31 +390,33 @@ using System.Text.Json;
 namespace BlazorDataOrchestrator.Core.Services;
 
 /// <summary>
-/// Builds appsettings JSON content by reading environment variables
+/// Builds appsettings / config JSON content by reading environment variables
 /// injected by Azure Container Apps / .NET Aspire.
+/// Supports both C# (appsettings.json) and Python (config.json) formats.
 /// </summary>
 public static class AzureAppSettingsBuilder
 {
     /// <summary>
-    /// Well-known environment variable → appsettings path mappings.
+    /// Well-known environment variable → config key mappings.
     /// Uses the standard .NET __ → : convention plus platform-specific keys.
     /// </summary>
     private static readonly Dictionary<string, string> KnownEnvVarMappings = new()
     {
         // Standard .NET double-underscore convention
-        ["ConnectionStrings__blazororchestratordb"] = "ConnectionStrings:blazororchestratordb",
-        ["ConnectionStrings__blobs"]                = "ConnectionStrings:blobs",
-        ["ConnectionStrings__queues"]               = "ConnectionStrings:queues",
-        ["ConnectionStrings__tables"]               = "ConnectionStrings:tables",
+        ["ConnectionStrings__blazororchestratordb"] = "blazororchestratordb",
+        ["ConnectionStrings__blobs"]                = "blobs",
+        ["ConnectionStrings__queues"]               = "queues",
+        ["ConnectionStrings__tables"]               = "tables",
         // Azure/Aspire JDBC-style key
-        ["BLAZORORCHESTRATORDB_JDBCCONNECTIONSTRING"] = "ConnectionStrings:blazororchestratordb",
+        ["BLAZORORCHESTRATORDB_JDBCCONNECTIONSTRING"] = "blazororchestratordb",
     };
 
     /// <summary>
-    /// Builds a complete appsettings JSON string from environment variables.
+    /// Resolves connection strings from environment variables.
     /// Returns null if no known environment variables are found.
+    /// Shared by both C# and Python config builders.
     /// </summary>
-    public static string? BuildFromEnvironment()
+    private static Dictionary<string, string>? ResolveConnectionStrings()
     {
         if (!AzureEnvironmentDetector.IsAzureContainerApp)
             return null;
@@ -405,7 +424,7 @@ public static class AzureAppSettingsBuilder
         var connectionStrings = new Dictionary<string, string>();
         bool foundAny = false;
 
-        foreach (var (envVar, configPath) in KnownEnvVarMappings)
+        foreach (var (envVar, key) in KnownEnvVarMappings)
         {
             var value = Environment.GetEnvironmentVariable(envVar);
             if (string.IsNullOrEmpty(value))
@@ -413,28 +432,20 @@ public static class AzureAppSettingsBuilder
 
             foundAny = true;
 
-            // Extract the connection string key from the config path
-            // e.g. "ConnectionStrings:blazororchestratordb" → "blazororchestratordb"
-            var parts = configPath.Split(':');
-            if (parts.Length == 2 && parts[0] == "ConnectionStrings")
-            {
-                var key = parts[1];
+            // Convert JDBC to ADO.NET if necessary
+            if (envVar.Contains("JDBC", StringComparison.OrdinalIgnoreCase))
+                value = ConvertJdbcToAdoNet(value);
 
-                // Convert JDBC to ADO.NET if necessary
-                if (envVar.Contains("JDBC", StringComparison.OrdinalIgnoreCase))
-                    value = ConvertJdbcToAdoNet(value);
-
-                connectionStrings[key] = value;
-            }
+            connectionStrings[key] = value;
         }
 
         // Also scan for any ConnectionStrings__* env vars we didn't explicitly map
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            var key = entry.Key?.ToString() ?? "";
-            if (key.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase))
+            var envKey = entry.Key?.ToString() ?? "";
+            if (envKey.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase))
             {
-                var settingKey = key["ConnectionStrings__".Length..];
+                var settingKey = envKey["ConnectionStrings__".Length..];
                 if (!connectionStrings.ContainsKey(settingKey))
                 {
                     connectionStrings[settingKey] = entry.Value?.ToString() ?? "";
@@ -443,7 +454,18 @@ public static class AzureAppSettingsBuilder
             }
         }
 
-        if (!foundAny)
+        return foundAny ? connectionStrings : null;
+    }
+
+    /// <summary>
+    /// Builds a complete C# appsettings.json string from environment variables.
+    /// Uses "ConnectionStrings" as the top-level key (standard .NET convention).
+    /// Returns null if no known environment variables are found.
+    /// </summary>
+    public static string? BuildFromEnvironment()
+    {
+        var connectionStrings = ResolveConnectionStrings();
+        if (connectionStrings == null)
             return null;
 
         var settingsObj = new Dictionary<string, object>
@@ -461,6 +483,32 @@ public static class AzureAppSettingsBuilder
         };
 
         return JsonSerializer.Serialize(settingsObj, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+    }
+
+    /// <summary>
+    /// Builds a complete Python config.json string from environment variables.
+    /// Uses "connection_strings" as the top-level key (Python snake_case convention).
+    /// Returns null if no known environment variables are found.
+    /// </summary>
+    public static string? BuildPythonConfigFromEnvironment()
+    {
+        var connectionStrings = ResolveConnectionStrings();
+        if (connectionStrings == null)
+            return null;
+
+        var configObj = new Dictionary<string, object>
+        {
+            ["connection_strings"] = connectionStrings,
+            ["logging"] = new Dictionary<string, object>
+            {
+                ["level"] = "INFO"
+            }
+        };
+
+        return JsonSerializer.Serialize(configObj, new JsonSerializerOptions
         {
             WriteIndented = true
         });
@@ -589,12 +637,34 @@ public string GetDefaultAppSettings()
 }
 ```
 
-#### 4.4.3 Modify Fallback Defaults in `ExtractCodeFromPackageAsync`
+#### 4.4.3 Add/Modify `GetDefaultPythonConfig()` with Azure Support
 
-In the same file, wherever `DefaultAppSettings` is used as a fallback, replace with a call to `GetDefaultAppSettings()`:
+**File:** `BlazorOrchestrator.Web/Services/JobCodeEditorService.cs`
+
+If a `GetDefaultPythonConfig()` method already exists, update it. Otherwise, add it:
 
 ```csharp
-// Before:
+public string GetDefaultPythonConfig()
+{
+    // When running in Azure, derive config from environment variables
+    var azureConfig = AzureAppSettingsBuilder.BuildPythonConfigFromEnvironment();
+    if (azureConfig != null)
+    {
+        _logger.LogInformation(
+            "Generated Python config.json from Azure environment variables.");
+        return azureConfig;
+    }
+
+    return DefaultPythonConfig;
+}
+```
+
+#### 4.4.4 Modify Fallback Defaults in `ExtractCodeFromPackageAsync`
+
+In the same file, wherever `DefaultAppSettings` or `DefaultPythonConfig` is used as a fallback, replace with calls to the dynamic methods:
+
+```csharp
+// Before (C# jobs):
 if (string.IsNullOrEmpty(model.AppSettings))
 {
     model.AppSettings = DefaultAppSettings;
@@ -604,7 +674,7 @@ if (string.IsNullOrEmpty(model.AppSettingsProduction))
     model.AppSettingsProduction = DefaultAppSettings;
 }
 
-// After:
+// After (C# jobs):
 var effectiveDefaults = GetDefaultAppSettings();
 if (string.IsNullOrEmpty(model.AppSettings))
 {
@@ -614,9 +684,52 @@ if (string.IsNullOrEmpty(model.AppSettingsProduction))
 {
     model.AppSettingsProduction = effectiveDefaults;
 }
+
+// Before (Python jobs):
+if (string.IsNullOrEmpty(model.PythonConfig))
+{
+    model.PythonConfig = DefaultPythonConfig;
+}
+
+// After (Python jobs):
+var effectivePythonDefaults = GetDefaultPythonConfig();
+if (string.IsNullOrEmpty(model.PythonConfig))
+{
+    model.PythonConfig = effectivePythonDefaults;
+}
 ```
 
-#### 4.4.4 Data Flow Diagram
+#### 4.4.5 Update `ExtractAllFilesFromPackageAsync` Similarly
+
+Apply the same pattern to `ExtractAllFilesFromPackageAsync`:
+
+```csharp
+// Before:
+if (string.IsNullOrEmpty(model.PythonConfig))
+{
+    model.PythonConfig = DefaultPythonConfig;
+}
+
+// After:
+if (string.IsNullOrEmpty(model.PythonConfig))
+{
+    model.PythonConfig = GetDefaultPythonConfig();
+}
+```
+
+#### 4.4.6 Ensure Python Runner Passes Azure-Derived Config to Script
+
+Verify that `CodeExecutorService` writes the resolved `config.json` to the temporary execution directory before invoking the Python script. The existing `_runner.py` wrapper should already load `config.json` from the working directory and pass it to `execute_job()`. No change is needed if the runner already does this — but confirm that the `config.json` content written to disk comes from the job model (which now uses Azure-derived values) rather than a separate hard-coded default.
+
+In `CodeExecutorService.ExecutePythonAsync()`, ensure:
+
+```csharp
+// Write the job's config.json to the temp execution directory
+var configPath = Path.Combine(tempDir, "config.json");
+await File.WriteAllTextAsync(configPath, context.PythonConfigJson ?? GetDefaultPythonConfig());
+```
+
+#### 4.4.7 Data Flow Diagram
 
 ```mermaid
 flowchart LR
@@ -624,14 +737,27 @@ flowchart LR
         ENV["Environment Variables<br/>─────────────────────<br/>ConnectionStrings__blazororchestratordb<br/>ConnectionStrings__blobs<br/>ConnectionStrings__queues<br/>ConnectionStrings__tables<br/>BLAZORORCHESTRATORDB_JDBCCONNECTIONSTRING"]
     end
 
-    ENV --> BUILDER["AzureAppSettingsBuilder<br/>.BuildFromEnvironment()"]
+    ENV --> BUILDER["AzureAppSettingsBuilder"]
+
+    BUILDER --> |"BuildFromEnvironment()"| CSHARP_JSON["C# appsettings.json<br/>─────────────────────<br/>ConnectionStrings.blazororchestratordb<br/>ConnectionStrings.blobs<br/>..."]
+
+    BUILDER --> |"BuildPythonConfigFromEnvironment()"| PYTHON_JSON["Python config.json<br/>─────────────────────<br/>connection_strings.blazororchestratordb<br/>connection_strings.blobs<br/>..."]
+
     BUILDER --> |"JDBC detected"| CONVERT["ConvertJdbcToAdoNet()"]
-    CONVERT --> JSON
-    BUILDER --> JSON["Generated JSON"]
-    JSON --> EDITOR["JobCodeEditorService<br/>.GetDefaultAppSettings()"]
-    EDITOR --> DIALOG["JobDetailsDialog.razor<br/>appsettings.json tab"]
-    EDITOR --> PKG["NuGet Package<br/>appsettings.json<br/>appsettingsProduction.json"]
-    PKG --> EXEC["CodeExecutorService<br/>context.AppSettingsJson"]
+    CONVERT --> CSHARP_JSON
+    CONVERT --> PYTHON_JSON
+
+    CSHARP_JSON --> EDITOR_CS["JobCodeEditorService<br/>.GetDefaultAppSettings()"]
+    PYTHON_JSON --> EDITOR_PY["JobCodeEditorService<br/>.GetDefaultPythonConfig()"]
+
+    EDITOR_CS --> DIALOG["JobDetailsDialog.razor<br/>appsettings.json tab"]
+    EDITOR_PY --> DIALOG_PY["JobDetailsDialog.razor<br/>config.json tab"]
+
+    EDITOR_CS --> PKG_CS["NuGet Package<br/>appsettings.json"]
+    EDITOR_PY --> PKG_PY["NuGet Package<br/>config.json"]
+
+    PKG_CS --> EXEC_CS["CodeExecutorService<br/>C# job execution"]
+    PKG_PY --> EXEC_PY["CodeExecutorService<br/>Python job execution"]
 ```
 
 ---
@@ -920,10 +1046,12 @@ gantt
         Branch ExecuteCSharpAsync                :b3, after b2, 1d
         Test with sample C# job in ACA           :b4, after b3, 1d
     section Feature 2 – AppSettings
-        AzureAppSettingsBuilder                  :c1, after a1, 2d
+        AzureAppSettingsBuilder (C# + Python)    :c1, after a1, 2d
         JDBC converter + unit tests              :c2, after c1, 1d
         Modify GetDefaultAppSettings             :c3, after c2, 1d
-        Update fallback defaults                 :c4, after c3, 1d
+        Add GetDefaultPythonConfig               :c3b, after c2, 1d
+        Update fallback defaults (C# + Python)   :c4, after c3, 1d
+        Verify ExecutePythonAsync config.json     :c5, after c4, 1d
     section Feature 3 – Python
         Update Agent Dockerfile                  :d1, after a1, 1d
         Add requirements.txt                     :d2, after d1, 1d
@@ -942,15 +1070,17 @@ gantt
 | 2 | Add Roslyn NuGet package | `Core/BlazorDataOrchestrator.Core.csproj` |
 | 3 | Implement `CompileWithRoslyn()` | `Core/Services/CodeExecutorService.cs` |
 | 4 | Add Azure branch in `ExecuteCSharpAsync()` | `Core/Services/CodeExecutorService.cs` |
-| 5 | Create `AzureAppSettingsBuilder` | `Core/Services/AzureAppSettingsBuilder.cs` *(new)* |
+| 5 | Create `AzureAppSettingsBuilder` (C# + Python config builders) | `Core/Services/AzureAppSettingsBuilder.cs` *(new)* |
 | 6 | Modify `GetDefaultAppSettings()` | `Web/Services/JobCodeEditorService.cs` |
-| 7 | Update fallback defaults in `ExtractCodeFromPackageAsync()` | `Web/Services/JobCodeEditorService.cs` |
-| 8 | Update fallback defaults in `ExtractAllFilesFromPackageAsync()` | `Web/Services/JobCodeEditorService.cs` |
-| 9 | Update `FindPythonExecutable()` | `Core/Services/CodeExecutorService.cs` |
-| 10 | Add `--break-system-packages` to pip install | `Core/Services/CodeExecutorService.cs` |
-| 11 | Update Agent Dockerfile with Python 3 | `Agent/Dockerfile` |
-| 12 | Add base `requirements.txt` | `Agent/requirements.txt` *(new)* |
-| 13 | *(Optional)* Update Web Dockerfile with Python 3 | Web Dockerfile / Aspire config |
+| 7 | Add/modify `GetDefaultPythonConfig()` | `Web/Services/JobCodeEditorService.cs` |
+| 8 | Update fallback defaults in `ExtractCodeFromPackageAsync()` (C# + Python) | `Web/Services/JobCodeEditorService.cs` |
+| 9 | Update fallback defaults in `ExtractAllFilesFromPackageAsync()` (C# + Python) | `Web/Services/JobCodeEditorService.cs` |
+| 10 | Verify `ExecutePythonAsync` writes Azure-derived `config.json` | `Core/Services/CodeExecutorService.cs` |
+| 11 | Update `FindPythonExecutable()` | `Core/Services/CodeExecutorService.cs` |
+| 12 | Add `--break-system-packages` to pip install | `Core/Services/CodeExecutorService.cs` |
+| 13 | Update Agent Dockerfile with Python 3 | `Agent/Dockerfile` |
+| 14 | Add base `requirements.txt` | `Agent/requirements.txt` *(new)* |
+| 15 | *(Optional)* Update Web Dockerfile with Python 3 | Web Dockerfile / Aspire config |
 
 ---
 
@@ -962,11 +1092,13 @@ gantt
 |-----------|-----------|
 | `AzureEnvironmentDetector_ReturnsTrue_WhenContainerAppNameSet` | `IsAzureContainerApp` returns `true` when env var present |
 | `AzureEnvironmentDetector_ReturnsFalse_WhenNoEnvVar` | `IsAzureContainerApp` returns `false` locally |
-| `AzureAppSettingsBuilder_BuildsJson_FromConnectionStringsEnvVars` | Correct nested JSON from `ConnectionStrings__*` vars |
+| `AzureAppSettingsBuilder_BuildsJson_FromConnectionStringsEnvVars` | Correct nested JSON from `ConnectionStrings__*` vars (C# format) |
+| `AzureAppSettingsBuilder_BuildsPythonConfig_FromConnectionStringsEnvVars` | Correct nested JSON from `ConnectionStrings__*` vars (Python format with `connection_strings` key) |
 | `AzureAppSettingsBuilder_ConvertsJdbcSqlServer` | JDBC SQL Server → ADO.NET conversion |
 | `AzureAppSettingsBuilder_ConvertsJdbcPostgresql` | JDBC PostgreSQL → Npgsql conversion |
-| `AzureAppSettingsBuilder_ReturnsNull_WhenNoEnvVars` | Returns null when not in Azure |
-| `AzureAppSettingsBuilder_ScansWildcardEnvVars` | Picks up arbitrary `ConnectionStrings__custom` vars |
+| `AzureAppSettingsBuilder_ReturnsNull_WhenNoEnvVars` | Both `BuildFromEnvironment()` and `BuildPythonConfigFromEnvironment()` return null when not in Azure |
+| `AzureAppSettingsBuilder_ScansWildcardEnvVars` | Picks up arbitrary `ConnectionStrings__custom` vars in both C# and Python formats |
+| `AzureAppSettingsBuilder_PythonConfig_UsesSnakeCaseKeys` | Python config uses `connection_strings` not `ConnectionStrings` |
 | `CompileWithRoslyn_CompilesSimpleCode` | Compiles `BlazorDataOrchestratorJob` class in-memory |
 | `CompileWithRoslyn_ReturnsErrors_ForInvalidCode` | Returns compilation errors |
 | `FindPythonExecutable_ReturnsPath_WhenAvailable` | Finds Python on current platform |
@@ -977,7 +1109,8 @@ gantt
 flowchart TD
     A["1. Deploy to ACA<br/>staging revision"] --> B["2. Verify CONTAINER_APP_NAME<br/>env var exists"]
     B --> C["3. Open Job Editor → check<br/>appsettings shows Azure connection strings"]
-    C --> D["4. Run C# weather job → success"]
+    C --> C2["3b. Open Python Job Editor → check<br/>config.json shows Azure connection strings<br/>with connection_strings key"]
+    C2 --> D["4. Run C# weather job → success"]
     D --> E["5. Run Python weather job → success"]
     E --> F["6. Check Job Logs table<br/>for execution records"]
 ```
