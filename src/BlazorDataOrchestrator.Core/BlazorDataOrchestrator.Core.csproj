@@ -21,6 +21,7 @@
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.2.0" />
     <PackageReference Include="CS-Script" Version="4.14.3" />
     <PackageReference Include="CSnakes.Runtime" Version="1.*" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.*" />
     <!-- AI functionality packages -->
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.4.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />

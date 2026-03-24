@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Xml.Linq;
 using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -625,10 +626,39 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
 
     /// <summary>
     /// Gets the default appsettings content.
+    /// When running in Azure Container Apps, derives settings from environment variables.
     /// </summary>
     /// <returns>Default appsettings JSON.</returns>
     public string GetDefaultAppSettings()
     {
+        // When running in Azure, derive settings from environment variables
+        var azureSettings = AzureAppSettingsBuilder.BuildFromEnvironment();
+        if (azureSettings != null)
+        {
+            _logger.LogInformation(
+                "Generated appsettings from Azure environment variables.");
+            return azureSettings;
+        }
+
+        return DefaultAppSettings;
+    }
+
+    /// <summary>
+    /// Gets the default Python config.json content.
+    /// When running in Azure Container Apps, derives config from environment variables.
+    /// </summary>
+    /// <returns>Default Python config JSON.</returns>
+    public string GetDefaultPythonConfig()
+    {
+        // When running in Azure, derive config from environment variables
+        var azureConfig = AzureAppSettingsBuilder.BuildPythonConfigFromEnvironment();
+        if (azureConfig != null)
+        {
+            _logger.LogInformation(
+                "Generated Python config.json from Azure environment variables.");
+            return azureConfig;
+        }
+
         return DefaultAppSettings;
     }
 
@@ -736,13 +766,15 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             model.MainCode = GetDefaultTemplate(model.Language);
         }
+
+        var effectiveDefaults = GetDefaultAppSettings();
         if (string.IsNullOrEmpty(model.AppSettings))
         {
-            model.AppSettings = DefaultAppSettings;
+            model.AppSettings = effectiveDefaults;
         }
         if (string.IsNullOrEmpty(model.AppSettingsProduction))
         {
-            model.AppSettingsProduction = DefaultAppSettings;
+            model.AppSettingsProduction = effectiveDefaults;
         }
 
         return model;
@@ -952,9 +984,11 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 model.DiscoveredFiles.Insert(0, mainFileName);
             }
         }
+
+        var effectiveDefaults = GetDefaultAppSettings();
         if (string.IsNullOrEmpty(model.AppSettings))
         {
-            model.AppSettings = DefaultAppSettings;
+            model.AppSettings = effectiveDefaults;
             if (!model.DiscoveredFiles.Contains("appsettings.json"))
             {
                 model.DiscoveredFiles.Add("appsettings.json");
@@ -962,7 +996,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         }
         if (string.IsNullOrEmpty(model.AppSettingsProduction))
         {
-            model.AppSettingsProduction = DefaultAppSettings;
+            model.AppSettingsProduction = effectiveDefaults;
             if (!model.DiscoveredFiles.Contains("appsettings.Production.json"))
             {
                 model.DiscoveredFiles.Add("appsettings.Production.json");

@@ -9,6 +9,8 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using BlazorDataOrchestrator.Core.Models;
 using CSScriptLib;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace BlazorDataOrchestrator.Core.Services;
 
@@ -199,8 +201,18 @@ public class CodeExecutorService
 
             result.Logs.Add("Compiling C# code...");
 
-            // Compile and load the assembly
-            var assembly = evaluator.CompileCode(code);
+            Assembly assembly;
+
+            if (AzureEnvironmentDetector.IsAzureContainerApp)
+            {
+                // Azure path — compile in-memory to avoid CS-Script assembly probing issues
+                assembly = CompileWithRoslyn(code, result.Logs, resolvedAssemblyPaths);
+            }
+            else
+            {
+                // Local path — use existing CS-Script evaluator
+                assembly = evaluator.CompileCode(code);
+            }
 
             // Pre-load all resolved assemblies into the current AppDomain
             // This is required so that GetTypes() can resolve dependencies
@@ -360,6 +372,88 @@ public class CodeExecutorService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Compiles C# code using Roslyn in-memory compilation.
+    /// Used when running in Azure Container Apps to avoid CS-Script's file-system
+    /// assembly probing issues (Bad IL format errors).
+    /// </summary>
+    private Assembly CompileWithRoslyn(string code, List<string> logs,
+        List<string> resolvedAssemblyPaths)
+    {
+        logs.Add("Using in-memory Roslyn compilation (Azure Container Apps).");
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(code);
+
+        // 1. Gather MetadataReferences from currently loaded assemblies
+        var references = new List<MetadataReference>();
+
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (asm.IsDynamic || string.IsNullOrEmpty(asm.Location))
+                continue;
+
+            try { references.Add(MetadataReference.CreateFromFile(asm.Location)); }
+            catch { /* skip unreadable assemblies */ }
+        }
+
+        // 2. Add Trusted Platform Assemblies (runtime facades)
+        var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string)
+            ?.Split(Path.PathSeparator) ?? Array.Empty<string>();
+
+        var existingPaths = new HashSet<string>(
+            references.Select(r => r.Display ?? ""), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in tpa)
+        {
+            if (!existingPaths.Contains(path) && File.Exists(path))
+            {
+                try { references.Add(MetadataReference.CreateFromFile(path)); }
+                catch { }
+            }
+        }
+
+        // 3. Add NuGet-resolved assemblies
+        foreach (var asmPath in resolvedAssemblyPaths)
+        {
+            if (!existingPaths.Contains(asmPath) && File.Exists(asmPath))
+            {
+                try
+                {
+                    references.Add(MetadataReference.CreateFromFile(asmPath));
+                    logs.Add($"  + Roslyn ref: {Path.GetFileName(asmPath)}");
+                }
+                catch { }
+            }
+        }
+
+        // 4. Compile
+        var compilation = CSharpCompilation.Create(
+            assemblyName: $"Job_{Guid.NewGuid():N}",
+            syntaxTrees: new[] { syntaxTree },
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Release));
+
+        using var ms = new MemoryStream();
+        var emitResult = compilation.Emit(ms);
+
+        if (!emitResult.Success)
+        {
+            var errors = emitResult.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString());
+            throw new InvalidOperationException(
+                $"Roslyn compilation failed:\n{string.Join("\n", errors)}");
+        }
+
+        ms.Seek(0, SeekOrigin.Begin);
+
+        // 5. Load into a collectible ALC to avoid leaking assemblies
+        var alc = new System.Runtime.Loader.AssemblyLoadContext(
+            $"JobALC_{Guid.NewGuid():N}", isCollectible: true);
+        return alc.LoadFromStream(ms);
     }
 
     /// <summary>
@@ -541,7 +635,8 @@ public class CodeExecutorService
         var psi = new ProcessStartInfo
         {
             FileName = pythonPath,
-            Arguments = $"-m pip install -r \"{requirementsPath}\" --quiet",
+            // Add --break-system-packages for Debian 12+ containers (PEP 668)
+            Arguments = $"-m pip install -r \"{requirementsPath}\" --quiet --break-system-packages",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -609,23 +704,44 @@ if result:
 
     /// <summary>
     /// Finds the Python executable on the system.
+    /// Uses platform-appropriate candidates, including Docker container paths.
     /// </summary>
     private string? FindPythonExecutable()
     {
-        // Check common locations
-        var candidates = new[]
+        // Platform-appropriate ordered candidates
+        string[] candidates;
+        if (System.Runtime.InteropServices.RuntimeInformation
+                .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
         {
-            "python",
-            "python3",
-            "py",
-            @"C:\Python311\python.exe",
-            @"C:\Python310\python.exe",
-            @"C:\Python39\python.exe",
-            @"C:\Program Files\Python311\python.exe",
-            @"C:\Program Files\Python310\python.exe",
-            "/usr/bin/python3",
-            "/usr/local/bin/python3"
-        };
+            candidates = new[]
+            {
+                "python",
+                "python3",
+                "py",
+                @"C:\Python313\python.exe",
+                @"C:\Python312\python.exe",
+                @"C:\Python311\python.exe",
+                @"C:\Python310\python.exe",
+                @"C:\Python39\python.exe",
+                @"C:\Program Files\Python313\python.exe",
+                @"C:\Program Files\Python312\python.exe",
+                @"C:\Program Files\Python311\python.exe",
+                @"C:\Program Files\Python310\python.exe",
+            };
+        }
+        else
+        {
+            // Linux / Container — check the symlink we create in the Dockerfile first
+            candidates = new[]
+            {
+                "/usr/bin/python3",
+                "/usr/local/bin/python3",
+                "/usr/bin/python",
+                "/usr/local/bin/python",
+                "python3",
+                "python",
+            };
+        }
 
         foreach (var candidate in candidates)
         {
@@ -643,6 +759,7 @@ if result:
 
                 using var process = new Process { StartInfo = psi };
                 process.Start();
+                var output = process.StandardOutput.ReadToEnd();
                 process.WaitForExit(5000);
 
                 if (process.ExitCode == 0)
