@@ -718,7 +718,7 @@ else
         var title = job != null ? $"Edit Job - {job.Name}" : "Edit Job";
 
         await DialogService.OpenAsync<JobDetailsDialog>(title,
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "JobId", jobId },
                 { "OnClose", EventCallback.Factory.Create(this, () => DialogService.Close()) },
@@ -741,7 +741,7 @@ else
         var title = job != null ? $"Schedule - {job.Name}" : "Schedule Job";
 
         await DialogService.OpenAsync<JobDetailsDialog>(title,
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "JobId", jobId },
                 { "InitialTabIndex", 1 },
@@ -871,7 +871,7 @@ else
         newJobName = string.Empty;
 
         var result = await DialogService.OpenAsync<CreateJobDialog>("Create New Job",
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "JobName", newJobName },
                 { "AvailableJobGroups", JobGroups },

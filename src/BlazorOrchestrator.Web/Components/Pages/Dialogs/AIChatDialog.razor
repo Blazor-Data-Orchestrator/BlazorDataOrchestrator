@@ -613,7 +613,7 @@
     private async Task OpenSettingsDialog()
     {
         await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "OnSettingsSaved", EventCallback.Factory.Create(this, OnSettingsSaved) }
             },

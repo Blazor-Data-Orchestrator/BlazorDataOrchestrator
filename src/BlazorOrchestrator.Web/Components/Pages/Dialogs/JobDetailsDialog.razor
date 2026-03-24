@@ -653,7 +653,7 @@ Content-Type: application/json
     private async Task OpenScheduleDialog(JobSchedule schedule, string title)
     {
         var result = await DialogService.OpenAsync<EditJobScheduleDialog>(title,
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "Schedule", schedule },
                 { "OnScheduleSaved", EventCallback.Factory.Create<JobSchedule>(this, OnScheduleSaved) },
@@ -718,7 +718,7 @@ Content-Type: application/json
     private async Task OpenParameterDialog(JobDatum parameter, string title)
     {
         var result = await DialogService.OpenAsync<AddParameterDialog>(title,
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "Parameter", parameter },
                 { "OnParameterSaved", EventCallback.Factory.Create<JobDatum>(this, OnParameterSaved) },

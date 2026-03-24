@@ -729,7 +729,7 @@
     private async Task OpenAddJobGroupDialog()
     {
         var result = await DialogService.OpenAsync<JobGroupDialog>("Add Job Group",
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "OnSaved", EventCallback.Factory.Create<(string Name, bool IsActive)>(this, OnJobGroupCreated) },
                 { "OnCancel", EventCallback.Factory.Create(this, () => DialogService.Close()) }
@@ -740,7 +740,7 @@
     private async Task OpenEditJobGroupDialog(JobGroup group)
     {
         var result = await DialogService.OpenAsync<JobGroupDialog>("Edit Job Group",
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 { "ExistingJobGroup", group },
                 { "OnSaved", EventCallback.Factory.Create<(string Name, bool IsActive)>(this, async (data) => await OnJobGroupUpdated(group.Id, data)) },
