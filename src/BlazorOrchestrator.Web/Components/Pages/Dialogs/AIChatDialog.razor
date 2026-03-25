@@ -245,8 +245,11 @@
         padding: 12px;
         border-radius: 8px;
         overflow-x: auto;
+        max-height: none;
         margin: 8px 0;
         font-size: 0.875rem;
+        white-space: pre;
+        word-wrap: normal;
     }
 
     .message-text code {
@@ -255,6 +258,13 @@
         border-radius: 4px;
         font-family: 'Consolas', 'Monaco', monospace;
         font-size: 0.875em;
+    }
+
+    .message-text pre code {
+        background: none;
+        padding: 0;
+        white-space: pre;
+        word-wrap: normal;
     }
 
     .message-streaming {
@@ -307,9 +317,15 @@
 
 @code {
     [Parameter] public string CurrentCode { get; set; } = "";
+    [Parameter] public string NuspecContent { get; set; } = "";
     [Parameter] public string Language { get; set; } = "csharp";
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback<string> OnCodeApply { get; set; }
+    /// <summary>
+    /// When set, this prompt is automatically sent as soon as the dialog opens.
+    /// The value is cleared after the first send so it does not re-fire on re-render.
+    /// </summary>
+    [Parameter] public string? InitialPrompt { get; set; }
 
     private ElementReference messagesContainer;
     private List<ChatMessageDisplay> Messages { get; set; } = new();
@@ -318,6 +334,7 @@
     private bool IsCallingAI = false;
     private bool HasPendingCodeUpdate = false;
     private string? pendingCode = null;
+    private bool initialPromptSent = false;
 
     private const string CodeBeginMarker = "###UPDATED CODE BEGIN###";
     private const string CodeEndMarker = "###UPDATED CODE END###";
@@ -325,13 +342,37 @@
     protected override void OnInitialized()
     {
         ChatService.SetLanguage(Language);
-        ChatService.SetCurrentEditorCode(CurrentCode);
+        ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrWhiteSpace(InitialPrompt) && !initialPromptSent)
+        {
+            initialPromptSent = true;
+            currentInput = InitialPrompt;
+            StateHasChanged();
+            await Task.Yield(); // allow UI to update before sending
+            await SendMessage();
+        }
     }
 
     protected override void OnParametersSet()
     {
-        ChatService.SetCurrentEditorCode(CurrentCode);
+        ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
         ChatService.SetLanguage(Language);
+    }
+
+    private string BuildEditorContextWithNuspec()
+    {
+        var contextCode = CurrentCode;
+        if (!string.IsNullOrWhiteSpace(NuspecContent) && Language == "csharp")
+        {
+            contextCode += "\n\n// === Current .nuspec content ===\n"
+                         + "// (Update the dependencies section if adding new NuGet packages)\n"
+                         + NuspecContent;
+        }
+        return contextCode;
     }
 
     private async Task OnInputKeyDown(KeyboardEventArgs e)
@@ -374,18 +415,30 @@
         try
         {
             // Ensure the ChatService has the latest code context
-            ChatService.SetCurrentEditorCode(CurrentCode);
+            ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
             ChatService.SetLanguage(Language);
 
             var responseBuilder = new System.Text.StringBuilder();
+            var lastRenderTime = DateTime.UtcNow;
 
             await foreach (var chunk in ChatService.GetCompletionsAsync(userMessage, sessionId))
             {
                 responseBuilder.Append(chunk);
                 assistantMessage.Content = responseBuilder.ToString();
-                StateHasChanged();
+
+                // Throttle UI updates to every 100ms to avoid overwhelming Blazor's
+                // render pipeline on large streaming responses
+                var now = DateTime.UtcNow;
+                if ((now - lastRenderTime).TotalMilliseconds >= 100)
+                {
+                    lastRenderTime = now;
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(1); // yield to allow render cycle to complete
+                }
             }
 
+            // Final render to guarantee the complete response is displayed
+            assistantMessage.Content = responseBuilder.ToString();
             assistantMessage.IsStreaming = false;
             
             // Check for code markers in the complete response

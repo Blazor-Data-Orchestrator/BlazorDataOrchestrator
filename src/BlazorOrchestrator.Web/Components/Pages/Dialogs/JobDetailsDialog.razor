@@ -2,6 +2,7 @@
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorDataOrchestrator.Core
+@using System.Text.RegularExpressions
 @using Radzen
 @using Radzen.Blazor
 @using SimpleBlazorMonaco
@@ -384,7 +385,9 @@ Content-Type: application/json
 @if (showAIChatDialog)
 {
     <AIChatDialog CurrentCode="@currentJobCode"
+                  NuspecContent="@GetCurrentNuspecContent()"
                   Language="@codeLanguage"
+                  InitialPrompt="@aiChatInitialPrompt"
                   OnClose="@CloseAIChatDialog"
                   OnCodeApply="@OnAICodeApplied" />
 }
@@ -431,7 +434,7 @@ Content-Type: application/json
     private string codeLanguage = "csharp";
     private CodeEditMode codeEditMode = CodeEditMode.Upload; // Start in Upload mode by default
     private string? selectedCodeFile;
-    private List<string> codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+    private List<string> codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" };
     private bool isCompilingCode = false;
     private bool isRunningJobWithCode = false;
     private bool codeEditorInitialized = false;
@@ -444,6 +447,7 @@ Content-Type: application/json
 
     // AI Chat Dialog State
     private bool showAIChatDialog = false;
+    private string? aiChatInitialPrompt;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -989,7 +993,7 @@ Content-Type: application/json
         // Set default file list based on new language
         if (codeLanguage == "csharp")
         {
-            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" };
         }
         else if (codeLanguage == "python")
         {
@@ -1117,6 +1121,10 @@ Content-Type: application/json
     {
         var lowerFileName = fileName.ToLowerInvariant();
         
+        if (lowerFileName.EndsWith(".nuspec"))
+        {
+            return CodeEditorService.GetDefaultNuspecTemplate();
+        }
         if (lowerFileName.EndsWith(".json"))
         {
             return CodeEditorService.GetDefaultAppSettings();
@@ -1391,6 +1399,79 @@ Content-Type: application/json
             var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
             var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
             
+            // --- Auto-parse // NUGET: headers from main.cs into .nuspec ---
+            if (codeLanguage == "csharp")
+            {
+                var headerDeps = CodeEditorService.ParseNuGetHeadersFromCode(mainCode);
+
+                if (headerDeps.Any())
+                {
+                    var existingNuspec = loadedCodeModel?.NuspecContent;
+                    // Also check file storage if loadedCodeModel doesn't have it
+                    if (string.IsNullOrWhiteSpace(existingNuspec))
+                    {
+                        var (storedNuspec, _) = FileStorage.GetNuspecInfo(JobId);
+                        existingNuspec = storedNuspec;
+                    }
+
+                    string updatedNuspec;
+                    if (!string.IsNullOrWhiteSpace(existingNuspec))
+                    {
+                        // Check if existing nuspec actually has real dependencies (not just commented-out ones)
+                        var existingParsedDeps = CodeEditorService.ParseNuSpecDependencies(existingNuspec);
+                        if (existingParsedDeps.Any())
+                        {
+                            updatedNuspec = CodeEditorService.MergeNuGetDependencies(existingNuspec, headerDeps);
+                        }
+                        else
+                        {
+                            updatedNuspec = CodeEditorService.GenerateNuspecFromDependencies(headerDeps);
+                        }
+                    }
+                    else
+                    {
+                        updatedNuspec = CodeEditorService.GenerateNuspecFromDependencies(headerDeps);
+                    }
+
+                    // Store the generated/updated .nuspec
+                    var nuspecFileName = loadedCodeModel?.NuspecFileName ?? "BlazorDataOrchestrator.Job.nuspec";
+                    FileStorage.SetFile(JobId, nuspecFileName, updatedNuspec);
+                    FileStorage.SetNuspecContent(JobId, updatedNuspec, nuspecFileName);
+
+                    var parsedDeps = CodeEditorService.ParseNuSpecDependencies(updatedNuspec);
+                    FileStorage.SetDependencies(JobId, parsedDeps);
+
+                    if (loadedCodeModel != null)
+                    {
+                        loadedCodeModel.NuspecContent = updatedNuspec;
+                        loadedCodeModel.NuspecFileName = nuspecFileName;
+                        loadedCodeModel.Dependencies = parsedDeps;
+                    }
+                    else
+                    {
+                        // Create a minimal code model to hold the deps
+                        loadedCodeModel = new JobCodeModel
+                        {
+                            Language = codeLanguage,
+                            MainCode = mainCode,
+                            NuspecContent = updatedNuspec,
+                            NuspecFileName = nuspecFileName,
+                            Dependencies = parsedDeps,
+                            AppSettings = FileStorage.GetFile(JobId, "appsettings.json") ?? CodeEditorService.GetDefaultAppSettings(),
+                            AppSettingsProduction = FileStorage.GetFile(JobId, "appsettings.Production.json") ?? CodeEditorService.GetDefaultAppSettings()
+                        };
+                    }
+
+                    // Ensure .nuspec appears in the file dropdown
+                    if (!codeFileList.Contains(nuspecFileName))
+                    {
+                        codeFileList.Add(nuspecFileName);
+                    }
+
+                    Console.WriteLine($"[SaveAndCompileCode] Auto-parsed {headerDeps.Count} NuGet deps from code headers → .nuspec ({parsedDeps.Count} total deps)");
+                }
+            }
+
             // Attempt compilation/validation
             CompilationResult compilationResult;
             if (codeLanguage == "csharp")
@@ -1469,7 +1550,9 @@ Content-Type: application/json
                         </div>
                     }
                 </div>
-                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End">
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+                    <RadzenButton Text="Fix Build Errors" Icon="auto_fix_high" ButtonStyle="ButtonStyle.Warning"
+                                  Click="@(async () => { ds.Close(); await OpenAIChatDialogWithPrompt("Please fix build errors"); })" />
                     <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => ds.Close())" />
                 </RadzenStack>
             </RadzenStack>,
@@ -1587,11 +1670,17 @@ Content-Type: application/json
     // AI Chat Dialog Methods
     private async Task OpenAIChatDialog()
     {
+        await OpenAIChatDialogWithPrompt(null);
+    }
+
+    private async Task OpenAIChatDialogWithPrompt(string? initialPrompt)
+    {
         // Ensure we have the latest code from the editor
         if (jobCodeEditor != null)
         {
             currentJobCode = await jobCodeEditor.GetCodeAsync() ?? currentJobCode;
         }
+        aiChatInitialPrompt = initialPrompt;
         showAIChatDialog = true;
         StateHasChanged();
     }
@@ -1599,12 +1688,60 @@ Content-Type: application/json
     private void CloseAIChatDialog()
     {
         showAIChatDialog = false;
+        aiChatInitialPrompt = null;
         StateHasChanged();
     }
 
     private async Task OnAICodeApplied(string code)
     {
-        // Apply the AI-generated code to the editor
+        // Check for embedded .nuspec content in the AI response
+        var nuspecMatch = Regex.Match(code,
+            @"###NUSPEC BEGIN###\s*```xml\s*(.*?)\s*```\s*###NUSPEC END###",
+            RegexOptions.Singleline);
+
+        if (!nuspecMatch.Success)
+        {
+            // Also try without the fenced code block (plain XML)
+            nuspecMatch = Regex.Match(code,
+                @"###NUSPEC BEGIN###\s*(.*?)\s*###NUSPEC END###",
+                RegexOptions.Singleline);
+        }
+
+        if (nuspecMatch.Success && codeLanguage == "csharp")
+        {
+            var nuspecContent = nuspecMatch.Groups[1].Value.Trim();
+            var nuspecFileName = loadedCodeModel?.NuspecFileName
+                ?? "BlazorDataOrchestrator.Job.nuspec";
+
+            // Store the .nuspec
+            FileStorage.SetFile(JobId, nuspecFileName, nuspecContent);
+            FileStorage.SetNuspecContent(JobId, nuspecContent, nuspecFileName);
+
+            var parsedDeps = CodeEditorService.ParseNuSpecDependencies(nuspecContent);
+            FileStorage.SetDependencies(JobId, parsedDeps);
+
+            if (loadedCodeModel != null)
+            {
+                loadedCodeModel.NuspecContent = nuspecContent;
+                loadedCodeModel.NuspecFileName = nuspecFileName;
+                loadedCodeModel.Dependencies = parsedDeps;
+            }
+
+            // Ensure .nuspec appears in the file dropdown
+            if (!codeFileList.Contains(nuspecFileName))
+            {
+                codeFileList.Add(nuspecFileName);
+            }
+
+            // Remove the nuspec block from the code applied to the editor
+            code = Regex.Replace(code,
+                @"###NUSPEC BEGIN###.*?###NUSPEC END###",
+                "", RegexOptions.Singleline).Trim();
+
+            Console.WriteLine($"[OnAICodeApplied] Extracted .nuspec with {parsedDeps.Count} dependencies from AI response");
+        }
+
+        // Apply the cleaned code to the editor
         currentJobCode = code;
         
         if (jobCodeEditor != null)
@@ -1628,5 +1765,23 @@ Content-Type: application/json
         NotificationService.Notify(NotificationSeverity.Success, "Code Applied", 
             "AI-generated code has been applied to the editor.");
         StateHasChanged();
+    }
+
+    private string GetCurrentNuspecContent()
+    {
+        if (codeLanguage != "csharp") return "";
+
+        // Try loadedCodeModel first
+        if (!string.IsNullOrEmpty(loadedCodeModel?.NuspecContent))
+            return loadedCodeModel.NuspecContent;
+
+        // Try file storage
+        var (content, _) = FileStorage.GetNuspecInfo(JobId);
+        if (!string.IsNullOrEmpty(content))
+            return content;
+
+        // Try file storage by file name
+        var storedFile = FileStorage.GetFile(JobId, "BlazorDataOrchestrator.Job.nuspec");
+        return storedFile ?? "";
     }
 }

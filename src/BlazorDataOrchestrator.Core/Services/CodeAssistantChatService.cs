@@ -236,10 +236,12 @@ Keep responses concise and focused on the code task at hand.
                                     modelName.Contains("o1-mini");
             
             // Anthropic and Google handle temperature internally through their adapters
+            // Use at least 16384 output tokens so large code blocks are never truncated
+            var effectiveMaxTokens = Math.Max(maxTokens ?? 16384, 8192);
             var options = new ChatOptions
             {
                 Temperature = isRestrictedModel ? null : (float?)temperature ?? 0.7f,
-                MaxOutputTokens = maxTokens ?? 4096
+                MaxOutputTokens = effectiveMaxTokens
             };
 
             var responseBuilder = new System.Text.StringBuilder();

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using BlazorDataOrchestrator.Core;
 using BlazorDataOrchestrator.Core.Services;
@@ -15,6 +16,27 @@ public class JobCodeEditorService
     private readonly JobManager _jobManager;
     private readonly IConfiguration _configuration;
     private readonly ILogger<JobCodeEditorService> _logger;
+
+    // Default .nuspec template for C# jobs
+    private const string DefaultNuspecTemplate = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
+  <metadata>
+    <id>BlazorDataOrchestrator.Job</id>
+    <version>1.0.0</version>
+    <authors>BlazorDataOrchestrator</authors>
+    <description>Auto-generated job package (csharp)</description>
+    <contentFiles>
+      <files include=""**/*"" buildAction=""Content"" copyToOutput=""true"" />
+    </contentFiles>
+    <dependencies>
+      <group targetFramework=""net10.0"">
+        <!-- Add NuGet dependencies here, for example: -->
+        <!-- <dependency id=""SendGrid"" version=""9.29.3"" /> -->
+        <!-- <dependency id=""HtmlAgilityPack"" version=""1.11.72"" /> -->
+      </group>
+    </dependencies>
+  </metadata>
+</package>";
 
     // Default code templates
     private const string DefaultCSharpTemplate = @"using System;
@@ -1067,6 +1089,124 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     }
 
     /// <summary>
+    /// Parses // NUGET: comment headers from C# code.
+    /// Format: // NUGET: PackageId, Version  or  // REQUIRES NUGET: PackageId, Version
+    /// </summary>
+    /// <param name="code">The C# source code to scan.</param>
+    /// <returns>List of parsed NuGet dependencies from code headers.</returns>
+    public List<NuGetDependencyInfo> ParseNuGetHeadersFromCode(string code)
+    {
+        var dependencies = new List<NuGetDependencyInfo>();
+
+        if (string.IsNullOrWhiteSpace(code))
+            return dependencies;
+
+        var regex = new Regex(
+            @"//\s*(?:NUGET|REQUIRES\s+NUGET):\s*(\S+)\s*,\s*(\S+)",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+        foreach (Match match in regex.Matches(code))
+        {
+            var packageId = match.Groups[1].Value.Trim();
+            var version = match.Groups[2].Value.Trim();
+
+            if (!dependencies.Any(d => d.PackageId.Equals(packageId, StringComparison.OrdinalIgnoreCase)))
+            {
+                dependencies.Add(new NuGetDependencyInfo
+                {
+                    PackageId = packageId,
+                    Version = version,
+                    TargetFramework = "net10.0"
+                });
+            }
+        }
+
+        _logger.LogInformation("Parsed {Count} NuGet dependencies from code headers", dependencies.Count);
+        return dependencies;
+    }
+
+    /// <summary>
+    /// Generates a .nuspec XML string from a list of NuGet dependencies.
+    /// </summary>
+    /// <param name="dependencies">The list of NuGet dependencies.</param>
+    /// <param name="packageId">The package ID for the .nuspec metadata.</param>
+    /// <returns>A complete .nuspec XML string.</returns>
+    public string GenerateNuspecFromDependencies(
+        List<NuGetDependencyInfo> dependencies,
+        string packageId = "BlazorDataOrchestrator.Job")
+    {
+        var depElements = string.Join("\n        ",
+            dependencies.Select(d =>
+                $@"<dependency id=""{EscapeXml(d.PackageId)}"" version=""{EscapeXml(d.Version)}"" />"));
+
+        return $@"<?xml version=""1.0"" encoding=""utf-8""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
+  <metadata>
+    <id>{EscapeXml(packageId)}</id>
+    <version>1.0.0</version>
+    <authors>BlazorDataOrchestrator</authors>
+    <description>Auto-generated job package (csharp)</description>
+    <contentFiles>
+      <files include=""**/*"" buildAction=""Content"" copyToOutput=""true"" />
+    </contentFiles>
+    <dependencies>
+      <group targetFramework=""net10.0"">
+        {depElements}
+      </group>
+    </dependencies>
+  </metadata>
+</package>";
+    }
+
+    /// <summary>
+    /// Merges new dependencies into an existing .nuspec, preserving existing ones.
+    /// Returns the updated .nuspec XML string.
+    /// </summary>
+    /// <param name="existingNuspec">The existing .nuspec XML content.</param>
+    /// <param name="newDependencies">The new dependencies to merge in.</param>
+    /// <returns>The updated .nuspec XML string.</returns>
+    public string MergeNuGetDependencies(
+        string existingNuspec,
+        List<NuGetDependencyInfo> newDependencies)
+    {
+        var existingDeps = ParseNuSpecDependencies(existingNuspec);
+        var merged = new List<NuGetDependencyInfo>(existingDeps);
+
+        foreach (var newDep in newDependencies)
+        {
+            if (!merged.Any(d =>
+                d.PackageId.Equals(newDep.PackageId, StringComparison.OrdinalIgnoreCase)))
+            {
+                merged.Add(newDep);
+            }
+        }
+
+        _logger.LogInformation("Merged dependencies: {Existing} existing + {New} new = {Total} total",
+            existingDeps.Count, newDependencies.Count, merged.Count);
+
+        return GenerateNuspecFromDependencies(merged);
+    }
+
+    /// <summary>
+    /// Gets the default .nuspec template for new C# jobs.
+    /// </summary>
+    /// <returns>The default .nuspec XML template.</returns>
+    public string GetDefaultNuspecTemplate() => DefaultNuspecTemplate;
+
+    /// <summary>
+    /// Escapes special XML characters in a string.
+    /// </summary>
+    private static string EscapeXml(string value)
+    {
+        return value
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
+            .Replace("\"", "&quot;")
+            .Replace("'", "&apos;");
+    }
+
+    /// <summary>
     /// Gets the content of a specific file from the JobCodeModel.
     /// </summary>
     /// <param name="model">The job code model.</param>
@@ -1100,9 +1240,11 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         }
 
         // Check .nuspec file
-        if (lowerFileName.EndsWith(".nuspec") && !string.IsNullOrEmpty(model.NuspecContent))
+        if (lowerFileName.EndsWith(".nuspec"))
         {
-            return model.NuspecContent;
+            return !string.IsNullOrEmpty(model.NuspecContent)
+                ? model.NuspecContent
+                : DefaultNuspecTemplate;
         }
 
         // Check additional files
@@ -1170,9 +1312,9 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     {
         return language.ToLower() switch
         {
-            "csharp" or "cs" => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" },
+            "csharp" or "cs" => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" },
             "python" or "py" => new List<string> { "main.py", "requirements.txt", "appsettings.json", "appsettings.Production.json" },
-            _ => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" }
+            _ => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" }
         };
     }
 

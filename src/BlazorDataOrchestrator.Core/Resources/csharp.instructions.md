@@ -16,6 +16,54 @@ If your solution requires 3rd party libraries (NuGet packages), you MUST indicat
     ...
     ```
 
+## 1b. NuGet Package Configuration (`.nuspec` File)
+
+When your code requires third-party NuGet packages, you MUST provide **two things**:
+
+### A. Comment Headers in `main.cs` (required — keep existing behavior)
+
+Place `// NUGET:` comments at the very top of `main.cs`:
+
+```csharp
+// NUGET: SendGrid, 9.29.3
+// NUGET: HtmlAgilityPack, 1.11.72
+using System;
+using SendGrid;
+```
+
+### B. `.nuspec` File Content (required — for web compilation)
+
+You MUST also provide the `.nuspec` file content so the web editor can resolve and download the NuGet packages at compile time. Wrap the `.nuspec` XML between the markers `###NUSPEC BEGIN###` and `###NUSPEC END###`:
+
+###NUSPEC BEGIN###
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>BlazorDataOrchestrator.Job</id>
+    <version>1.0.0</version>
+    <authors>BlazorDataOrchestrator</authors>
+    <description>Auto-generated job package (csharp)</description>
+    <contentFiles>
+      <files include="**/*" buildAction="Content" copyToOutput="true" />
+    </contentFiles>
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="SendGrid" version="9.29.3" />
+        <dependency id="HtmlAgilityPack" version="1.11.72" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>
+```
+###NUSPEC END###
+
+**Rules:**
+- The `targetFramework` MUST be `net10.0`.
+- Every package listed in `// NUGET:` headers MUST also appear as a `<dependency>` in the `.nuspec`.
+- Use stable (non-prerelease) versions only.
+- If updating existing code that already has packages, preserve existing dependencies and add new ones.
+
 ## 2. C# Code Requirements (`main.cs`)
 
 If the selected language is **C#**, the generated code must meet the following strict criteria to ensure it can be executed by the system's `OnRunCode` harness.

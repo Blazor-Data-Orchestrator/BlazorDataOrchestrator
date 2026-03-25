@@ -99,6 +99,26 @@ builder.Services.AddScoped<WebhookService>();
 // Add controllers for webhook API
 builder.Services.AddControllers();
 
+// Register LLM Build Error Resolution services (in-memory stores — no external database)
+builder.Services.AddSingleton<BuildErrorStore>();
+builder.Services.AddSingleton<FixAttemptStore>();
+builder.Services.AddSingleton<ContextGatherer>();
+builder.Services.AddSingleton<PromptBuilder>();
+builder.Services.AddSingleton<RootCauseClassifier>();
+builder.Services.AddSingleton<BuildTelemetryReader>();
+builder.Services.AddSingleton<LlmFixOrchestrator>(sp =>
+{
+    var orchestrator = new LlmFixOrchestrator(
+        sp.GetRequiredService<BuildErrorStore>(),
+        sp.GetRequiredService<FixAttemptStore>(),
+        sp.GetRequiredService<ContextGatherer>(),
+        sp.GetRequiredService<PromptBuilder>(),
+        sp.GetRequiredService<RootCauseClassifier>(),
+        sp.GetRequiredService<ILogger<LlmFixOrchestrator>>());
+    orchestrator.SolutionRootPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..");
+    return orchestrator;
+});
+
 // Register Settings service (uses Azure Table Storage)
 builder.Services.AddScoped<SettingsService>(sp =>
 {

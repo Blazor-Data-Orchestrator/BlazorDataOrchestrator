@@ -66,6 +66,16 @@ public class CSharpCompilationService
             _logger.LogInformation("Compilation {Status} with {ErrorCount} issues",
                 result.Success ? "succeeded" : "failed",
                 result.Errors.Count);
+
+            // Log each individual error for telemetry visibility
+            if (!result.Success)
+            {
+                foreach (var error in result.Errors)
+                {
+                    _logger.LogWarning("Compilation error at Line {Line}, Col {Column}: [{Severity}] {Message}",
+                        error.Line, error.Column, error.Severity, error.Message);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -220,6 +230,16 @@ public class CSharpCompilationService
             _logger.LogInformation("Compilation with dependencies {Status} with {ErrorCount} issues",
                 result.Success ? "succeeded" : "failed",
                 result.Errors.Count);
+
+            // Log each individual error for telemetry visibility
+            if (!result.Success)
+            {
+                foreach (var error in result.Errors)
+                {
+                    _logger.LogWarning("Compilation error at Line {Line}, Col {Column}: [{Severity}] {Message}",
+                        error.Line, error.Column, error.Severity, error.Message);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -303,6 +323,21 @@ public class CSharpCompilationService
             {
                 references.Add(MetadataReference.CreateFromFile(coreAssembly.Location));
             }
+
+            // Also load all referenced assemblies from Core to cover transitive dependencies
+            // (e.g., Azure.Data.Tables, Azure.Storage.Blobs used by JobManager)
+            foreach (var referencedAssemblyName in coreAssembly.GetReferencedAssemblies())
+            {
+                try
+                {
+                    var referencedAssembly = Assembly.Load(referencedAssemblyName);
+                    if (!string.IsNullOrEmpty(referencedAssembly.Location))
+                    {
+                        references.Add(MetadataReference.CreateFromFile(referencedAssembly.Location));
+                    }
+                }
+                catch { /* Not all referenced assemblies may be loadable, skip */ }
+            }
         }
         catch { }
 
@@ -339,7 +374,30 @@ public class CSharpCompilationService
             "System.ObjectModel",
             "System.Diagnostics.DiagnosticSource",
             "Microsoft.Extensions.Logging.Abstractions",
-            "Microsoft.Extensions.DependencyInjection.Abstractions"
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            // Azure SDK assemblies required by BlazorDataOrchestrator.Core (JobManager uses Azure Storage)
+            "Azure.Core",
+            "Azure.Data.Tables",
+            "Azure.Storage.Blobs",
+            "Azure.Storage.Queues",
+            "Azure.Storage.Common",
+            // Microsoft.Data.SqlClient required by UseSqlServer() extension method
+            "Microsoft.Data.SqlClient",
+            // Additional EF Core / runtime dependencies
+            "Microsoft.EntityFrameworkCore.Abstractions",
+            "Microsoft.Extensions.Caching.Abstractions",
+            "Microsoft.Extensions.Caching.Memory",
+            "Microsoft.Extensions.Configuration.Abstractions",
+            "Microsoft.Extensions.DependencyInjection",
+            "Microsoft.Extensions.Logging",
+            "Microsoft.Extensions.Options",
+            "Microsoft.Extensions.Primitives",
+            // System assemblies needed for compilation of job code
+            "System.IO.Compression",
+            "System.Threading",
+            "System.Threading.Thread",
+            "System.Diagnostics.Tracing",
+            "System.Runtime.InteropServices",
         };
 
         foreach (var name in additionalAssemblies)
