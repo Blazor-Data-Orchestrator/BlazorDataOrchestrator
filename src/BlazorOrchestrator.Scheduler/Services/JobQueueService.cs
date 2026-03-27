@@ -1,3 +1,4 @@
+using System.Text;
 using Azure.Storage.Queues;
 using BlazorOrchestrator.Scheduler.Messages;
 using BlazorOrchestrator.Scheduler.Settings;
@@ -37,6 +38,7 @@ public class JobQueueService : IJobQueueService
         };
 
         var messageJson = message.ToJson();
+        var base64Message = Convert.ToBase64String(Encoding.UTF8.GetBytes(messageJson));
 
         // Retry logic
         for (int attempt = 1; attempt <= _settings.RetryCount; attempt++)
@@ -45,7 +47,7 @@ public class JobQueueService : IJobQueueService
             {
                 var queueClient = _queueServiceClient.GetQueueClient(queueName);
                 await queueClient.CreateIfNotExistsAsync();
-                await queueClient.SendMessageAsync(messageJson);
+                await queueClient.SendMessageAsync(base64Message);
 
                 if (_settings.VerboseLogging)
                 {

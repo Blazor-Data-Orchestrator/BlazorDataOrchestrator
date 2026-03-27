@@ -117,17 +117,17 @@ public class AppSettingsService
         }
 
         // Write to Azure Table Storage (primary)
+        await _settingsService.SetAsync("TimezoneOffset", offsetString, "Display timezone offset");
+
+        // Write to appsettings.json (best-effort backward compatibility for local dev)
         try
         {
-            await _settingsService.SetAsync("TimezoneOffset", offsetString, "Display timezone offset");
+            await UpdateAppSettingsAsync("TimezoneOffset", offsetString);
         }
         catch
         {
-            // If Azure Table write fails, still write to file
+            // File write may fail in production containers where the filesystem is read-only
         }
-
-        // Write to appsettings.json (backward compatibility)
-        await UpdateAppSettingsAsync("TimezoneOffset", offsetString);
 
         // Invalidate cache so next read picks up the new value
         _cachedOffset = null;

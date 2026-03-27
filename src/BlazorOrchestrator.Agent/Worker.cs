@@ -98,9 +98,19 @@ public class Worker : BackgroundService
 
                 try
                 {
-                    // Parse the queue message
-                    var messageBody = Encoding.UTF8.GetString(Convert.FromBase64String(message.Body.ToString()));
-                    var queueMessage = JsonSerializer.Deserialize<JobQueueMessage>(messageBody);
+                    // Parse the queue message, handling both Base64-encoded and plain text formats
+                    string messageBody;
+                    var rawBody = message.Body.ToString();
+                    try
+                    {
+                        messageBody = Encoding.UTF8.GetString(Convert.FromBase64String(rawBody));
+                    }
+                    catch (FormatException)
+                    {
+                        // Message was not Base64-encoded, use as-is
+                        messageBody = rawBody;
+                    }
+                    var queueMessage = JsonSerializer.Deserialize<JobQueueMessage>(messageBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                     if (queueMessage == null)
                     {
