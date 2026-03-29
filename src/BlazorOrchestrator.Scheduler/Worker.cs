@@ -1,3 +1,4 @@
+using Azure.Data.Tables;
 using BlazorOrchestrator.Scheduler.Data;
 using BlazorOrchestrator.Scheduler.Models;
 using BlazorOrchestrator.Scheduler.Services;
@@ -15,15 +16,23 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly SchedulerSettings _settings;
+    private readonly TableServiceClient _tableServiceClient;
+
+    // Cached timezone to avoid repeated Azure Table lookups every poll cycle
+    private TimeZoneInfo? _cachedTimeZone;
+    private DateTime _timeZoneCacheExpiry = DateTime.MinValue;
+    private static readonly TimeSpan TimeZoneCacheDuration = TimeSpan.FromMinutes(5);
 
     public Worker(
         ILogger<Worker> logger,
         IServiceProvider serviceProvider,
-        IOptions<SchedulerSettings> settings)
+        IOptions<SchedulerSettings> settings,
+        TableServiceClient tableServiceClient)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _settings = settings.Value;
+        _tableServiceClient = tableServiceClient;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -62,8 +71,12 @@ public class Worker : BackgroundService
         var queueService = scope.ServiceProvider.GetRequiredService<IJobQueueService>();
 
         var now = DateTime.UtcNow;
-        var weekday = now.DayOfWeek;
-        var timeNow = (now.Hour * 100) + now.Minute; // Military time format
+
+        // Convert UTC to the configured local timezone for schedule comparison (DST-aware)
+        var tz = await GetConfiguredTimeZoneAsync();
+        var localNow = TimeZoneInfo.ConvertTimeFromUtc(now, tz);
+        var weekday = localNow.DayOfWeek;
+        var timeNow = (localNow.Hour * 100) + localNow.Minute; // Military time format in local time
 
         // Step 1: Mark stuck job instances as error
         await MarkStuckJobInstancesAsync(dbContext, now);
@@ -315,5 +328,63 @@ public class Worker : BackgroundService
         }
 
         await dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Resolves the configured timezone from Azure Table Storage (primary) or SchedulerSettings (fallback).
+    /// Caches the result for 5 minutes to avoid repeated Azure Table lookups.
+    /// </summary>
+    private async Task<TimeZoneInfo> GetConfiguredTimeZoneAsync()
+    {
+        if (_cachedTimeZone != null && DateTime.UtcNow < _timeZoneCacheExpiry)
+        {
+            return _cachedTimeZone;
+        }
+
+        string? timezoneId = null;
+
+        // 1. Try Azure Table Storage "Settings" table (same store the Web app writes to)
+        try
+        {
+            var tableClient = _tableServiceClient.GetTableClient("Settings");
+            var response = await tableClient.GetEntityIfExistsAsync<TableEntity>("AppSettings", "TimezoneId");
+            if (response.HasValue && response.Value != null)
+            {
+                timezoneId = response.Value.GetString("Value");
+            }
+        }
+        catch
+        {
+            // Swallow — fall through to config
+        }
+
+        // 2. Fallback to SchedulerSettings config
+        if (string.IsNullOrEmpty(timezoneId))
+        {
+            timezoneId = _settings.TimezoneId;
+        }
+
+        // 3. Resolve to TimeZoneInfo
+        TimeZoneInfo tz;
+        try
+        {
+            tz = TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            _logger.LogWarning("Unknown timezone ID '{TimezoneId}', falling back to UTC", timezoneId);
+            tz = TimeZoneInfo.Utc;
+        }
+
+        _cachedTimeZone = tz;
+        _timeZoneCacheExpiry = DateTime.UtcNow.Add(TimeZoneCacheDuration);
+
+        if (_settings.VerboseLogging)
+        {
+            _logger.LogInformation("Using timezone: {TimezoneId} (current offset: {Offset})",
+                tz.Id, tz.GetUtcOffset(DateTime.UtcNow));
+        }
+
+        return tz;
     }
 }

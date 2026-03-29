@@ -487,6 +487,28 @@ else
         WizardState.SetStep(1);
         // Re-check system status after installation
         await CheckSystemStatus();
+
+        if (!IsInstalling && !IsLoading)
+        {
+            // Redirect unauthenticated users to login when not in install/wizard mode
+            if (AuthStateTask != null)
+            {
+                var authState = await AuthStateTask;
+                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+                {
+                    ShouldRedirectToLogin = true;
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // Load dashboard data in the background so the UI becomes interactive immediately
+            _ = InvokeAsync(async () =>
+            {
+                await LoadDashboardData();
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task OnUpgradeComplete()
@@ -495,6 +517,28 @@ else
         WizardState.SetUpgrading(false);
         // Re-check system status after upgrade
         await CheckSystemStatus();
+
+        if (!IsInstalling && !IsLoading)
+        {
+            // Redirect unauthenticated users to login when not in install/wizard mode
+            if (AuthStateTask != null)
+            {
+                var authState = await AuthStateTask;
+                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+                {
+                    ShouldRedirectToLogin = true;
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // Load dashboard data in the background so the UI becomes interactive immediately
+            _ = InvokeAsync(async () =>
+            {
+                await LoadDashboardData();
+                StateHasChanged();
+            });
+        }
     }
 
     // ********************************

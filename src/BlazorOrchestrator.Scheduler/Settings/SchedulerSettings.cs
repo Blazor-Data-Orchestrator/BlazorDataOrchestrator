@@ -50,4 +50,10 @@ public class SchedulerSettings
     /// Delay in seconds between retry attempts.
     /// </summary>
     public int RetryDelaySeconds { get; set; } = 5;
+
+    /// <summary>
+    /// IANA timezone ID (e.g., "America/Los_Angeles") used for schedule evaluation.
+    /// This is a fallback; the primary source is the "TimezoneId" setting in Azure Table Storage.
+    /// </summary>
+    public string TimezoneId { get; set; } = "America/Los_Angeles";
 }
