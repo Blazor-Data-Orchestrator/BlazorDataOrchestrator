@@ -47,6 +47,9 @@ The user may request that you update the Aspire apphost. You can do this using t
 dotnet tool install --global dotnet-outdated-tool
 ```
 
+## Local development and Azure deployment
+IMPORTANT! This project uses **Podman Desktop** as the local container runtime and is deployed to **Azure** in production. When implementing any feature, configuration, or infrastructure change, you MUST ensure it works correctly in both environments. Never hardcode assumptions about the container runtime (e.g., Docker-specific socket paths or CLI commands). Use environment-aware configuration, Aspire abstractions, and Azure-compatible services so that code runs seamlessly under Podman Desktop locally and on Azure Container Apps (or the target Azure hosting service) in production.
+
 ## Persistent containers
 IMPORTANT! Consider avoiding persistent containers early during development to avoid creating state management issues when restarting the app.
 
