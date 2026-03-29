@@ -15,7 +15,7 @@
     	},
 		"aspire": {
       "command": "aspire",
-      "args": ["mcp-server"]
+      "args": ["agent", "mcp"]
     }
 	},
 	"inputs": []

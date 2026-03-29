@@ -198,6 +198,7 @@ public class Worker : BackgroundService
 
     /// <summary>
     /// Checks if the current time is within the schedule's time window.
+    /// Handles overnight windows where StopTime is less than StartTime (e.g., 345 to 0 means 3:45 AM to midnight).
     /// </summary>
     private static bool IsWithinTimeWindow(JobSchedule schedule, int timeNow)
     {
@@ -206,7 +207,25 @@ public class Worker : BackgroundService
             return true; // No time restriction
         }
 
-        return timeNow >= schedule.StartTime.Value && timeNow <= schedule.StopTime.Value;
+        var start = schedule.StartTime.Value;
+        var stop = schedule.StopTime.Value;
+
+        if (stop == 0)
+        {
+            // StopTime of 0 means midnight (end of day) — treat as 2400
+            stop = 2400;
+        }
+
+        if (stop >= start)
+        {
+            // Normal window: e.g., 800 to 1700
+            return timeNow >= start && timeNow <= stop;
+        }
+        else
+        {
+            // Overnight window: e.g., 2200 to 600
+            return timeNow >= start || timeNow <= stop;
+        }
     }
 
     /// <summary>
@@ -311,6 +330,9 @@ public class Worker : BackgroundService
             job.JobQueued = true;
             job.UpdatedDate = now;
             job.UpdatedBy = "Scheduler";
+
+            // Update schedule's LastRun timestamp
+            schedule.LastRun = now;
 
             _logger.LogInformation("Enqueued JobInstance {JobInstanceId} to queue '{QueueName}'",
                 jobInstance.Id, queueName);

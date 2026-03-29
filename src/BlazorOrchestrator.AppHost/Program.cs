@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Hosting;
+
+// Auto-detect Docker or Podman before Aspire reads the env var.
+ContainerRuntimeDetector.EnsureRuntimeConfigured();
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -61,3 +65,62 @@ var agent = builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Docke
     .WithReference(blobs).WithReference(tables).WithReference(queues);
 
 builder.Build().Run();
+
+// ---------------------------------------------------------------------------
+// Container runtime auto-detection (Docker / Podman)
+// ---------------------------------------------------------------------------
+static class ContainerRuntimeDetector
+{
+    private const string EnvVar = "DOTNET_ASPIRE_CONTAINER_RUNTIME";
+
+    public static void EnsureRuntimeConfigured()
+    {
+        var existing = Environment.GetEnvironmentVariable(EnvVar);
+        if (!string.IsNullOrEmpty(existing))
+        {
+            Console.WriteLine($"[AppHost] Container runtime (explicit): {existing}");
+            return;
+        }
+
+        if (IsRuntimeAvailable("docker"))
+        {
+            Environment.SetEnvironmentVariable(EnvVar, "docker");
+            Console.WriteLine("[AppHost] Auto-detected container runtime: docker");
+        }
+        else if (IsRuntimeAvailable("podman"))
+        {
+            Environment.SetEnvironmentVariable(EnvVar, "podman");
+            Console.WriteLine("[AppHost] Auto-detected container runtime: podman");
+        }
+        else
+        {
+            Console.WriteLine(
+                "[AppHost] WARNING: No container runtime found (docker, podman). "
+                + "Container-based resources will fail to start.");
+        }
+    }
+
+    private static bool IsRuntimeAvailable(string command)
+    {
+        try
+        {
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = command,
+                Arguments = "info",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            process.Start();
+            process.WaitForExit(5000);
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}
