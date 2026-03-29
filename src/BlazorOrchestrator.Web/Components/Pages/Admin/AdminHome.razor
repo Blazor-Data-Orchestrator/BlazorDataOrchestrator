@@ -179,12 +179,12 @@
                         <RadzenStack Gap="1.5rem">
                             <RadzenStack Gap="0.5rem">
                                 <RadzenLabel Text="Display Timezone" Component="TimezoneOffset" Style="font-weight: 600;" />
-                                <RadzenDropDown @bind-Value="@SelectedTimezoneOffset" 
+                                <RadzenDropDown @bind-Value="@SelectedTimezoneId" 
                                                 Data="@AvailableTimezones" 
                                                 TextProperty="Label" 
                                                 ValueProperty="Value"
                                                 Style="width: 100%; max-width: 400px;" 
-                                                Name="TimezoneOffset"
+                                                Name="TimezoneId"
                                                 Change="@OnTimezoneChanged" />
                                 <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
                                     Select the timezone for displaying dates and times in logs and other views.
@@ -201,7 +201,7 @@
                                         </RadzenStack>
                                         <RadzenIcon Icon="arrow_forward" Style="color: #6b7280;" />
                                         <RadzenStack Gap="0.25rem">
-                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">Display Time (@SelectedTimezoneOffset)</RadzenText>
+                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">Display Time (@SelectedTimezoneId, @AppSettingsService.GetTimezoneOffsetString())</RadzenText>
                                             <RadzenText TextStyle="TextStyle.Body1" Style="font-family: monospace;">@TimeDisplayService.FormatCurrentTime()</RadzenText>
                                         </RadzenStack>
                                     </RadzenStack>
@@ -406,7 +406,7 @@
     private RadzenDataGrid<JobGroup>? JobGroupGrid;
 
     // Settings fields
-    private string SelectedTimezoneOffset { get; set; } = "-08:00";
+    private string SelectedTimezoneId { get; set; } = "America/Los_Angeles";
     private List<TimezoneOption> AvailableTimezones { get; set; } = new();
     private bool IsSavingSettings { get; set; } = false;
 
@@ -441,7 +441,7 @@
     private void LoadSettings()
     {
         AvailableTimezones = AppSettingsService.GetAvailableTimezones();
-        SelectedTimezoneOffset = AppSettingsService.GetTimezoneOffsetString();
+        SelectedTimezoneId = AppSettingsService.GetTimezoneId();
     }
 
     private void OnTimezoneChanged()
@@ -457,7 +457,7 @@
 
         try
         {
-            await AppSettingsService.SetTimezoneOffsetAsync(SelectedTimezoneOffset);
+            await AppSettingsService.SetTimezoneAsync(SelectedTimezoneId);
             NotificationService.Notify(NotificationSeverity.Success, "Success", "Settings saved successfully. Please refresh the page for changes to take full effect.");
         }
         catch (Exception ex)
