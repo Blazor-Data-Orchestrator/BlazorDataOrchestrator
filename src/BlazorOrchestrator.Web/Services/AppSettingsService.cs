@@ -7,6 +7,7 @@ namespace BlazorOrchestrator.Web.Services;
 /// <summary>
 /// Service for managing application settings stored in appsettings.json
 /// with Azure Table Storage via <see cref="SettingsService"/> as the primary store.
+/// Uses proper TimeZoneInfo for DST-aware timezone conversions.
 /// </summary>
 public class AppSettingsService
 {
@@ -16,10 +17,12 @@ public class AppSettingsService
     private readonly string _appSettingsPath;
     private static readonly object _fileLock = new();
 
-    // Cached offset to avoid repeated Azure Table calls on synchronous reads
-    private TimeSpan? _cachedOffset;
+    // Cached TimeZoneInfo to avoid repeated Azure Table calls on synchronous reads
+    private TimeZoneInfo? _cachedTimeZone;
     private DateTime _cacheExpiry = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    private const string DefaultTimezoneId = "America/Los_Angeles";
 
     public AppSettingsService(IConfiguration configuration, IWebHostEnvironment environment, SettingsService settingsService)
     {
@@ -30,43 +33,39 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// Gets the configured timezone offset synchronously from cache.
-    /// If cache is empty, falls back to IConfiguration, then default -08:00.
-    /// Use <see cref="GetTimezoneOffsetAsync"/> for the full Azure Table → config → default fallback.
+    /// Gets the configured TimeZoneInfo synchronously from cache.
+    /// Falls back to IConfiguration ("TimezoneId"), then default "America/Los_Angeles".
+    /// Use <see cref="GetTimeZoneInfoAsync"/> for the full Azure Table → config → default fallback.
     /// </summary>
-    public TimeSpan GetTimezoneOffset()
+    public TimeZoneInfo GetTimeZoneInfo()
     {
-        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        if (_cachedTimeZone != null && DateTime.UtcNow < _cacheExpiry)
         {
-            return _cachedOffset.Value;
+            return _cachedTimeZone;
         }
 
         // Synchronous fallback: IConfiguration → default
-        var offsetString = _configuration["TimezoneOffset"] ?? "-08:00";
-        if (TryParseTimezoneOffset(offsetString, out var offset))
-        {
-            return offset;
-        }
-        return TimeSpan.FromHours(-8); // Default to Pacific Time
+        var timezoneId = _configuration["TimezoneId"] ?? DefaultTimezoneId;
+        return ResolveTimeZone(timezoneId);
     }
 
     /// <summary>
-    /// Gets the configured timezone offset asynchronously.
+    /// Gets the configured TimeZoneInfo asynchronously.
     /// Fallback chain: Azure Table Storage → IConfiguration → hardcoded default.
     /// </summary>
-    public async Task<TimeSpan> GetTimezoneOffsetAsync()
+    public async Task<TimeZoneInfo> GetTimeZoneInfoAsync()
     {
-        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        if (_cachedTimeZone != null && DateTime.UtcNow < _cacheExpiry)
         {
-            return _cachedOffset.Value;
+            return _cachedTimeZone;
         }
 
-        string? offsetString = null;
+        string? timezoneId = null;
 
-        // 1. Try Azure Table Storage
+        // 1. Try Azure Table Storage (primary — "TimezoneId")
         try
         {
-            offsetString = await _settingsService.GetAsync("TimezoneOffset");
+            timezoneId = await _settingsService.GetAsync("TimezoneId");
         }
         catch
         {
@@ -74,29 +73,34 @@ public class AppSettingsService
         }
 
         // 2. Fallback to IConfiguration
-        if (string.IsNullOrEmpty(offsetString))
+        if (string.IsNullOrEmpty(timezoneId))
         {
-            offsetString = _configuration["TimezoneOffset"];
+            timezoneId = _configuration["TimezoneId"];
         }
 
         // 3. Fallback to hardcoded default
-        if (string.IsNullOrEmpty(offsetString))
+        if (string.IsNullOrEmpty(timezoneId))
         {
-            offsetString = "-08:00";
+            timezoneId = DefaultTimezoneId;
         }
 
-        if (TryParseTimezoneOffset(offsetString, out var offset))
-        {
-            _cachedOffset = offset;
-            _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
-            return offset;
-        }
-
-        return TimeSpan.FromHours(-8);
+        var tz = ResolveTimeZone(timezoneId);
+        _cachedTimeZone = tz;
+        _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
+        return tz;
     }
 
     /// <summary>
-    /// Gets the timezone offset as a formatted string (e.g., "-08:00")
+    /// Gets the current UTC offset for the configured timezone (DST-aware).
+    /// </summary>
+    public TimeSpan GetTimezoneOffset()
+    {
+        var tz = GetTimeZoneInfo();
+        return tz.GetUtcOffset(DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Gets the current UTC offset string for the configured timezone (e.g., "-07:00" during PDT).
     /// </summary>
     public string GetTimezoneOffsetString()
     {
@@ -107,22 +111,36 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// Sets the timezone offset — writes to both Azure Table Storage and appsettings.json.
+    /// Gets the configured timezone ID (e.g., "America/Los_Angeles").
     /// </summary>
-    public async Task SetTimezoneOffsetAsync(string offsetString)
+    public string GetTimezoneId()
     {
-        if (!TryParseTimezoneOffset(offsetString, out _))
+        var tz = GetTimeZoneInfo();
+        return tz.Id;
+    }
+
+    /// <summary>
+    /// Sets the timezone — writes to both Azure Table Storage and appsettings.json.
+    /// </summary>
+    public async Task SetTimezoneAsync(string timezoneId)
+    {
+        // Validate that the timezone ID is recognized
+        try
         {
-            throw new ArgumentException($"Invalid timezone offset format: {offsetString}. Expected format: +HH:MM or -HH:MM");
+            TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            throw new ArgumentException($"Invalid timezone ID: {timezoneId}.");
         }
 
         // Write to Azure Table Storage (primary)
-        await _settingsService.SetAsync("TimezoneOffset", offsetString, "Display timezone offset");
+        await _settingsService.SetAsync("TimezoneId", timezoneId, "Display timezone (IANA ID, DST-aware)");
 
         // Write to appsettings.json (best-effort backward compatibility for local dev)
         try
         {
-            await UpdateAppSettingsAsync("TimezoneOffset", offsetString);
+            await UpdateAppSettingsAsync("TimezoneId", timezoneId);
         }
         catch
         {
@@ -130,71 +148,67 @@ public class AppSettingsService
         }
 
         // Invalidate cache so next read picks up the new value
-        _cachedOffset = null;
+        _cachedTimeZone = null;
         _cacheExpiry = DateTime.MinValue;
     }
 
     /// <summary>
-    /// Gets a list of common timezone offsets for display in a dropdown
+    /// Gets a list of common timezones for display in a dropdown.
+    /// Uses IANA timezone IDs that handle DST automatically.
     /// </summary>
     public List<TimezoneOption> GetAvailableTimezones()
     {
         return new List<TimezoneOption>
         {
-            new("-12:00", "UTC-12:00 (Baker Island)"),
-            new("-11:00", "UTC-11:00 (American Samoa)"),
-            new("-10:00", "UTC-10:00 (Hawaii)"),
-            new("-09:00", "UTC-09:00 (Alaska)"),
-            new("-08:00", "UTC-08:00 (Pacific Time)"),
-            new("-07:00", "UTC-07:00 (Mountain Time)"),
-            new("-06:00", "UTC-06:00 (Central Time)"),
-            new("-05:00", "UTC-05:00 (Eastern Time)"),
-            new("-04:00", "UTC-04:00 (Atlantic Time)"),
-            new("-03:00", "UTC-03:00 (Buenos Aires)"),
-            new("-02:00", "UTC-02:00 (Mid-Atlantic)"),
-            new("-01:00", "UTC-01:00 (Azores)"),
-            new("+00:00", "UTC+00:00 (UTC/London)"),
-            new("+01:00", "UTC+01:00 (Central Europe)"),
-            new("+02:00", "UTC+02:00 (Eastern Europe)"),
-            new("+03:00", "UTC+03:00 (Moscow)"),
-            new("+04:00", "UTC+04:00 (Dubai)"),
-            new("+05:00", "UTC+05:00 (Pakistan)"),
-            new("+05:30", "UTC+05:30 (India)"),
-            new("+06:00", "UTC+06:00 (Bangladesh)"),
-            new("+07:00", "UTC+07:00 (Bangkok)"),
-            new("+08:00", "UTC+08:00 (Singapore/China)"),
-            new("+09:00", "UTC+09:00 (Japan/Korea)"),
-            new("+10:00", "UTC+10:00 (Sydney)"),
-            new("+11:00", "UTC+11:00 (Solomon Islands)"),
-            new("+12:00", "UTC+12:00 (New Zealand)"),
-            new("+13:00", "UTC+13:00 (Tonga)"),
-            new("+14:00", "UTC+14:00 (Line Islands)")
+            new("Etc/GMT+12", "UTC-12:00 (Baker Island)"),
+            new("Pacific/Pago_Pago", "UTC-11:00 (American Samoa)"),
+            new("Pacific/Honolulu", "UTC-10:00 (Hawaii)"),
+            new("America/Anchorage", "UTC-09:00 (Alaska)"),
+            new("America/Los_Angeles", "Pacific Time (US & Canada)"),
+            new("America/Denver", "Mountain Time (US & Canada)"),
+            new("America/Chicago", "Central Time (US & Canada)"),
+            new("America/New_York", "Eastern Time (US & Canada)"),
+            new("America/Halifax", "Atlantic Time (Canada)"),
+            new("America/Argentina/Buenos_Aires", "Buenos Aires"),
+            new("Atlantic/South_Georgia", "Mid-Atlantic"),
+            new("Atlantic/Azores", "Azores"),
+            new("Europe/London", "London / UTC"),
+            new("Europe/Berlin", "Central European Time"),
+            new("Europe/Bucharest", "Eastern European Time"),
+            new("Europe/Moscow", "Moscow"),
+            new("Asia/Dubai", "Dubai / Gulf"),
+            new("Asia/Karachi", "Pakistan"),
+            new("Asia/Kolkata", "India"),
+            new("Asia/Dhaka", "Bangladesh"),
+            new("Asia/Bangkok", "Bangkok / Indochina"),
+            new("Asia/Singapore", "Singapore / China"),
+            new("Asia/Tokyo", "Japan / Korea"),
+            new("Australia/Sydney", "Sydney / AEST"),
+            new("Pacific/Guadalcanal", "Solomon Islands"),
+            new("Pacific/Auckland", "New Zealand"),
+            new("Pacific/Tongatapu", "Tonga"),
+            new("Pacific/Kiritimati", "Line Islands")
         };
     }
 
-    /// <summary>
-    /// Parses a timezone offset string (e.g., "-08:00" or "+05:30") into a TimeSpan
-    /// </summary>
-    public static bool TryParseTimezoneOffset(string offsetString, out TimeSpan offset)
+    private static TimeZoneInfo ResolveTimeZone(string timezoneId)
     {
-        offset = TimeSpan.Zero;
-        
-        if (string.IsNullOrWhiteSpace(offsetString))
-            return false;
-
-        offsetString = offsetString.Trim();
-        
-        // Handle both +/-HH:MM and HH:MM formats
-        var isNegative = offsetString.StartsWith("-");
-        var cleanOffset = offsetString.TrimStart('+', '-');
-
-        if (TimeSpan.TryParse(cleanOffset, out var parsedOffset))
+        try
         {
-            offset = isNegative ? -parsedOffset : parsedOffset;
-            return true;
+            return TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
         }
-
-        return false;
+        catch (TimeZoneNotFoundException)
+        {
+            // Fallback to default if the stored ID is invalid
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(DefaultTimezoneId);
+            }
+            catch
+            {
+                return TimeZoneInfo.Utc;
+            }
+        }
     }
 
     private async Task UpdateAppSettingsAsync(string key, string value)
@@ -221,6 +235,7 @@ public class AppSettingsService
 }
 
 /// <summary>
-/// Represents a timezone option for display in dropdowns
+/// Represents a timezone option for display in dropdowns.
+/// Value is an IANA timezone ID (e.g., "America/Los_Angeles").
 /// </summary>
 public record TimezoneOption(string Value, string Label);

@@ -3,19 +3,19 @@ using Microsoft.Extensions.Configuration;
 namespace BlazorDataOrchestrator.Core.Services;
 
 /// <summary>
-/// Shared service for formatting DateTime values with the configured timezone offset.
-/// Reads from Azure Table Storage via <see cref="SettingsService"/>, with fallback to
-/// <see cref="IConfiguration"/> and a hardcoded default of -08:00.
+/// Shared service for formatting DateTime values with DST-aware timezone conversion.
+/// Reads timezone ID from Azure Table Storage via <see cref="SettingsService"/>,
+/// with fallback to <see cref="IConfiguration"/> and a default of "America/Los_Angeles".
 /// </summary>
 public class TimeDisplayService
 {
     private readonly SettingsService _settingsService;
     private readonly IConfiguration _configuration;
-    private const string SettingKey = "TimezoneOffset";
-    private const string DefaultOffset = "-08:00";
+    private const string SettingKey = "TimezoneId";
+    private const string DefaultTimezoneId = "America/Los_Angeles";
 
-    // Cached offset to avoid repeated Azure Table calls
-    private TimeSpan? _cachedOffset;
+    // Cached TimeZoneInfo to avoid repeated Azure Table calls
+    private TimeZoneInfo? _cachedTimeZone;
     private DateTime _cacheExpiry = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
@@ -26,22 +26,22 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Gets the timezone offset asynchronously, using cache when available.
+    /// Gets the configured TimeZoneInfo asynchronously, using cache when available.
     /// Fallback chain: Azure Table → IConfiguration → hardcoded default.
     /// </summary>
-    public async Task<TimeSpan> GetTimezoneOffsetAsync()
+    public async Task<TimeZoneInfo> GetTimeZoneInfoAsync()
     {
-        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        if (_cachedTimeZone != null && DateTime.UtcNow < _cacheExpiry)
         {
-            return _cachedOffset.Value;
+            return _cachedTimeZone;
         }
 
-        string? offsetString = null;
+        string? timezoneId = null;
 
         // 1. Try Azure Table Storage
         try
         {
-            offsetString = await _settingsService.GetAsync(SettingKey);
+            timezoneId = await _settingsService.GetAsync(SettingKey);
         }
         catch
         {
@@ -49,51 +49,61 @@ public class TimeDisplayService
         }
 
         // 2. Fallback to IConfiguration
-        if (string.IsNullOrEmpty(offsetString))
+        if (string.IsNullOrEmpty(timezoneId))
         {
-            offsetString = _configuration[SettingKey];
+            timezoneId = _configuration[SettingKey];
         }
 
         // 3. Fallback to hardcoded default
-        if (string.IsNullOrEmpty(offsetString))
+        if (string.IsNullOrEmpty(timezoneId))
         {
-            offsetString = DefaultOffset;
+            timezoneId = DefaultTimezoneId;
         }
 
-        var offset = ParseOffset(offsetString);
-        _cachedOffset = offset;
+        var tz = ResolveTimeZone(timezoneId);
+        _cachedTimeZone = tz;
         _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
 
-        return offset;
+        return tz;
     }
 
     /// <summary>
-    /// Gets the timezone offset synchronously from cache.
-    /// If the cache is not populated yet, returns the IConfiguration value or default.
+    /// Gets the configured TimeZoneInfo synchronously from cache.
+    /// If the cache is not populated yet, returns from IConfiguration or default.
     /// </summary>
-    public TimeSpan GetTimezoneOffset()
+    public TimeZoneInfo GetTimeZoneInfo()
     {
-        if (_cachedOffset.HasValue && DateTime.UtcNow < _cacheExpiry)
+        if (_cachedTimeZone != null && DateTime.UtcNow < _cacheExpiry)
         {
-            return _cachedOffset.Value;
+            return _cachedTimeZone;
         }
 
         // Synchronous fallback: IConfiguration → default
-        var offsetString = _configuration[SettingKey] ?? DefaultOffset;
-        return ParseOffset(offsetString);
+        var timezoneId = _configuration[SettingKey] ?? DefaultTimezoneId;
+        return ResolveTimeZone(timezoneId);
     }
 
     /// <summary>
-    /// Converts a UTC DateTime to display time using the cached timezone offset.
+    /// Gets the current UTC offset for the configured timezone (DST-aware).
+    /// </summary>
+    public TimeSpan GetTimezoneOffset()
+    {
+        var tz = GetTimeZoneInfo();
+        return tz.GetUtcOffset(DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Converts a UTC DateTime to display time using the configured timezone (DST-aware).
     /// </summary>
     public DateTime ConvertToDisplayTime(DateTime utcTime)
     {
-        var offset = GetTimezoneOffset();
-        return utcTime.Add(offset);
+        var tz = GetTimeZoneInfo();
+        var utc = DateTime.SpecifyKind(utcTime, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
     }
 
     /// <summary>
-    /// Formats a DateTime by applying the timezone offset.
+    /// Formats a DateTime by applying the timezone conversion (DST-aware).
     /// </summary>
     public string FormatDateTime(DateTime dateTime, string format = "g")
     {
@@ -102,7 +112,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Formats a nullable DateTime by applying the timezone offset.
+    /// Formats a nullable DateTime by applying the timezone conversion.
     /// </summary>
     public string FormatDateTime(DateTime? dateTime, string format = "g", string nullDisplay = "-")
     {
@@ -112,7 +122,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Gets the current display time (UTC + offset).
+    /// Gets the current display time (UTC converted to local timezone).
     /// </summary>
     public DateTime GetCurrentDisplayTime()
     {
@@ -120,7 +130,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Formats the current time using the timezone offset.
+    /// Formats the current time using the configured timezone.
     /// </summary>
     public string FormatCurrentTime(string format = "g")
     {
@@ -128,7 +138,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Gets the timezone offset as a formatted string (e.g., "-08:00").
+    /// Gets the current timezone offset as a formatted string (e.g., "-07:00" during PDT).
     /// </summary>
     public string GetCurrentTimezoneDisplay()
     {
@@ -139,28 +149,30 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Invalidates the cached offset so the next read fetches from Azure Table Storage.
+    /// Invalidates the cached timezone so the next read fetches from Azure Table Storage.
     /// </summary>
     public void InvalidateCache()
     {
-        _cachedOffset = null;
+        _cachedTimeZone = null;
         _cacheExpiry = DateTime.MinValue;
     }
 
-    private static TimeSpan ParseOffset(string offsetString)
+    private static TimeZoneInfo ResolveTimeZone(string timezoneId)
     {
-        if (string.IsNullOrWhiteSpace(offsetString))
-            return TimeSpan.FromHours(-8);
-
-        offsetString = offsetString.Trim();
-        var isNegative = offsetString.StartsWith("-");
-        var cleanOffset = offsetString.TrimStart('+', '-');
-
-        if (TimeSpan.TryParse(cleanOffset, out var parsedOffset))
+        try
         {
-            return isNegative ? -parsedOffset : parsedOffset;
+            return TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
         }
-
-        return TimeSpan.FromHours(-8);
+        catch (TimeZoneNotFoundException)
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(DefaultTimezoneId);
+            }
+            catch
+            {
+                return TimeZoneInfo.Utc;
+            }
+        }
     }
 }

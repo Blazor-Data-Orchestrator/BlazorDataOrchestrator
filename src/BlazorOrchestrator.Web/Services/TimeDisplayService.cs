@@ -1,7 +1,8 @@
 namespace BlazorOrchestrator.Web.Services;
 
 /// <summary>
-/// Service for formatting DateTime values with the configured timezone offset
+/// Service for formatting DateTime values with DST-aware timezone conversion
+/// using TimeZoneInfo instead of fixed offsets.
 /// </summary>
 public class TimeDisplayService
 {
@@ -13,18 +14,18 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Converts a UTC DateTime to the configured display timezone
+    /// Converts a UTC DateTime to the configured display timezone (DST-aware).
     /// </summary>
     public DateTime ConvertToDisplayTime(DateTime utcTime)
     {
-        // If the time is not specified as UTC, assume it's already in the correct format
-        // but still apply the offset for display purposes
-        var offset = _appSettingsService.GetTimezoneOffset();
-        return utcTime.Add(offset);
+        var tz = _appSettingsService.GetTimeZoneInfo();
+        // Ensure the DateTime is treated as UTC before conversion
+        var utc = DateTime.SpecifyKind(utcTime, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
     }
 
     /// <summary>
-    /// Formats a DateTime value using the configured timezone offset
+    /// Formats a DateTime value using the configured timezone (DST-aware).
     /// </summary>
     /// <param name="dateTime">The DateTime to format (assumed to be in UTC)</param>
     /// <param name="format">The format string (default: "g" for short date/time)</param>
@@ -36,7 +37,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Formats a nullable DateTime value using the configured timezone offset
+    /// Formats a nullable DateTime value using the configured timezone (DST-aware).
     /// </summary>
     /// <param name="dateTime">The DateTime to format (assumed to be in UTC)</param>
     /// <param name="format">The format string (default: "g" for short date/time)</param>
@@ -51,7 +52,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Gets the current timezone offset string for display purposes
+    /// Gets the current timezone display string (e.g., "-07:00" during PDT).
     /// </summary>
     public string GetCurrentTimezoneDisplay()
     {
@@ -59,7 +60,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Gets the current time in the configured timezone
+    /// Gets the current time in the configured timezone.
     /// </summary>
     public DateTime GetCurrentDisplayTime()
     {
@@ -67,7 +68,7 @@ public class TimeDisplayService
     }
 
     /// <summary>
-    /// Formats the current time in the configured timezone
+    /// Formats the current time in the configured timezone.
     /// </summary>
     public string FormatCurrentTime(string format = "g")
     {
