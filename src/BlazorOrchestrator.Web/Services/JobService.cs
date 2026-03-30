@@ -225,4 +225,17 @@ public class JobService
             .OrderByDescending(i => i.CreatedDate)
             .ToListAsync();
     }
+
+    /// <summary>
+    /// Gets all jobs with their schedules and the latest job instance per job.
+    /// Returns one summary row per job for the Logs page "Recent Activity" tab.
+    /// </summary>
+    public async Task<List<Job>> GetJobsWithLatestInstanceAsync()
+    {
+        return await _dbContext.Jobs
+            .Include(j => j.JobSchedules)
+                .ThenInclude(s => s.JobInstances.OrderByDescending(i => i.CreatedDate).Take(1))
+            .OrderBy(j => j.JobName)
+            .ToListAsync();
+    }
 }

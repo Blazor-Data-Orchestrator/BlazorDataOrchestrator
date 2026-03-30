@@ -259,6 +259,52 @@ namespace BlazorDataOrchestrator.Core
             return allLogs.OrderByDescending(l => l.Timestamp).Take(maxResults).ToList();
         }
 
+        /// <summary>
+        /// Gets the latest single log entry for a specific job (for summary views).
+        /// </summary>
+        public async Task<JobLogEntry?> GetLatestLogForJobAsync(int jobId)
+        {
+            var logs = await GetAllLogsForJobAsync(jobId, 1);
+            return logs.FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Gets recent log entries across all jobs for the "All Logs" tab.
+        /// </summary>
+        public async Task<List<JobLogEntry>> GetRecentLogsAsync(int maxResults = 200)
+        {
+            var allLogs = new List<JobLogEntry>();
+            try
+            {
+                // Query all entries, sorted by timestamp descending
+                var queryResults = _logTableClient.QueryAsync<TableEntity>(
+                    maxPerPage: maxResults);
+
+                await foreach (var entity in queryResults)
+                {
+                    allLogs.Add(new JobLogEntry
+                    {
+                        PartitionKey = entity.PartitionKey,
+                        RowKey = entity.RowKey,
+                        Action = entity.GetString("Action"),
+                        Details = entity.GetString("Details"),
+                        Level = entity.GetString("Level"),
+                        Timestamp = entity.GetDateTime("Timestamp") ?? DateTime.UtcNow,
+                        JobId = entity.GetInt32("JobId") ?? 0,
+                        JobInstanceId = entity.GetInt32("JobInstanceId") ?? 0
+                    });
+
+                    if (allLogs.Count >= maxResults)
+                        break;
+                }
+            }
+            catch
+            {
+                // Return empty list on error
+            }
+            return allLogs.OrderByDescending(l => l.Timestamp).Take(maxResults).ToList();
+        }
+
         // #1 Create New Job
         public async Task<int> CreateNewJobAsync(Job job, string? jobGroupName = null, string? jobOrganizationName = null)
         {

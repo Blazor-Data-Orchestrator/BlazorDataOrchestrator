@@ -1,0 +1,736 @@
+@page "/logs"
+@using Radzen
+@using Radzen.Blazor
+@using BlazorDataOrchestrator.Core
+@using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Data
+@using BlazorOrchestrator.Web.Data.Data
+@using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@inject JobService JobService
+@inject JobManager JobManager
+@inject TimeDisplayService TimeDisplayService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<PageTitle>Logs</PageTitle>
+
+<RadzenStack Gap="1.5rem" Style="padding: 0.5rem;">
+    @* Header row *@
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start" Wrap="FlexWrap.Wrap" Gap="1rem">
+        <RadzenStack Gap="0.25rem">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenIcon Icon="description" Style="font-size: 1.5rem; color: #374151;" />
+                <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" Style="margin: 0; font-weight: 700; color: #111827;">Job Logs &amp; Upcoming Runs</RadzenText>
+            </RadzenStack>
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #6b7280;">View recent activity, upcoming schedules, and execution history for all jobs.</RadzenText>
+        </RadzenStack>
+        <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text"
+                      Style="color: #6b7280;" Click="@RefreshCurrentTab" Disabled="@isLoading" AriaLabel="Refresh" />
+    </RadzenStack>
+
+    @* Tabs *@
+    <RadzenTabs @bind-SelectedIndex="@selectedTabIndex" Change="@OnTabChanged">
+        <Tabs>
+            @* ===== Recent Activity Tab ===== *@
+            <RadzenTabsItem Text="Recent Activity" Icon="history">
+                @if (isLoading)
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading recent activity...</RadzenText>
+                    </RadzenStack>
+                }
+                else if (!RecentActivity.Any())
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                        <RadzenIcon Icon="info" Style="font-size: 2rem; color: #9ca3af;" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">No recent job activity found.</RadzenText>
+                    </RadzenStack>
+                }
+                else
+                {
+                    <RadzenDataGrid Data="@RecentActivity" TItem="JobActivitySummary"
+                                    AllowPaging="true" PageSize="15" PagerHorizontalAlign="HorizontalAlign.Center"
+                                    AllowSorting="true" AllowColumnResize="true" Density="Density.Compact">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Property="JobName" Title="Job Name" Width="200px">
+                                <Template Context="item">
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 600; color: #111827; margin: 0;">@item.JobName</RadzenText>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Property="Status" Title="Status" Width="120px" Sortable="true">
+                                <Template Context="item">
+                                    <RadzenBadge Text="@item.Status" Style="@GetStatusBadgeStyle(item.Status)" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Property="LastRun" Title="Last Run" Width="160px" />
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Property="Duration" Title="Duration" Width="100px" />
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Property="LatestMessage" Title="Latest Message">
+                                <Template Context="item">
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="color: #374151; margin: 0;">@item.LatestMessage</RadzenText>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JobActivitySummary" Title="Actions" Width="120px" Sortable="false" Filterable="false">
+                                <Template Context="item">
+                                    <RadzenButton Text="View Details" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
+                                                  Style="color: #6b7280; font-weight: 400;" Click="@(() => OpenLogsDialog(item.JobId, item.JobName))" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+            </RadzenTabsItem>
+
+            @* ===== Upcoming Runs Tab ===== *@
+            <RadzenTabsItem Text="Upcoming Runs" Icon="schedule">
+                @if (isLoading)
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading upcoming runs...</RadzenText>
+                    </RadzenStack>
+                }
+                else if (!UpcomingRuns.Any())
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                        <RadzenIcon Icon="info" Style="font-size: 2rem; color: #9ca3af;" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">No upcoming runs scheduled.</RadzenText>
+                    </RadzenStack>
+                }
+                else
+                {
+                    <RadzenDataGrid Data="@UpcomingRuns" TItem="JobUpcomingRun"
+                                    AllowPaging="true" PageSize="15" PagerHorizontalAlign="HorizontalAlign.Center"
+                                    AllowSorting="true" AllowColumnResize="true" Density="Density.Compact">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="JobUpcomingRun" Property="JobName" Title="Job Name" Width="200px">
+                                <Template Context="item">
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 600; color: #111827; margin: 0;">@item.JobName</RadzenText>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JobUpcomingRun" Property="IsEnabled" Title="Status" Width="120px">
+                                <Template Context="item">
+                                    <RadzenBadge Text="@(item.IsEnabled ? "Enabled" : "Disabled")"
+                                                 Style="@(item.IsEnabled ? "background-color: #dcfce7; color: #16a34a; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;" : "background-color: #f3f4f6; color: #6b7280; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;")" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JobUpcomingRun" Property="NextRun" Title="Next Run" Width="180px" />
+                            <RadzenDataGridColumn TItem="JobUpcomingRun" Property="ScheduleSummary" Title="Schedule" />
+                            <RadzenDataGridColumn TItem="JobUpcomingRun" Title="Actions" Width="160px" Sortable="false" Filterable="false">
+                                <Template Context="item">
+                                    <RadzenButton Text="View Full Schedule" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
+                                                  Style="color: #6b7280; font-weight: 400;" Click="@(() => OpenScheduleDialog(item.JobId, item.JobName))" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+            </RadzenTabsItem>
+
+            @* ===== All Logs Tab ===== *@
+            <RadzenTabsItem Text="All Logs" Icon="list_alt">
+                @if (isLoading)
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Medium" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">Loading logs...</RadzenText>
+                    </RadzenStack>
+                }
+                else
+                {
+                    @* Filter bar *@
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap" Style="margin-bottom: 1rem;">
+                        <RadzenIcon Icon="filter_list" Style="color: #9ca3af; font-size: 1.1rem;" />
+                        <RadzenDropDown @bind-Value="@selectedLogLevel" Data="@LogLevelOptions"
+                                        Style="min-width: 140px;" Placeholder="All Levels"
+                                        Change="@ApplyLogFilters" AllowClear="true" />
+                        <RadzenDropDown @bind-Value="@selectedLogJobId" Data="@JobFilterOptions"
+                                        TextProperty="Text" ValueProperty="Value"
+                                        Style="min-width: 200px;" Placeholder="All Jobs"
+                                        Change="@ApplyLogFilters" AllowClear="true" />
+                        <RadzenTextBox @bind-Value="@logSearchText" Placeholder="Search messages..." Style="min-width: 200px;"
+                                       Change="@ApplyLogFilters" />
+                        @if (!string.IsNullOrEmpty(selectedLogLevel) || selectedLogJobId.HasValue || !string.IsNullOrEmpty(logSearchText))
+                        {
+                            <RadzenButton Text="Clear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          Variant="Variant.Text" Icon="clear" Click="@ClearLogFilters" />
+                        }
+                    </RadzenStack>
+
+                    @if (!FilteredLogs.Any())
+                    {
+                        <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                            <RadzenIcon Icon="info" Style="font-size: 2rem; color: #9ca3af;" />
+                            <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">No log entries found.</RadzenText>
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        <RadzenDataGrid Data="@FilteredLogs" TItem="LogEntry"
+                                        AllowPaging="true" PageSize="20" PagerHorizontalAlign="HorizontalAlign.Center"
+                                        AllowSorting="true" AllowColumnResize="true" Density="Density.Compact">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Timestamp" Title="Timestamp" Width="170px">
+                                    <Template Context="log">
+                                        @TimeDisplayService.FormatDateTime(log.Timestamp)
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="LogEntry" Property="JobName" Title="Job" Width="160px">
+                                    <Template Context="log">
+                                        <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 500; color: #111827; margin: 0;">@log.JobName</RadzenText>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Level" Title="Level" Width="100px">
+                                    <Template Context="log">
+                                        <RadzenBadge Text="@log.Level" BadgeStyle="@GetLogBadgeStyle(log.Level)" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Action" Title="Action" Width="130px" />
+                                <RadzenDataGridColumn TItem="LogEntry" Property="Message" Title="Message" />
+                                <RadzenDataGridColumn TItem="LogEntry" Property="JobInstanceId" Title="Instance" Width="90px" TextAlign="TextAlign.Center" />
+                            </Columns>
+                        </RadzenDataGrid>
+                    }
+                }
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    private bool isLoading = true;
+    private int selectedTabIndex = 0;
+
+    // Recent Activity tab
+    private List<JobActivitySummary> RecentActivity { get; set; } = new();
+
+    // Upcoming Runs tab
+    private List<JobUpcomingRun> UpcomingRuns { get; set; } = new();
+
+    // All Logs tab
+    private List<LogEntry> AllLogs { get; set; } = new();
+    private List<LogEntry> FilteredLogs { get; set; } = new();
+    private string? selectedLogLevel;
+    private int? selectedLogJobId;
+    private string? logSearchText;
+    private List<string> LogLevelOptions = new() { "Info", "Warning", "Error", "Success" };
+    private List<FilterOption> JobFilterOptions { get; set; } = new();
+
+    // Job name lookup cache
+    private Dictionary<int, string> _jobNameMap = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecentActivityAsync();
+    }
+
+    private async Task OnTabChanged(int index)
+    {
+        selectedTabIndex = index;
+        switch (index)
+        {
+            case 0:
+                if (!RecentActivity.Any()) await LoadRecentActivityAsync();
+                break;
+            case 1:
+                if (!UpcomingRuns.Any()) await LoadUpcomingRunsAsync();
+                break;
+            case 2:
+                if (!AllLogs.Any()) await LoadAllLogsAsync();
+                break;
+        }
+    }
+
+    private async Task RefreshCurrentTab()
+    {
+        switch (selectedTabIndex)
+        {
+            case 0: await LoadRecentActivityAsync(); break;
+            case 1: await LoadUpcomingRunsAsync(); break;
+            case 2: await LoadAllLogsAsync(); break;
+        }
+    }
+
+    // ===== Recent Activity =====
+    private async Task LoadRecentActivityAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var jobs = await JobService.GetJobsWithLatestInstanceAsync();
+            _jobNameMap = jobs.ToDictionary(j => j.Id, j => j.JobName ?? "Unnamed Job");
+            var summaries = new List<JobActivitySummary>();
+
+            foreach (var job in jobs)
+            {
+                var latestInstance = job.JobSchedules
+                    .SelectMany(s => s.JobInstances)
+                    .OrderByDescending(i => i.CreatedDate)
+                    .FirstOrDefault();
+
+                var lastSchedule = job.JobSchedules
+                    .Where(s => s.LastRun.HasValue)
+                    .OrderByDescending(s => s.LastRun)
+                    .FirstOrDefault();
+
+                string status = GetJobStatus(job);
+                string lastRun = lastSchedule?.LastRun.HasValue == true
+                    ? FormatRelativeTime(lastSchedule.LastRun!.Value)
+                    : "Never";
+
+                string duration = "-";
+                if (latestInstance != null && latestInstance.UpdatedDate.HasValue)
+                {
+                    var diff = latestInstance.UpdatedDate.Value - latestInstance.CreatedDate;
+                    duration = FormatDuration(diff);
+                }
+
+                // Get latest log message (best-effort, don't block on failure)
+                string latestMessage = "-";
+                try
+                {
+                    var latestLog = await JobManager.GetLatestLogForJobAsync(job.Id);
+                    if (latestLog != null)
+                    {
+                        var msg = $"[{latestLog.Action}] {latestLog.Details}";
+                        latestMessage = msg.Length > 80 ? msg[..77] + "..." : msg;
+                    }
+                }
+                catch { }
+
+                summaries.Add(new JobActivitySummary
+                {
+                    JobId = job.Id,
+                    JobName = job.JobName ?? "Unnamed Job",
+                    Status = status,
+                    LastRun = lastRun,
+                    Duration = duration,
+                    LatestMessage = latestMessage,
+                    HasError = job.JobInError,
+                    IsRunning = job.JobInProcess
+                });
+            }
+
+            RecentActivity = summaries;
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load recent activity: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ===== Upcoming Runs =====
+    private async Task LoadUpcomingRunsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var jobs = await JobService.GetJobsAsync();
+            var upcoming = new List<JobUpcomingRun>();
+
+            foreach (var job in jobs)
+            {
+                var enabledSchedule = job.JobSchedules?.FirstOrDefault(s => s.Enabled);
+                string nextRun = "Not scheduled";
+                string summary = "No schedule";
+
+                if (enabledSchedule != null)
+                {
+                    nextRun = GetNextRunDisplay(enabledSchedule);
+                    summary = BuildScheduleSummary(enabledSchedule);
+                }
+
+                upcoming.Add(new JobUpcomingRun
+                {
+                    JobId = job.Id,
+                    JobName = job.JobName ?? "Unnamed Job",
+                    IsEnabled = job.JobEnabled,
+                    NextRun = nextRun,
+                    ScheduleSummary = summary,
+                    ScheduleCount = job.JobSchedules?.Count ?? 0
+                });
+            }
+
+            UpcomingRuns = upcoming;
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load upcoming runs: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ===== All Logs =====
+    private async Task LoadAllLogsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            // Ensure job name map is populated
+            if (!_jobNameMap.Any())
+            {
+                var jobs = await JobService.GetJobsAsync();
+                _jobNameMap = jobs.ToDictionary(j => j.Id, j => j.JobName ?? "Unnamed Job");
+            }
+
+            JobFilterOptions = _jobNameMap.Select(kv => new FilterOption { Value = kv.Key, Text = kv.Value }).ToList();
+
+            var rawLogs = await JobManager.GetRecentLogsAsync(200);
+            AllLogs = rawLogs.Select(l => new LogEntry
+            {
+                Timestamp = l.Timestamp,
+                JobName = _jobNameMap.TryGetValue(l.JobId, out var name) ? name : $"Job #{l.JobId}",
+                JobId = l.JobId,
+                JobInstanceId = l.JobInstanceId,
+                Level = l.Level ?? "Info",
+                Action = l.Action ?? "",
+                Message = l.Details ?? ""
+            }).ToList();
+
+            ApplyLogFilters();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load logs: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ApplyLogFilters()
+    {
+        var filtered = AllLogs.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(selectedLogLevel))
+            filtered = filtered.Where(l => l.Level.Equals(selectedLogLevel, StringComparison.OrdinalIgnoreCase));
+
+        if (selectedLogJobId.HasValue)
+            filtered = filtered.Where(l => l.JobId == selectedLogJobId.Value);
+
+        if (!string.IsNullOrEmpty(logSearchText))
+            filtered = filtered.Where(l =>
+                l.Message.Contains(logSearchText, StringComparison.OrdinalIgnoreCase) ||
+                l.JobName.Contains(logSearchText, StringComparison.OrdinalIgnoreCase));
+
+        FilteredLogs = filtered.ToList();
+    }
+
+    private void ClearLogFilters()
+    {
+        selectedLogLevel = null;
+        selectedLogJobId = null;
+        logSearchText = null;
+        FilteredLogs = AllLogs.ToList();
+    }
+
+    // ===== Dialogs =====
+    private async Task OpenLogsDialog(int jobId, string jobName)
+    {
+        var allLogs = new List<LogDisplayEntry>();
+
+        var instances = await JobService.GetJobInstancesAsync(jobId);
+        var instanceLogs = instances.Select(i => new LogDisplayEntry
+        {
+            Id = i.Id,
+            JobInstanceId = i.Id,
+            Level = i.HasError ? "Error" : (i.InProcess ? "Info" : "Success"),
+            CreatedDate = i.CreatedDate,
+            Message = $"Job instance {i.Id} - Agent: {i.AgentId ?? "N/A"}",
+            Source = "Instance"
+        });
+        allLogs.AddRange(instanceLogs);
+
+        try
+        {
+            var azureLogs = await JobManager.GetAllLogsForJobAsync(jobId);
+            var tableLogEntries = azureLogs.Select(l => new LogDisplayEntry
+            {
+                Id = 0,
+                JobInstanceId = l.JobInstanceId,
+                Level = l.Level ?? "Info",
+                CreatedDate = l.Timestamp,
+                Message = $"[{l.Action}] {l.Details}",
+                Source = "AzureTable"
+            });
+            allLogs.AddRange(tableLogEntries);
+        }
+        catch { }
+
+        var logs = allLogs.OrderByDescending(l => l.CreatedDate).ToList();
+
+        await DialogService.OpenAsync($"Logs - {jobName}", ds =>
+            @<RadzenStack Gap="1rem" Style="min-width: 600px; max-height: 500px;">
+                @if (!logs.Any())
+                {
+                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="padding: 2rem;">
+                        <RadzenIcon Icon="info" Style="font-size: 2rem; color: #6b7280;" />
+                        <RadzenText TextStyle="TextStyle.Body1" Style="color: #6b7280;">No logs available for this job.</RadzenText>
+                    </RadzenStack>
+                }
+                else
+                {
+                    <RadzenDataGrid Data="@logs" TItem="LogDisplayEntry"
+                                    AllowPaging="true" PageSize="10" PagerHorizontalAlign="HorizontalAlign.Center"
+                                    AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Level" Title="Level" Width="100px">
+                                <Template Context="log">
+                                    <RadzenBadge BadgeStyle="@GetLogBadgeStyle(log.Level)" Text="@log.Level" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="LogDisplayEntry" Property="CreatedDate" Title="Created Date" Width="150px">
+                                <Template Context="log">
+                                    @TimeDisplayService.FormatDateTime(log.CreatedDate)
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Message" Title="Message" />
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" Style="margin-top: 0.5rem;">
+                    <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Secondary" Size="ButtonSize.Small" Click="@(async () => { ds.Close(); await OpenLogsDialog(jobId, jobName); })" />
+                    <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => ds.Close())" />
+                </RadzenStack>
+            </RadzenStack>,
+            new DialogOptions { Width = "850px", CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true });
+    }
+
+    private async Task OpenScheduleDialog(int jobId, string jobName)
+    {
+        await DialogService.OpenAsync<JobDetailsDialog>($"Schedule - {jobName}",
+            new Dictionary<string, object?>
+            {
+                { "JobId", jobId },
+                { "InitialTabIndex", 1 },
+                { "OnClose", EventCallback.Factory.Create(this, () => DialogService.Close()) },
+                { "OnJobDeleted", EventCallback.Factory.Create(this, () => DialogService.Close()) },
+                { "OnJobSaved", EventCallback.Factory.Create(this, async () => { await LoadUpcomingRunsAsync(); }) }
+            },
+            new DialogOptions { Width = "950px", CloseDialogOnEsc = false, CloseDialogOnOverlayClick = false });
+    }
+
+    // ===== Helpers =====
+    private string GetJobStatus(Job job)
+    {
+        if (job.JobInError) return "Error";
+        if (job.JobInProcess) return "Running";
+        if (job.JobQueued) return "Queued";
+        if (job.JobEnabled) return "Ready";
+        return "Disabled";
+    }
+
+    private string FormatRelativeTime(DateTime utcTime)
+    {
+        var displayTime = TimeDisplayService.ConvertToDisplayTime(utcTime);
+        var now = TimeDisplayService.GetCurrentDisplayTime();
+        var diff = now - displayTime;
+
+        if (diff.TotalMinutes < 1) return "Just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24)
+        {
+            if (displayTime.Date == now.Date)
+                return $"Today {displayTime:h:mm tt}";
+            return $"Yesterday {displayTime:h:mm tt}";
+        }
+        return TimeDisplayService.FormatDateTime(utcTime, "MMM d, h:mm tt");
+    }
+
+    private static string FormatDuration(TimeSpan ts)
+    {
+        if (ts.TotalSeconds < 1) return "<1s";
+        if (ts.TotalMinutes < 1) return $"{(int)ts.TotalSeconds}s";
+        if (ts.TotalHours < 1) return $"{(int)ts.TotalMinutes}m {ts.Seconds}s";
+        return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+    }
+
+    private string GetNextRunDisplay(JobSchedule schedule)
+    {
+        if (!schedule.Enabled) return "Disabled";
+        if (!schedule.RunEveryHour.HasValue || schedule.RunEveryHour <= 0) return "See schedule";
+
+        var lastRun = schedule.LastRun ?? DateTime.UtcNow;
+        var nextRun = lastRun.AddHours(schedule.RunEveryHour.Value);
+
+        if (schedule.StartTime.HasValue && schedule.StopTime.HasValue)
+        {
+            var displayNext = TimeDisplayService.ConvertToDisplayTime(nextRun);
+            var nextMilitary = displayNext.Hour * 100 + displayNext.Minute;
+            var start = schedule.StartTime.Value;
+            var stop = schedule.StopTime.Value == 0 ? 2400 : schedule.StopTime.Value;
+
+            bool inWindow;
+            if (stop >= start)
+                inWindow = nextMilitary >= start && nextMilitary <= stop;
+            else
+                inWindow = nextMilitary >= start || nextMilitary <= stop;
+
+            if (!inWindow)
+            {
+                var startHour = start / 100;
+                var startMinute = start % 100;
+                var candidate = displayNext.Date.AddHours(startHour).AddMinutes(startMinute);
+                if (candidate <= displayNext) candidate = candidate.AddDays(1);
+
+                for (int i = 0; i < 7; i++)
+                {
+                    if (IsDayEnabled(schedule, candidate.DayOfWeek)) break;
+                    candidate = candidate.AddDays(1);
+                }
+
+                var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
+                if (candidate.Date == nowDisplay.Date) return $"Today {candidate:h:mm tt}";
+                if (candidate.Date == nowDisplay.Date.AddDays(1)) return $"Tomorrow {candidate:h:mm tt}";
+                return candidate.ToString("MMM d, h:mm tt");
+            }
+        }
+
+        var display = TimeDisplayService.ConvertToDisplayTime(nextRun);
+        var now2 = TimeDisplayService.GetCurrentDisplayTime();
+        if (display.Date == now2.Date) return $"Today {display:h:mm tt}";
+        if (display.Date == now2.Date.AddDays(1)) return $"Tomorrow {display:h:mm tt}";
+        return TimeDisplayService.FormatDateTime(nextRun, "MMM d, h:mm tt");
+    }
+
+    private static string BuildScheduleSummary(JobSchedule s)
+    {
+        var parts = new List<string>();
+
+        if (s.RunEveryHour.HasValue && s.RunEveryHour > 0)
+            parts.Add($"Every {s.RunEveryHour}h");
+
+        var days = new List<string>();
+        if (s.Monday) days.Add("Mon");
+        if (s.Tuesday) days.Add("Tue");
+        if (s.Wednesday) days.Add("Wed");
+        if (s.Thursday) days.Add("Thu");
+        if (s.Friday) days.Add("Fri");
+        if (s.Saturday) days.Add("Sat");
+        if (s.Sunday) days.Add("Sun");
+
+        if (days.Count == 7)
+            parts.Add("Daily");
+        else if (days.Count == 5 && !s.Saturday && !s.Sunday)
+            parts.Add("Weekdays");
+        else if (days.Count == 2 && s.Saturday && s.Sunday)
+            parts.Add("Weekends");
+        else if (days.Any())
+            parts.Add(string.Join(", ", days));
+
+        if (s.StartTime.HasValue && s.StopTime.HasValue)
+        {
+            var startH = s.StartTime.Value / 100;
+            var startM = s.StartTime.Value % 100;
+            var stopH = s.StopTime.Value / 100;
+            var stopM = s.StopTime.Value % 100;
+            var startStr = new TimeOnly(startH, startM).ToString("h:mm tt");
+            var stopStr = s.StopTime.Value == 0 ? "Midnight" : new TimeOnly(stopH, stopM).ToString("h:mm tt");
+            parts.Add($"{startStr} – {stopStr}");
+        }
+
+        return parts.Any() ? string.Join(", ", parts) : "Custom schedule";
+    }
+
+    private static bool IsDayEnabled(JobSchedule schedule, DayOfWeek day)
+    {
+        return day switch
+        {
+            DayOfWeek.Monday => schedule.Monday,
+            DayOfWeek.Tuesday => schedule.Tuesday,
+            DayOfWeek.Wednesday => schedule.Wednesday,
+            DayOfWeek.Thursday => schedule.Thursday,
+            DayOfWeek.Friday => schedule.Friday,
+            DayOfWeek.Saturday => schedule.Saturday,
+            DayOfWeek.Sunday => schedule.Sunday,
+            _ => false
+        };
+    }
+
+    private static string GetStatusBadgeStyle(string status)
+    {
+        return status switch
+        {
+            "Error" => "background-color: #fee2e2; color: #dc2626; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;",
+            "Running" => "background-color: #dcfce7; color: #16a34a; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;",
+            "Queued" => "background-color: #fef3c7; color: #d97706; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;",
+            "Ready" => "background-color: #dbeafe; color: #2563eb; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;",
+            "Success" => "background-color: #dcfce7; color: #16a34a; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;",
+            _ => "background-color: #f3f4f6; color: #6b7280; border: none; font-size: 0.75rem; font-weight: 500; padding: 0.25rem 0.75rem; border-radius: 9999px;"
+        };
+    }
+
+    private static BadgeStyle GetLogBadgeStyle(string level)
+    {
+        return level switch
+        {
+            "Error" => BadgeStyle.Danger,
+            "Warning" => BadgeStyle.Warning,
+            "Info" => BadgeStyle.Info,
+            "Success" => BadgeStyle.Success,
+            _ => BadgeStyle.Light
+        };
+    }
+
+    // ===== View Models =====
+    private class JobActivitySummary
+    {
+        public int JobId { get; set; }
+        public string JobName { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string LastRun { get; set; } = string.Empty;
+        public string Duration { get; set; } = string.Empty;
+        public string LatestMessage { get; set; } = string.Empty;
+        public bool HasError { get; set; }
+        public bool IsRunning { get; set; }
+    }
+
+    private class JobUpcomingRun
+    {
+        public int JobId { get; set; }
+        public string JobName { get; set; } = string.Empty;
+        public bool IsEnabled { get; set; }
+        public string NextRun { get; set; } = string.Empty;
+        public string ScheduleSummary { get; set; } = string.Empty;
+        public int ScheduleCount { get; set; }
+    }
+
+    private class LogEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public string JobName { get; set; } = string.Empty;
+        public int JobId { get; set; }
+        public int JobInstanceId { get; set; }
+        public string Level { get; set; } = string.Empty;
+        public string Action { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+    }
+
+    private class LogDisplayEntry
+    {
+        public int Id { get; set; }
+        public int JobInstanceId { get; set; }
+        public string Level { get; set; } = string.Empty;
+        public DateTime CreatedDate { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+    }
+
+    private class FilterOption
+    {
+        public int Value { get; set; }
+        public string Text { get; set; } = string.Empty;
+    }
+}
