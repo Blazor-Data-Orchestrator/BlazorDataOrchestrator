@@ -2,11 +2,14 @@
 
 This repository is set up to use Aspire. Aspire is an orchestrator for the entire application and will take care of configuring dependencies, building, and running the application. The resources that make up the application are defined in `apphost.cs` including application code and external dependencies.
 
+## CLI-first principle
+IMPORTANT! **Always prefer CLI commands over MCP server tools** when both can accomplish the same task. CLI commands (`aspire`, `dotnet`, `az`, `azd`, etc.) are faster, consume fewer tokens, and produce more concise output. Only fall back to MCP tools when CLI cannot accomplish the task or when MCP provides significantly richer information that CLI cannot.
+
 ## General recommendations for working with Aspire
 1. Before making any changes always run the apphost using `aspire run` and inspect the state of resources to make sure you are building from a known state.
 1. Changes to the _apphost.cs_ file will require a restart of the application to take effect.
 2. Make changes incrementally and run the aspire application using the `aspire run` command to validate changes.
-3. Use the Aspire MCP tools to check the status of resources and debug issues.
+3. Use CLI commands first to check the status of resources and debug issues. Only use Aspire MCP tools when CLI output is insufficient.
 
 ## Running the application
 To run the application run the following command:
@@ -18,13 +21,13 @@ aspire run
 If there is already an instance of the application running it will prompt to stop the existing instance. You only need to restart the application if code in `apphost.cs` is changed, but if you experience problems it can be useful to reset everything to the starting state.
 
 ## Checking resources
-To check the status of resources defined in the app model use the _list resources_ tool. This will show you the current state of each resource and if there are any issues. If a resource is not running as expected you can use the _execute resource command_ tool to restart it or perform other actions.
+Prefer using CLI commands (e.g., `aspire run` output, `dotnet` commands, container CLI tools) to check resource status. Only fall back to the _list resources_ MCP tool when CLI is insufficient. If a resource is not running as expected, try CLI-based restarts before using the _execute resource command_ MCP tool.
 
 ## Listing integrations
-IMPORTANT! When a user asks you to add a resource to the app model you should first use the _list integrations_ tool to get a list of the current versions of all the available integrations. You should try to use the version of the integration which aligns with the version of the Aspire.AppHost.Sdk. Some integration versions may have a preview suffix. Once you have identified the correct integration you should always use the _get integration docs_ tool to fetch the latest documentation for the integration and follow the links to get additional guidance.
+IMPORTANT! When a user asks you to add a resource to the app model, prefer using `dotnet package search` or checking NuGet directly via CLI to find available integration packages and their versions. You should try to use the version of the integration which aligns with the version of the Aspire.AppHost.Sdk. Some integration versions may have a preview suffix. Only fall back to the _list integrations_ MCP tool if CLI search is insufficient. For documentation, prefer fetching official docs via URL over using the _get integration docs_ MCP tool when possible.
 
 ## Debugging issues
-IMPORTANT! Aspire is designed to capture rich logs and telemetry for all resources defined in the app model. Use the following diagnostic tools when debugging issues with the application before making changes to make sure you are focusing on the right things.
+IMPORTANT! Aspire captures rich logs and telemetry for all resources. **Prefer CLI-based debugging first** — check terminal output, use `dotnet` CLI diagnostics, read log files directly, and use container CLI tools (`podman logs`, etc.) before resorting to MCP tools. Only use the following MCP tools when CLI-based approaches are insufficient:
 
 1. _list structured logs_; use this tool to get details about structured logs.
 2. _list console logs_; use this tool to get details about console logs.
@@ -32,13 +35,14 @@ IMPORTANT! Aspire is designed to capture rich logs and telemetry for all resourc
 4. _list trace structured logs_; use this tool to get logs related to a trace
 
 ## Other Aspire MCP tools
+Only use these when CLI alternatives are not available:
 
 1. _select apphost_; use this tool if working with multiple app hosts within a workspace.
 2. _list apphosts_; use this tool to get details about active app hosts.
 
 ## Playwright MCP server
 
-The playwright MCP server has also been configured in this repository and you should use it to perform functional investigations of the resources defined in the app model as you work on the codebase. To get endpoints that can be used for navigation using the playwright MCP server use the list resources tool.
+The playwright MCP server is available but should only be used when you need to perform functional UI investigations that cannot be done via CLI or API calls (e.g., `curl`, `Invoke-WebRequest`). Prefer CLI-based HTTP requests for API testing. When UI testing is required, use the playwright MCP server for navigation — to get endpoints, check the Aspire run output or use the list resources tool.
 
 ## Updating the app host
 The user may request that you update the Aspire apphost. You can do this using the `aspire update` command. This will update the apphost to the latest version and some of the Aspire specific packages in referenced projects, however you may need to manually update other packages in the solution to ensure compatibility. You can consider using the `dotnet-outdated` with the users consent. To install the `dotnet-outdated` tool use the following command:
