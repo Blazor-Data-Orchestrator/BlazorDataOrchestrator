@@ -32,7 +32,7 @@ Blazor Data Orchestrator fills this gap — a **lightweight, self-hosted job pla
 
 Go from `git clone` to a fully operational job automation system in minutes:
 
-1. **Prerequisites** — Install [.NET 10 SDK](https://dotnet.microsoft.com/download) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Podman).
+1. **Prerequisites** — Install [.NET 10 SDK](https://dotnet.microsoft.com/download) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/).
 2. **Clone & restore** — `git clone https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator.git && cd BlazorDataOrchestrator && dotnet workload restore`
 3. **Run locally** — `aspire run` — Aspire starts SQL Server, Azurite, and all application services automatically. Complete the Install Wizard on first launch.
 4. **Deploy to Azure** — `azd up` — Provisions Azure SQL, Storage, Container Registry, and Container Apps, then builds and deploys all services in a single command.
