@@ -62,16 +62,16 @@ Or open in Visual Studio or Visual Studio Code and select Debug/Start Without De
 
 ![Description](images/launch-dashboard.png)
 
-The Aspire Dashbord will open in your web browser. Locate the line that has the webapp and click the https hyperlink.
+The Aspire Dashboard will open in your web browser. Locate the line that has the 'webapp' and click the 'https' hyperlink.
 
 
 ![Description](images/install-step-1.png)
 
-On first launch, the web application detects that the database schema has not been created and presents the **Install Wizard**. 
+On first launch, the web application presents the **Install Wizard**. 
 
 ![Description](images/install-step-2.png)
 
-Follow the steps below to complete the initial setup.
+Complete the installation.
 
 ---
 
