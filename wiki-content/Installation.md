@@ -62,7 +62,7 @@ Or open in Visual Studio or Visual Studio Code and select Debug/Start Without De
 
 ![Description](images/launch-dashboard.png)
 
-The Aspire Dashboard will open in your web browser. Locate the line that has the 'webapp' and click the 'https' hyperlink.
+The Aspire Dashboard will open in your web browser. Locate the line that has the `webapp` and click the `https` hyperlink.
 
 
 ![Description](images/install-step-1.png)
