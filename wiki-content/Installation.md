@@ -10,26 +10,7 @@ This guide walks you through setting up Blazor Data Orchestrator from a fresh cl
 
 ## Installation Flow
 
-```mermaid
-flowchart TD
-    %% Styling
-    classDef step fill:#0078d4,stroke:#005a9e,stroke-width:2px,color:#fff,rx:5,ry:5;
-    classDef decision fill:#fff,stroke:#0078d4,stroke-width:2px,rx:5,ry:5;
-    classDef final fill:#dff6dd,stroke:#107c10,stroke-width:2px,rx:5,ry:5;
-
-    A[📥 Clone Repository]:::step --> B[dotnet workload restore]:::step
-    B --> C[🚀 aspire run]:::step
-    C --> D{First Launch?}:::decision
-    D -->|Yes| E[🧙‍♂️ Install Wizard]:::step
-    E --> E1[1️⃣ Step 1: Configure Database]:::step
-    E1 --> E2[2️⃣ Step 2: Configure Storage]:::step
-    E2 --> E3[3️⃣ Step 3: Create Admin User]:::step
-    E3 --> E4[4️⃣ Step 4: Review Summary]:::step
-    E4 --> F[✅ Application Ready]:::final
-    D -->|No| F
-    F --> G[🌐 Navigate to Web App]:::step
-    G --> H[📊 Verify Dashboard]:::final
-```
+![Description](images/Install-overview.png)
 
 ---
 
@@ -71,38 +52,32 @@ The Aspire AppHost orchestrates all services automatically:
 
 All connection strings and service references are injected automatically by Aspire — no manual configuration is needed for local development.
 
+![Description](images/start-without-debugging.png)
+
+Or open in Visual Studio or Visual Studio Code and select Debug/Start Without Debugging.
+
 ---
 
 ## 4. Install Wizard
 
-On first launch, the web application detects that the database schema has not been created and presents the **Install Wizard**. Follow the steps below to complete the initial setup.
+![Description](images/launch-dashboard.png)
 
-### Step 1: Configure Database
+The Aspire Dashboard will open in your web browser. Locate the line that has the `webapp` and click the `https` hyperlink.
 
-- The wizard displays the current SQL Server connection string (auto-configured by Aspire).
-- Click **Test Connection** to verify connectivity.
-- Click **Create Database** to run the schema creation scripts.
 
-### Step 2: Configure Storage
+![Description](images/install-step-1.png)
 
-- The wizard displays the current Azure Storage connection (Azurite in development).
-- Click **Test Connection** to verify Blob, Queue, and Table access.
-- The required containers and tables are created automatically.
+On first launch, the web application presents the **Install Wizard**. 
 
-### Step 3: Create Admin User
+![Description](images/install-step-2.png)
 
-- Enter the initial administrator username and password.
-- This account is used to sign in and manage the application.
-
-### Step 4: Review Summary
-
-- Review all configuration settings.
-- Click **Finish** to complete the setup.
-- The application redirects to the home page.
+Complete the installation.
 
 ---
 
 ## 5. Verify Installation
+
+![Description](images/install-step-3.png)
 
 After the Install Wizard completes:
 
