@@ -39,6 +39,9 @@ var storage = builder.AddAzureStorage("storage")
         emulator.WithEndpoint("blob", endpoint => endpoint.Port = 10000);
         emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);
         emulator.WithEndpoint("table", endpoint => endpoint.Port = 10002);
+        // Allow any hostname for table requests — fixes container DNS issues
+        // where the agent receives storage.dev.internal instead of 127.0.0.1
+        emulator.WithArgs("--disableProductStyleUrl");
     });
 
 var blobs = storage.AddBlobs("blobs");
@@ -62,7 +65,9 @@ var scheduler = builder.AddProject<Projects.BlazorOrchestrator_Scheduler>("sched
 // project references to Core and ServiceDefaults resolve correctly.
 var agent = builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Dockerfile")
     .WithReference(db).WaitFor(db)
-    .WithReference(blobs).WithReference(tables).WithReference(queues);
+    .WithReference(blobs).WaitFor(blobs)
+    .WithReference(tables).WaitFor(tables)
+    .WithReference(queues).WaitFor(queues);
 
 builder.Build().Run();
 
