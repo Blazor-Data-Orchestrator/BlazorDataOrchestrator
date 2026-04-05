@@ -3,7 +3,7 @@
 
 [Documentation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki) / [PowerPoint](https://1drv.ms/p/c/01be5f7b852ba825/IQCULYBj9AmuRIfoaDVC-Am3AZ5m_uwlMyOdC-2SLB_0hpQ?e=eQzALI)
 
-A Microsoft Aspire .NET 10 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
+An open-source job orchestration platform built on .NET Aspire and Blazor Server.
 
 <img width="1182" height="578" alt="image" src="https://github.com/user-attachments/assets/97d7233c-57f2-4498-9e06-fc75c34b05a1" />
 
