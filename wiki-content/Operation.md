@@ -6,30 +6,15 @@ This guide covers day-to-day usage of Blazor Data Orchestrator — managing jobs
 
 ## Job Lifecycle
 
-```mermaid
-stateDiagram-v2
-    classDef clear fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef green fill:#dff6dd,stroke:#107c10,stroke-width:2px;
-    classDef blue fill:#deecf9,stroke:#0078d4,stroke-width:2px;
-    classDef red fill:#fde7e9,stroke:#d13438,stroke-width:2px;
-
-    [*] --> Created:::clear : Create Job
-    Created --> Enabled:::clear : Enable Job
-    Enabled --> Queued:::blue : Schedule / Manual
-    Queued --> InProcess:::blue : Agent Pickup
-    InProcess --> Completed:::green : Success
-    InProcess --> Error:::red : Failure
-    Completed --> Enabled : Next Run
-    Error --> Enabled : Retry
-    Enabled --> Disabled:::clear : Disable
-    Disabled --> Enabled : Re-enable
-```
+![job-lifecycle-overview](images/job-lifecycle-overview.png)
 
 ---
 
 ## Dashboard Overview
 
-The **Home** page displays all jobs in a table with key status indicators:
+![Dashboard Main](images/darshboard-main.png)
+
+The **Dashboard** page displays all jobs with key status indicators:
 
 | Column | Description |
 |--------|-------------|

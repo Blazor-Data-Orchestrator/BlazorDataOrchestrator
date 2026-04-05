@@ -9,8 +9,8 @@ This page lists all prerequisites and infrastructure requirements for running Bl
 | Requirement | Version | Notes |
 |------------|---------|-------|
 | **.NET SDK** | 10.0+ | Required for building and running all projects |
-| **Docker Desktop** (or Podman) | Latest | Required for SQL Server and Azurite containers managed by Aspire |
-| **IDE** | Visual Studio 2022+ or Visual Studio Code | VS Code with C# Dev Kit recommended |
+| **Docker Desktop** or **Podman** | Latest | Required for SQL Server and Azurite containers managed by Aspire |
+| **IDE** | Visual Studio 2022+ or Visual Studio Code | If using VS Code use with C# Dev Kit recommended |
 
 > **Important:** Do not install the legacy Aspire workload. Run `dotnet workload restore` from the solution root — this restores only the workloads declared by the solution.
 
@@ -23,7 +23,7 @@ Aspire automatically provisions the following infrastructure as containers in de
 ### SQL Server
 
 - **Version:** SQL Server 2019+ or Azure SQL Database
-- **Port:** 1433 (default)
+- **Port:** 14330 (default for development)
 - **Database:** `blazororchestratordb`
 - **Purpose:** Stores all job definitions, schedules, instances, organizations, groups, queues, parameters, and user accounts.
 
@@ -39,24 +39,16 @@ In development, Aspire starts an **Azurite** container that emulates all three A
 
 ---
 
-## Optional: AI Features
+## Optional Reccomended: AI Features
 
 To use the AI Code Assistant in the online editor, you need one of the following:
 
 - **OpenAI API key** — Standard OpenAI endpoint
 - **Azure OpenAI endpoint** — Azure-hosted OpenAI service with a deployed model
+- **Anthopic** — Standard AI endpoint
+- **Google Gemini** — Standard AI endpoint
 
 Configure these through the Administration settings in the web UI.
-
----
-
-## Optional: Python Execution
-
-To execute Python jobs, the Agent host must have:
-
-- **Python 3.x** runtime installed and available on the system PATH
-
-C# job execution does not require any additional runtime beyond the .NET SDK.
 
 ---
 
@@ -64,7 +56,7 @@ C# job execution does not require any additional runtime beyond the .NET SDK.
 
 | Port | Service | Direction |
 |------|---------|-----------|
-| 1433 | SQL Server | Inbound (all app services → SQL) |
+| 14330 | SQL Server | Inbound (all app services → SQL) |
 | 10000 | Azurite Blob | Inbound (all app services → Blob) |
 | 10001 | Azurite Queue | Inbound (all app services → Queue) |
 | 10002 | Azurite Table | Inbound (all app services → Table) |
@@ -84,7 +76,7 @@ graph LR
 
     subgraph "Developer Machine"
         SDK[TOOLS<br/>.NET 10 SDK]:::dev
-        DOCKER[HOST<br/>Docker Desktop]:::dev
+        DOCKER[HOST<br/>Docker/Podman]:::dev
         IDE[EDITOR<br/>VS / VS Code]:::dev
     end
 

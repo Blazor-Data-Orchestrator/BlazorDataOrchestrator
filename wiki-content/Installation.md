@@ -54,7 +54,7 @@ All connection strings and service references are injected automatically by Aspi
 
 ![Description](images/start-without-debugging.png)
 
-Or open in Visual Studio or Visual Studio Code and select Debug/Start Without Debugging.
+Or open in **Visual Studio** or **Visual Studio Code** and Debug/Start Without Debugging.
 
 ---
 
@@ -102,7 +102,7 @@ Blazor Data Orchestrator uses standard .NET configuration files. In development,
 ```json
 {
   "ConnectionStrings": {
-    "blazororchestratordb": "Server=localhost,1433;Database=blazororchestratordb;...",
+    "blazororchestratordb": "Server=localhost,14330;Database=blazororchestratordb;...",
     "blobs": "UseDevelopmentStorage=true",
     "queues": "UseDevelopmentStorage=true",
     "tables": "UseDevelopmentStorage=true"
@@ -119,7 +119,7 @@ Blazor Data Orchestrator uses standard .NET configuration files. In development,
 | Problem | Solution |
 |---------|----------|
 | `aspire run` fails to start | Ensure Docker Desktop is running and the .NET 10 SDK is installed |
-| SQL Server container won't start | Check that port 1433 is not in use by another process |
+| SQL Server container won't start | Check that port 14330 is not in use by another process |
 | Azurite ports conflict | Check that ports 10000, 10001, 10002 are free |
 | Install Wizard doesn't appear | Clear the browser cache and navigate to the web app root URL |
 | Database connection fails | Verify the SQL Server container is healthy in the Aspire dashboard |
