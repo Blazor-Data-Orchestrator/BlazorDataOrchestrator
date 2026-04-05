@@ -1,7 +1,7 @@
 # BlazorDataOrchestrator
 <img width="426" height="176" alt="BlazorDataOrchestratorLogo" src="https://github.com/user-attachments/assets/9df86186-193a-4a48-a2ba-e751abbf21eb" />
 
-[Documentation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki)
+[Documentation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki) / [PowerPoint](https://1drv.ms/p/c/01be5f7b852ba825/IQCULYBj9AmuRIfoaDVC-Am3AZ5m_uwlMyOdC-2SLB_0hpQ?e=eQzALI)
 
 A Microsoft Aspire .NET 10 solution that demonstrates a distributed application architecture with Blazor Server Web App and containerized services.
 
