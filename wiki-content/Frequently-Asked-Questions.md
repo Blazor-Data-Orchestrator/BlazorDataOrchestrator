@@ -43,7 +43,7 @@ Run `azd up` from the repository root. This single command provisions all requir
 1. Ensure **Docker Desktop** (or Podman) is running.
 2. Verify the **.NET 10 SDK** is installed: `dotnet --version`
 3. Run `dotnet workload restore` from the solution root.
-4. Check that ports 1433, 10000, 10001, and 10002 are not in use by other applications.
+4. Check that ports 14330, 10000, 10001, and 10002 are not in use by other applications.
 5. Review the terminal output from `aspire run` for error messages.
 
 ### Do I need to install the Aspire workload?
@@ -144,15 +144,15 @@ The compilation error dialog shows the file name, line number, and error descrip
 3. Check the agent logs in the Aspire dashboard.
 4. Ensure the job is **enabled** and has been **queued** (visible in the home page table).
 
-### Why was my job executed twice?
+### Why was my job executed twice (or more)?
 
 This typically indicates an agent crash during execution. The message visibility timeout expires (default: 5 minutes), making the message visible to another agent. The visibility timeout renewal (every 3 minutes) normally prevents this, but if the agent process terminates unexpectedly, the message will be reprocessed.
 
 ### How do I connect the AI Code Assistant?
 
 1. Navigate to **Administration > Settings**.
-2. Select your AI provider (OpenAI or Azure OpenAI).
-3. Enter your API key and endpoint (for Azure OpenAI).
+2. Select your AI provider.
+3. Enter your API key and endpoint.
 4. Select a model (e.g., `gpt-4`).
 5. The AI button appears in the Code Tab editor toolbar.
 
