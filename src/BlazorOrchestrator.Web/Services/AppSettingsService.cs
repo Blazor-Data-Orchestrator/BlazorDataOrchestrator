@@ -34,8 +34,8 @@ public class AppSettingsService
 
     /// <summary>
     /// Gets the configured TimeZoneInfo synchronously from cache.
-    /// Falls back to IConfiguration ("TimezoneId"), then default "America/Los_Angeles".
-    /// Use <see cref="GetTimeZoneInfoAsync"/> for the full Azure Table → config → default fallback.
+    /// Delegates to <see cref="GetTimeZoneInfoAsync"/> (Azure Table → config → default)
+    /// on cache miss, running on a threadpool thread to avoid Blazor deadlocks.
     /// </summary>
     public TimeZoneInfo GetTimeZoneInfo()
     {
@@ -44,9 +44,20 @@ public class AppSettingsService
             return _cachedTimeZone;
         }
 
-        // Synchronous fallback: IConfiguration → default
-        var timezoneId = _configuration["TimezoneId"] ?? DefaultTimezoneId;
-        return ResolveTimeZone(timezoneId);
+        // Delegate to the async version (Azure Table → config → default) on a threadpool thread
+        try
+        {
+            return Task.Run(() => GetTimeZoneInfoAsync()).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // If the async path fails entirely, fall back to IConfiguration → default
+            var timezoneId = _configuration["TimezoneId"] ?? DefaultTimezoneId;
+            var tz = ResolveTimeZone(timezoneId);
+            _cachedTimeZone = tz;
+            _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
+            return tz;
+        }
     }
 
     /// <summary>

@@ -56,7 +56,7 @@
             <RadzenStack Gap="0.25rem">
                 <RadzenLabel Text="Last Run" Style="font-weight: 500;" />
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
-                    @(TimeDisplayService.FormatDateTime(Schedule.LastRun, "g", "Never"))
+                    @(TimeDisplayService.FormatDateTime(Schedule.LastRun, "M/d/yyyy h:mm tt", "Never"))
                 </RadzenText>
             </RadzenStack>
         </RadzenColumn>

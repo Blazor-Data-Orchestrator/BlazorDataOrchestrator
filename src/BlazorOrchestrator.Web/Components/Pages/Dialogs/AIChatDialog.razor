@@ -54,7 +54,7 @@
                             <div class="message-content">
                                 <div class="message-header">
                                     <span class="message-sender">@(message.IsUser ? "You" : "AI Assistant")</span>
-                                    <span class="message-time">@message.Timestamp.ToString("HH:mm")</span>
+                                    <span class="message-time">@message.Timestamp.ToString("h:mm tt")</span>
                                 </div>
                                 <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
                                 @if (message.IsStreaming)

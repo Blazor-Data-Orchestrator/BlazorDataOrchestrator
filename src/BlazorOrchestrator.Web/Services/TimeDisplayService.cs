@@ -28,9 +28,9 @@ public class TimeDisplayService
     /// Formats a DateTime value using the configured timezone (DST-aware).
     /// </summary>
     /// <param name="dateTime">The DateTime to format (assumed to be in UTC)</param>
-    /// <param name="format">The format string (default: "g" for short date/time)</param>
+    /// <param name="format">The format string (default: 12-hour AM/PM format)</param>
     /// <returns>Formatted date/time string in the configured timezone</returns>
-    public string FormatDateTime(DateTime dateTime, string format = "g")
+    public string FormatDateTime(DateTime dateTime, string format = "M/d/yyyy h:mm tt")
     {
         var displayTime = ConvertToDisplayTime(dateTime);
         return displayTime.ToString(format);
@@ -40,10 +40,10 @@ public class TimeDisplayService
     /// Formats a nullable DateTime value using the configured timezone (DST-aware).
     /// </summary>
     /// <param name="dateTime">The DateTime to format (assumed to be in UTC)</param>
-    /// <param name="format">The format string (default: "g" for short date/time)</param>
+    /// <param name="format">The format string (default: 12-hour AM/PM format)</param>
     /// <param name="nullDisplay">Text to display when value is null (default: "-")</param>
     /// <returns>Formatted date/time string in the configured timezone, or nullDisplay if null</returns>
-    public string FormatDateTime(DateTime? dateTime, string format = "g", string nullDisplay = "-")
+    public string FormatDateTime(DateTime? dateTime, string format = "M/d/yyyy h:mm tt", string nullDisplay = "-")
     {
         if (!dateTime.HasValue)
             return nullDisplay;

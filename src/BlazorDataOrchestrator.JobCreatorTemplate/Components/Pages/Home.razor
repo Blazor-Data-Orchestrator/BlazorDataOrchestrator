@@ -170,7 +170,7 @@
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="LogDisplayEntry" Property="CreatedDate" Title="Created Date" Width="180px">
                                         <Template Context="log">
-                                            @TimeDisplayService.FormatDateTime(log.CreatedDate, "yyyy-MM-dd HH:mm:ss")
+                                            @TimeDisplayService.FormatDateTime(log.CreatedDate, "M/d/yyyy h:mm:ss tt")
                                         </Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="LogDisplayEntry" Property="Message" Title="Message" />
