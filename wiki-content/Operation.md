@@ -33,11 +33,12 @@ From the dashboard, you can:
 
 ## Creating a Job
 
+![new-job-dialog](images/new-job-dialog.png)
+
 1. Click **Create Job** on the home page.
 2. Fill in the required fields:
    - **Job Name** — A descriptive name for the job
-   - **Organization** — The organization this job belongs to
-   - **Environment** — The execution environment (e.g., Development, Production)
+   - **Job Groups (optional)** — The organization this job belongs to
 3. Click **Save** to create the job.
 
 The new job is created in a disabled state. You need to upload or write code, configure a schedule, and enable the job before it will execute.
@@ -50,13 +51,17 @@ The Job Details dialog is the central management interface for each job. It is o
 
 ### Details Tab
 
-- **Job Name** — View or edit the job name
+![new-job-dialog](images/job-details-dialog.png)
+
+- **Base Job Name** — View or edit the job name
 - **Enabled** toggle — Enable or disable the job
 - **Environment** — Set the execution environment
 - **Queue** — Assign the job to a specific queue (e.g., `default`)
 - **Run Job Now** button — Queue the job for immediate execution
 
 ### Schedules Tab
+
+![schedule-dialog.png](images/schedule-dialog.png)
 
 Configure one or more schedules for the job:
 
@@ -68,6 +73,8 @@ Configure one or more schedules for the job:
 
 ### Parameters Tab
 
+![parameters-dialog](images/parameters-dialog.png)
+
 Attach key-value data to the job:
 
 - **Field Description** — A label describing the parameter
@@ -75,11 +82,19 @@ Attach key-value data to the job:
 
 Parameters are accessible to job code through the execution context.
 
-### Code Tab
+### Logs Tab
 
-Write or upload job code. See the [Online](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Online) guide for detailed editor usage.
+![logs-dialog](images/logs-dialog.png)
+
+View execution history and log entries:
+
+- Select a **Job Instance** from the dropdown to filter logs
+- Each log entry shows: Action, Details, Level, and Timestamp
+- Timestamps are adjusted by the configured timezone offset
 
 ### Webhook Tab
+
+![webhook-dialog](images/webhook-dialog.png)
 
 Enable a webhook endpoint for the job:
 
@@ -87,13 +102,11 @@ Enable a webhook endpoint for the job:
 - A unique GUID is generated and displayed as the webhook URL
 - External systems can trigger the job via `GET` or `POST` to `/webhook/{GUID}`
 
-### Logs Tab
+### Code Tab
 
-View execution history and log entries:
+![code-dialog](images/code-dialog.png)
 
-- Select a **Job Instance** from the dropdown to filter logs
-- Each log entry shows: Action, Details, Level, and Timestamp
-- Timestamps are adjusted by the configured timezone offset
+Write or upload job code. See the [Online](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Online) guide for detailed editor usage.
 
 ---
 
@@ -113,10 +126,10 @@ There are three ways to trigger job execution:
 
 ### Viewing Logs
 
-1. Open the **Job Details** dialog for the job.
-2. Navigate to the **Logs** tab.
-3. Select the job instance to inspect from the dropdown.
-4. Log entries are displayed in a table with columns for Action, Details, Level, and Timestamp.
+![main-logs](images/main-logs.png)
+
+1. Navigate to the **Logs** tab.
+2. Log entries are displayed in a table with columns for Action, Details, Level, and Timestamp.
 
 ### Understanding Job Status
 
@@ -135,20 +148,36 @@ Navigate to the **Administration** page via the navigation link on the home page
 
 ### Job Groups Tab
 
+![jog-groups](images/jog-groups.png)
+
 - Create and manage organizational groups for categorizing jobs.
 - Groups have a name and an active/inactive status.
 - Assign jobs to groups for easier filtering and management.
 
 ### Job Queues Tab
 
+![job-queues](images/job-queues.png)
+
 - Create and manage queue configurations.
 - Each queue has a name (e.g., `default`, `jobs-large-container`, `onprem-queue`).
 - Assign queues to jobs to route their execution to specific agent pools.
 - Deploy agents configured with matching `QueueName` settings to process queue-specific workloads.
 
-### Settings Tab
+### Timezone Settings Tab
+
+![timezone-settings](images/timezone-settings.png)
 
 - **Timezone Offset** — Configure the timezone offset (in hours) for log display. This offset is applied to all timestamps shown in the UI.
+
+### AI Settings Tab
+
+![ai-settings](images/ai-settings.png)
+
+| Status | Meaning |
+|--------|---------|
+| **AI Service Type** | Choose the AI provider |
+| **API Key** | Enter the API key supplied by the AI provider |
+| **Model** | Choose the model to use |
 
 ---
 
