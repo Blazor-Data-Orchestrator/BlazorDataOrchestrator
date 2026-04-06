@@ -90,7 +90,7 @@ The AI Chat feature requires the **GitHub Copilot CLI** to be installed and auth
 
 Once the CLI is installed and authenticated, the warning banner disappears and the AI Chat editor is ready to use.
 
-## Screenshots shoing installing the Copilot CLI
+## Screenshots - Installing the Copilot CLI
 
 <img width="539" height="686" alt="Copilot AI model and connection configuration dialog" src="https://github.com/user-attachments/assets/b2cb5dd0-c33e-4c43-bf5f-7a46b50c08b9" />
 
