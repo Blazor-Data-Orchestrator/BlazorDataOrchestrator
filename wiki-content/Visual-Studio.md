@@ -24,10 +24,13 @@ flowchart LR
 
 ## Getting Started
 
-1. **Open the solution** — Open `JobTemplate.slnx` in Visual Studio 2022+.
-2. **Run the project** — Press `F5` to launch the Job Creator Template. It opens a local Blazor app with an embedded Monaco editor.
-3. **Write code** — Use the editor to write and test your job code.
-4. **Compile** — Click **Save & Compile** to validate the code and generate a `.nupkg` package.
+![Editor](images/Editor-image.png)
+
+1. **IMPORTANT:** *Open the Job Template solution* — Open `BlazorDataOrchestrator.slnx` in Visual Studio 2022+ and Press `F5` to launch the Soution. This project must be running so the Template project has resources to connect to.
+2. **Open the Job Template solution** — Open `JobTemplate.slnx` in Visual Studio 2022+.
+3. **Run the project** — Press `F5` to launch the Job Creator Template. It opens a local Blazor app with an embedded Monaco editor.
+4. **Write code** — Use the editor to write and test your job code.
+5. **Compile** — Click **Save & Compile** to validate the code and generate a `.nupkg` package.
 
 ---
 
