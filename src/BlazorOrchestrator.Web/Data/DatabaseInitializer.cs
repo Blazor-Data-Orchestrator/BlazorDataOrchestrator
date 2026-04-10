@@ -1,12 +1,13 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Dapper;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Data;
 
 public static class DatabaseInitializer
 {
-    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger, Action<string>? onProgress = null)
+    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger, Action<string>? onProgress = null, SettingsService? settingsService = null, string? currentVersion = null)
     {
         var connStr = configuration.GetConnectionString("blazororchestratordb");
         if (string.IsNullOrWhiteSpace(connStr))
@@ -100,6 +101,23 @@ public static class DatabaseInitializer
             var successMsg = "Database initialization script executed successfully.";
             logger.LogInformation(successMsg);
             onProgress?.Invoke($"✅ {successMsg}");
+
+            // Write initial SchemaVersion to Azure Table Storage
+            if (settingsService != null && !string.IsNullOrEmpty(currentVersion))
+            {
+                try
+                {
+                    onProgress?.Invoke($"📝 Setting SchemaVersion to {currentVersion}...");
+                    await settingsService.SetAsync("SchemaVersion", currentVersion, "Database schema version tracking");
+                    onProgress?.Invoke($"✅ SchemaVersion set to {currentVersion}.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to set SchemaVersion in Azure Table Storage.");
+                    onProgress?.Invoke($"⚠️ Could not set SchemaVersion: {ex.Message}");
+                }
+            }
+
             onProgress?.Invoke("🎉 Database setup complete!");
         }
         catch (Exception ex)

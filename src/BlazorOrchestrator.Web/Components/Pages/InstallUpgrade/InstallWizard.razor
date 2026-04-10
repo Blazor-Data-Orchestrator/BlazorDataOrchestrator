@@ -1,11 +1,13 @@
 @using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
+@using BlazorDataOrchestrator.Core.Services
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @inject WizardStateService WizardState
 @inject IServiceProvider ServiceProvider
 @inject IConfiguration Configuration
+@inject SettingsService SettingsService
 
 <RadzenDialog />
 <RadzenNotification />
@@ -259,7 +261,7 @@
                     await DatabaseInitializer.EnsureDatabaseAsync(Configuration, logger, (msg) =>
                     {
                         AddLog(msg);
-                    });
+                    }, SettingsService, "1.0");
                 }
                 catch (Exception ex)
                 {
