@@ -338,25 +338,38 @@
 
             foreach (var job in jobs)
             {
-                var enabledSchedule = job.JobSchedules?.FirstOrDefault(s => s.Enabled);
-                string nextRun = "Not scheduled";
-                string summary = "No schedule";
+                var enabledSchedules = job.JobSchedules?.Where(s => s.Enabled).ToList();
 
-                if (enabledSchedule != null)
+                if (enabledSchedules != null && enabledSchedules.Any())
                 {
-                    nextRun = GetNextRunDisplay(enabledSchedule);
-                    summary = BuildScheduleSummary(enabledSchedule);
+                    // Create a row for each Job + Schedule combination
+                    foreach (var schedule in enabledSchedules)
+                    {
+                        upcoming.Add(new JobUpcomingRun
+                        {
+                            JobId = job.Id,
+                            JobName = job.JobName ?? "Unnamed Job",
+                            IsEnabled = job.JobEnabled,
+                            NextRun = GetNextRunDisplay(schedule),
+                            ScheduleSummary = BuildScheduleSummary(schedule),
+                            ScheduleCount = enabledSchedules.Count,
+                            ScheduleId = schedule.Id
+                        });
+                    }
                 }
-
-                upcoming.Add(new JobUpcomingRun
+                else
                 {
-                    JobId = job.Id,
-                    JobName = job.JobName ?? "Unnamed Job",
-                    IsEnabled = job.JobEnabled,
-                    NextRun = nextRun,
-                    ScheduleSummary = summary,
-                    ScheduleCount = job.JobSchedules?.Count ?? 0
-                });
+                    // Still show the job even if it has no enabled schedules
+                    upcoming.Add(new JobUpcomingRun
+                    {
+                        JobId = job.Id,
+                        JobName = job.JobName ?? "Unnamed Job",
+                        IsEnabled = job.JobEnabled,
+                        NextRun = "Not scheduled",
+                        ScheduleSummary = "No schedule",
+                        ScheduleCount = job.JobSchedules?.Count ?? 0
+                    });
+                }
             }
 
             UpcomingRuns = upcoming;
@@ -700,6 +713,7 @@
     private class JobUpcomingRun
     {
         public int JobId { get; set; }
+        public int ScheduleId { get; set; }
         public string JobName { get; set; } = string.Empty;
         public bool IsEnabled { get; set; }
         public string NextRun { get; set; } = string.Empty;

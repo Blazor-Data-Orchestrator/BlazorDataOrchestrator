@@ -276,9 +276,12 @@ namespace BlazorDataOrchestrator.Core
             var allLogs = new List<JobLogEntry>();
             try
             {
-                // Query all entries, sorted by timestamp descending
-                var queryResults = _logTableClient.QueryAsync<TableEntity>(
-                    maxPerPage: maxResults);
+                // Filter to last 7 days so we scan only recent entries
+                // Azure Table Storage returns entities ordered by PartitionKey/RowKey, not by timestamp,
+                // so without a time filter we'd scan old entries first and miss the latest logs.
+                var cutoff = DateTime.UtcNow.AddDays(-7).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var filter = $"Timestamp ge datetime'{cutoff}'";
+                var queryResults = _logTableClient.QueryAsync<TableEntity>(filter: filter);
 
                 await foreach (var entity in queryResults)
                 {
@@ -293,9 +296,6 @@ namespace BlazorDataOrchestrator.Core
                         JobId = entity.GetInt32("JobId") ?? 0,
                         JobInstanceId = entity.GetInt32("JobInstanceId") ?? 0
                     });
-
-                    if (allLogs.Count >= maxResults)
-                        break;
                 }
             }
             catch

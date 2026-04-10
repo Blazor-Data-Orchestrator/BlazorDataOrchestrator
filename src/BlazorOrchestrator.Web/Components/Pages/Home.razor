@@ -651,74 +651,83 @@ else
 
     private string GetNextRunDisplay(Job job)
     {
-        var enabledSchedule = job.JobSchedules?
-            .FirstOrDefault(s => s.Enabled);
+        var enabledSchedules = job.JobSchedules?
+            .Where(s => s.Enabled)
+            .ToList();
 
-        if (enabledSchedule == null)
+        if (enabledSchedules == null || !enabledSchedules.Any())
             return "Not scheduled";
 
-        // Calculate next run based on schedule settings
-        if (enabledSchedule.RunEveryHour.HasValue && enabledSchedule.RunEveryHour > 0)
+        // Calculate next run for ALL enabled schedules and pick the soonest
+        DateTime? soonest = null;
+        foreach (var schedule in enabledSchedules)
         {
-            var lastRun = enabledSchedule.LastRun ?? DateTime.UtcNow;
-            var nextRun = lastRun.AddHours(enabledSchedule.RunEveryHour.Value);
-
-            // If the schedule has a time window, ensure nextRun falls within it
-            if (enabledSchedule.StartTime.HasValue && enabledSchedule.StopTime.HasValue)
-            {
-                var displayNext = TimeDisplayService.ConvertToDisplayTime(nextRun);
-                var nextMilitary = displayNext.Hour * 100 + displayNext.Minute;
-                var start = enabledSchedule.StartTime.Value;
-                var stop = enabledSchedule.StopTime.Value == 0 ? 2400 : enabledSchedule.StopTime.Value;
-
-                // Check if nextRun falls outside the time window
-                bool inWindow;
-                if (stop >= start)
-                    inWindow = nextMilitary >= start && nextMilitary <= stop;
-                else
-                    inWindow = nextMilitary >= start || nextMilitary <= stop;
-
-                if (!inWindow)
-                {
-                    // Advance to next scheduled day's StartTime
-                    var startHour = start / 100;
-                    var startMinute = start % 100;
-                    var candidate = displayNext.Date.AddHours(startHour).AddMinutes(startMinute);
-
-                    // If we're already past StartTime today, move to tomorrow
-                    if (candidate <= displayNext)
-                        candidate = candidate.AddDays(1);
-
-                    // Find the next day that matches the schedule's day-of-week flags
-                    for (int i = 0; i < 7; i++)
-                    {
-                        if (IsDayEnabled(enabledSchedule, candidate.DayOfWeek))
-                            break;
-                        candidate = candidate.AddDays(1);
-                    }
-
-                    // Convert back to display-friendly format
-                    var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
-                    if (candidate.Date == nowDisplay.Date)
-                        return $"Today {candidate:h:mm tt}";
-                    if (candidate.Date == nowDisplay.Date.AddDays(1))
-                        return $"Tomorrow {candidate:h:mm tt}";
-
-                    return candidate.ToString("MMM d, h:mm tt");
-                }
-            }
-
-            var displayTime = TimeDisplayService.ConvertToDisplayTime(nextRun);
-            var nowDisplay2 = TimeDisplayService.GetCurrentDisplayTime();
-            if (displayTime.Date == nowDisplay2.Date)
-                return $"Today {displayTime:h:mm tt}";
-            if (displayTime.Date == nowDisplay2.Date.AddDays(1))
-                return $"Tomorrow {displayTime:h:mm tt}";
-
-            return TimeDisplayService.FormatDateTime(nextRun, "MMM d, h:mm tt");
+            var candidate = CalculateNextRunUtc(schedule);
+            if (candidate.HasValue && (!soonest.HasValue || candidate.Value < soonest.Value))
+                soonest = candidate;
         }
 
-        return "See schedule";
+        if (!soonest.HasValue)
+            return "See schedule";
+
+        return FormatNextRunDisplay(soonest.Value);
+    }
+
+    private DateTime? CalculateNextRunUtc(JobSchedule schedule)
+    {
+        if (!schedule.RunEveryHour.HasValue || schedule.RunEveryHour <= 0)
+            return null;
+
+        var lastRun = schedule.LastRun ?? DateTime.UtcNow;
+        var nextRun = lastRun.AddHours(schedule.RunEveryHour.Value);
+
+        if (schedule.StartTime.HasValue && schedule.StopTime.HasValue)
+        {
+            var displayNext = TimeDisplayService.ConvertToDisplayTime(nextRun);
+            var nextMilitary = displayNext.Hour * 100 + displayNext.Minute;
+            var start = schedule.StartTime.Value;
+            var stop = schedule.StopTime.Value == 0 ? 2400 : schedule.StopTime.Value;
+
+            bool inWindow;
+            if (stop >= start)
+                inWindow = nextMilitary >= start && nextMilitary <= stop;
+            else
+                inWindow = nextMilitary >= start || nextMilitary <= stop;
+
+            if (!inWindow)
+            {
+                var startHour = start / 100;
+                var startMinute = start % 100;
+                var candidate = displayNext.Date.AddHours(startHour).AddMinutes(startMinute);
+
+                if (candidate <= displayNext)
+                    candidate = candidate.AddDays(1);
+
+                for (int i = 0; i < 7; i++)
+                {
+                    if (IsDayEnabled(schedule, candidate.DayOfWeek))
+                        break;
+                    candidate = candidate.AddDays(1);
+                }
+
+                return candidate;
+            }
+        }
+
+        return nextRun;
+    }
+
+    private string FormatNextRunDisplay(DateTime nextRun)
+    {
+        var displayTime = TimeDisplayService.ConvertToDisplayTime(nextRun);
+        var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
+
+        if (displayTime.Date == nowDisplay.Date)
+            return $"Today {displayTime:h:mm tt}";
+        if (displayTime.Date == nowDisplay.Date.AddDays(1))
+            return $"Tomorrow {displayTime:h:mm tt}";
+
+        return TimeDisplayService.FormatDateTime(nextRun, "MMM d, h:mm tt");
     }
 
     private static bool IsDayEnabled(JobSchedule schedule, DayOfWeek day)
