@@ -662,7 +662,7 @@ else
         DateTime? soonest = null;
         foreach (var schedule in enabledSchedules)
         {
-            var candidate = CalculateNextRunUtc(schedule);
+            var candidate = CalculateNextRunDisplayTime(schedule);
             if (candidate.HasValue && (!soonest.HasValue || candidate.Value < soonest.Value))
                 soonest = candidate;
         }
@@ -673,17 +673,21 @@ else
         return FormatNextRunDisplay(soonest.Value);
     }
 
-    private DateTime? CalculateNextRunUtc(JobSchedule schedule)
+    /// <summary>
+    /// Calculates the next run time for a schedule, returning the value in display time (user's timezone).
+    /// All code paths return display time so results are comparable across schedules.
+    /// </summary>
+    private DateTime? CalculateNextRunDisplayTime(JobSchedule schedule)
     {
         if (!schedule.RunEveryHour.HasValue || schedule.RunEveryHour <= 0)
             return null;
 
         var lastRun = schedule.LastRun ?? DateTime.UtcNow;
         var nextRun = lastRun.AddHours(schedule.RunEveryHour.Value);
+        var displayNext = TimeDisplayService.ConvertToDisplayTime(nextRun);
 
         if (schedule.StartTime.HasValue && schedule.StopTime.HasValue)
         {
-            var displayNext = TimeDisplayService.ConvertToDisplayTime(nextRun);
             var nextMilitary = displayNext.Hour * 100 + displayNext.Minute;
             var start = schedule.StartTime.Value;
             var stop = schedule.StopTime.Value == 0 ? 2400 : schedule.StopTime.Value;
@@ -714,12 +718,11 @@ else
             }
         }
 
-        return nextRun;
+        return displayNext;
     }
 
-    private string FormatNextRunDisplay(DateTime nextRun)
+    private string FormatNextRunDisplay(DateTime displayTime)
     {
-        var displayTime = TimeDisplayService.ConvertToDisplayTime(nextRun);
         var nowDisplay = TimeDisplayService.GetCurrentDisplayTime();
 
         if (displayTime.Date == nowDisplay.Date)
@@ -727,7 +730,7 @@ else
         if (displayTime.Date == nowDisplay.Date.AddDays(1))
             return $"Tomorrow {displayTime:h:mm tt}";
 
-        return TimeDisplayService.FormatDateTime(nextRun, "MMM d, h:mm tt");
+        return displayTime.ToString("MMM d, h:mm tt");
     }
 
     private static bool IsDayEnabled(JobSchedule schedule, DayOfWeek day)
