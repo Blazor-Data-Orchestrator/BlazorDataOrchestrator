@@ -23,6 +23,7 @@
 @inject NavigationManager NavigationManager
 @inject JobManager JobManager
 @inject TimeDisplayService TimeDisplayService
+@inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
 
 <PageTitle>@(IsInstalling ? "Setup Wizard" : "Dashboard")</PageTitle>
 
@@ -60,7 +61,7 @@ else if (IsInstalling)
     }
     else if (WizardMode == "UPGRADE")
     {
-        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" LatestGitHubVersion="@GitHubVersion" OnUpgradeComplete="OnUpgradeComplete" />
+        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" DatabaseVersion="@DatabaseVersion" OnUpgradeComplete="OnUpgradeComplete" />
     }
     else
     {
@@ -75,6 +76,20 @@ else if (IsInstalling)
 else
 {
     <RadzenStack Gap="1.5rem" Style="padding: 0.5rem;">
+        @* Update available banner (non-blocking, dismissible) *@
+        @if (ShowUpdateBanner && !BannerDismissed)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="true" Close="@DismissUpdateBanner"
+                         Style="margin: 0;">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" JustifyContent="JustifyContent.SpaceBetween">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>Update Available:</strong> Version <strong>@GitHubVersion</strong> is available (you are on <strong>@CurrentVersion</strong>).
+                        Pull the latest code from GitHub to upgrade.
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenAlert>
+        }
+
         @* Header row with title + action buttons *@
         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start" Wrap="FlexWrap.Wrap" Gap="1rem">
             <RadzenStack Gap="0.25rem">
@@ -243,6 +258,9 @@ else
     private string WizardMode { get; set; } = "";
     private string ErrorMessage { get; set; } = "";
     private string GitHubVersion { get; set; } = "";
+    private string DatabaseVersion { get; set; } = "";
+    private bool ShowUpdateBanner { get; set; }
+    private bool BannerDismissed { get; set; }
 
     private List<JobViewModel> Jobs { get; set; } = new();
     private List<JobViewModel> AllJobs { get; set; } = new();
@@ -273,10 +291,11 @@ else
                 }
             }
 
-            // Load dashboard data in the background so the UI becomes interactive immediately
+            // Load dashboard data and check for GitHub updates in the background
             _ = InvokeAsync(async () =>
             {
                 await LoadDashboardData();
+                await CheckForGitHubUpdateAsync();
                 StateHasChanged();
             });
         }
@@ -347,10 +366,10 @@ else
             return;
         }
 
-        // Check if upgrade is needed
+        // Check if code version is ahead of DB version (needs migration)
         try
         {
-            if (await IsDatabaseNeedUpgradeAsync())
+            if (await IsCodeAheadOfDatabaseAsync())
             {
                 WizardMode = "UPGRADE";
                 IsInstalling = true;
@@ -361,8 +380,8 @@ else
         catch (Exception ex)
         {
             ErrorMessage = $"Version check error: {ex.Message}";
-            WizardMode = "UPGRADE";
-            IsInstalling = true;
+            // On error reading DB version, don't block — continue to dashboard
+            IsInstalling = false;
             IsLoading = false;
             return;
         }
@@ -425,31 +444,59 @@ else
         }
     }
 
-    private async Task<bool> IsDatabaseNeedUpgradeAsync()
+    /// <summary>
+    /// Checks if the compiled code version is ahead of the database schema version.
+    /// If so, migration scripts need to run (blocking upgrade wizard).
+    /// </summary>
+    private async Task<bool> IsCodeAheadOfDatabaseAsync()
     {
         try
         {
-            // Fetch the latest version from GitHub
-            using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(10);
-            GitHubVersion = (await httpClient.GetStringAsync(GitHubVersionUrl)).Trim();
+            DatabaseVersion = await SettingsService.GetOrDefaultAsync("SchemaVersion", CurrentVersion);
 
-            // Compare versions - if GitHub version is higher than local code version, upgrade needed
-            // This means there are new SQL scripts to run from CurrentVersion to GitHubVersion
-            if (ConvertVersionToInteger(GitHubVersion) > ConvertVersionToInteger(CurrentVersion))
+            if (ConvertVersionToInteger(CurrentVersion) > ConvertVersionToInteger(DatabaseVersion))
             {
                 return true;
             }
 
-            // Versions match - no upgrade needed, show dashboard (Happy Path!)
             return false;
         }
         catch
         {
-            // If we can't reach GitHub, assume no upgrade needed and continue to dashboard
-            GitHubVersion = CurrentVersion;
+            // If we can't read the DB version, assume it matches code version
+            DatabaseVersion = CurrentVersion;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Non-blocking background check: fetches the GitHub version to show an advisory banner.
+    /// This does NOT trigger the upgrade wizard.
+    /// </summary>
+    private async Task CheckForGitHubUpdateAsync()
+    {
+        try
+        {
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
+            GitHubVersion = (await httpClient.GetStringAsync(GitHubVersionUrl)).Trim();
+
+            if (ConvertVersionToInteger(GitHubVersion) > ConvertVersionToInteger(CurrentVersion))
+            {
+                ShowUpdateBanner = true;
+            }
+        }
+        catch
+        {
+            // Can't reach GitHub — no banner
+            GitHubVersion = CurrentVersion;
+        }
+    }
+
+    private void DismissUpdateBanner()
+    {
+        BannerDismissed = true;
+        ShowUpdateBanner = false;
     }
 
     /// <summary>
@@ -506,6 +553,7 @@ else
             _ = InvokeAsync(async () =>
             {
                 await LoadDashboardData();
+                await CheckForGitHubUpdateAsync();
                 StateHasChanged();
             });
         }
@@ -536,6 +584,7 @@ else
             _ = InvokeAsync(async () =>
             {
                 await LoadDashboardData();
+                await CheckForGitHubUpdateAsync();
                 StateHasChanged();
             });
         }
