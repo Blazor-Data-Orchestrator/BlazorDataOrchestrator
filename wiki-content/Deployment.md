@@ -124,7 +124,7 @@ If you prefer more control, you can run each step separately:
 
 ---
 
-## Azure Resources Required
+## Azure Resources Required (automatically created for you with `azd deploy`)
 
 | Resource | Service | Purpose |
 |----------|---------|---------|
@@ -137,7 +137,7 @@ If you prefer more control, you can run each step separately:
 
 ---
 
-## Configuration for Production
+## Configuration for Production (automatically set by `azd deploy`)
 
 ### Connection Strings
 
