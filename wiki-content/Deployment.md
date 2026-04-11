@@ -62,7 +62,14 @@ The repository includes an `azure.yaml` file in the AppHost project, enabling de
 
 ### One-Command Deployment
 
-The fastest way to deploy is a single command that combines provisioning and deployment:
+The fastest way to deploy is a single command that combines provisioning and deployment.
+
+Navigate to the AppHost root directory and run:
+
+```bash
+azd auth login
+```
+After authenticating, run:
 
 ```bash
 azd up
