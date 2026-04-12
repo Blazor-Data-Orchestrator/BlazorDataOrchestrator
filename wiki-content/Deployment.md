@@ -165,6 +165,11 @@ You can scale agents horizontally by deploying multiple replicas or multiple Con
 - **Default pool**: 2 replicas monitoring the `default` queue
 - **Large job pool**: 1 replica monitoring `jobs-large-container` with more CPU/memory allocated
 
+### Upgrade
+
+After initial deployment, you can upgrade easily using *Visual Studio* by righ-clicking on the `AppHost` project and selecting publish and following the wizard.
+
+![alt text](images/upgrade-using-azure.png)
 ---
 
 *Back to [Home](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Home)*
