@@ -1,12 +1,15 @@
 # Job Development
 
-This page provides an overview of job development in Blazor Data Orchestrator — what a job is, how it is structured, and the two development approaches available.
+![job-development-overview](images/job-development-overview.png)
+
 
 You can write, compile, and deploy C# and Python automation jobs from an **in-browser Monaco editor** with AI code assistance — no local tooling required beyond a web browser. For complex jobs that benefit from full IDE support and debugging, a Visual Studio-based workflow is also available.
 
 ---
 
 ## What is a Job?
+
+![what-is-a-job](images/what-is-a-job.png)
 
 A **job** is a unit of work packaged as a NuGet package (`.nupkg`). Each package contains code files, configuration, and dependency metadata. When a job is triggered, the Agent downloads the package from Azure Blob Storage, extracts it, resolves dependencies, and executes the code.
 
