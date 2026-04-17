@@ -110,7 +110,7 @@ Services/
 ../
  BlazorDataOrchestrator.Core/obj/Debug/net10.0/ref/BlazorDataOrchestrator.Core.dll
  BlazorOrchestrator.ServiceDefaults/obj/Debug/net10.0/ref/BlazorOrchestrator.ServiceDefaults.dll
-<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.5/ref/net10.0/
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.6/ref/net10.0/
  Microsoft.AspNetCore.Antiforgery.dll
  Microsoft.AspNetCore.Authentication.Abstractions.dll
  Microsoft.AspNetCore.Authentication.BearerToken.dll
@@ -251,7 +251,7 @@ Services/
  System.Formats.Cbor.dll
  System.Security.Cryptography.Xml.dll
  System.Threading.RateLimiting.dll
-<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.5/ref/net10.0/
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.6/ref/net10.0/
  Microsoft.CSharp.dll
  Microsoft.VisualBasic.Core.dll
  Microsoft.VisualBasic.dll
@@ -522,7 +522,7 @@ Services/
  polly.core/8.6.5/lib/net8.0/Polly.Core.dll
  polly.extensions/8.4.2/lib/net8.0/Polly.Extensions.dll
  polly.ratelimiting/8.4.2/lib/net8.0/Polly.RateLimiting.dll
- radzen.blazor/10.2.2/lib/net10.0/Radzen.Blazor.dll
+ radzen.blazor/10.2.3/lib/net10.0/Radzen.Blazor.dll
  semver/3.0.0/lib/net5.0/Semver.dll
  simpleblazormonaco/1.0.9/lib/net9.0/SimpleBlazorMonaco.dll
  streamjsonrpc/2.22.23/lib/net8.0/StreamJsonRpc.dll
@@ -537,28 +537,28 @@ Services/
  zstdsharp.port/0.8.6/lib/net9.0/ZstdSharp.dll
 
 [analyzerReferences]
-<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.5/analyzers/dotnet/cs/
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.6/analyzers/dotnet/cs/
  Microsoft.AspNetCore.App.Analyzers.dll
  Microsoft.AspNetCore.App.CodeFixes.dll
  Microsoft.AspNetCore.App.SourceGenerators.dll
  Microsoft.AspNetCore.Components.Analyzers.dll
  Microsoft.Extensions.Options.SourceGeneration.dll
  Microsoft.Extensions.Validation.ValidationsGenerator.dll
-<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.5/analyzers/dotnet/cs/
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.6/analyzers/dotnet/cs/
  Microsoft.Interop.ComInterfaceGenerator.dll
  Microsoft.Interop.JavaScript.JSImportGenerator.dll
  Microsoft.Interop.LibraryImportGenerator.dll
  Microsoft.Interop.SourceGeneration.dll
  System.Text.Json.SourceGeneration.dll
  System.Text.RegularExpressions.Generator.dll
-<DOTNET>/sdk/10.0.201/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+<DOTNET>/sdk/10.0.202/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
  Microsoft.AspNetCore.Razor.Utilities.Shared.dll
  Microsoft.CodeAnalysis.Razor.Compiler.dll
  Microsoft.Extensions.ObjectPool.dll
-<DOTNET>/sdk/10.0.201/Sdks/Microsoft.NET.Sdk.Web/analyzers/cs/
+<DOTNET>/sdk/10.0.202/Sdks/Microsoft.NET.Sdk.Web/analyzers/cs/
  Microsoft.AspNetCore.Analyzers.dll
  Microsoft.AspNetCore.Mvc.Analyzers.dll
-<DOTNET>/sdk/10.0.201/Sdks/Microsoft.NET.Sdk/analyzers/
+<DOTNET>/sdk/10.0.202/Sdks/Microsoft.NET.Sdk/analyzers/
  Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
  Microsoft.CodeAnalysis.NetAnalyzers.dll
 <NUGET>/csnakes.runtime/1.2.1/analyzers/dotnet/cs/
@@ -576,7 +576,7 @@ Services/
  system.clientmodel/1.9.0/analyzers/dotnet/cs/System.ClientModel.SourceGeneration.dll
 
 [analyzerConfigFiles]
-<DOTNET>/sdk/10.0.201/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+<DOTNET>/sdk/10.0.202/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
 obj/Debug/net10.0/BlazorOrchestrator.Web.GeneratedMSBuildEditorConfig.editorconfig
 
 [additionalFiles]

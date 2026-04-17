@@ -84,7 +84,7 @@ No manual infrastructure setup is required. The Aspire AppHost defines the entir
 
 ### Step-by-Step Deployment
 
-If you prefer more control, you can run each step separately:
+If you prefer more control, you can run each step separately (run from the `AppHost` folder):
 
 1. **Install Azure Developer CLI**
 
@@ -167,7 +167,7 @@ You can scale agents horizontally by deploying multiple replicas or multiple Con
 
 ### Upgrade
 
-After initial deployment, you can upgrade easily using *Visual Studio* by righ-clicking on the `AppHost` project and selecting publish and following the wizard.
+After initial deployment, you can upgrade easily using *Visual Studio* by right-clicking on the `AppHost` project and selecting publish and following the wizard.
 
 ![alt text](images/upgrade-using-azure.png)
 ---
