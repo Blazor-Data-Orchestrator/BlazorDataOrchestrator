@@ -15,6 +15,8 @@
 @inject AISettingsService AISettingsService
 @inject AIModelCacheService AIModelCacheService
 @inject IJSRuntime JSRuntime
+@inject AuthenticationSettingsService AuthenticationSettingsService
+@inject AuthenticationSettings AuthSettings
 
 <PageTitle>Administration</PageTitle>
 
@@ -392,6 +394,110 @@
                     }
                 </RadzenStack>
             </RadzenTabsItem>
+            <RadzenTabsItem Text="Authentication" Icon="lock">
+                <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">External Authentication Providers</RadzenText>
+                    </RadzenStack>
+
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                            Configure optional external authentication providers. Users must have an existing local account with a matching email address to sign in with an external provider.
+                        </RadzenText>
+                    </RadzenAlert>
+
+                    @if (IsLoadingAuthSettings)
+                    {
+                        <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="min-height: 200px;">
+                            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                            <RadzenText TextStyle="TextStyle.Body1">Loading authentication settings...</RadzenText>
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        <RadzenCard Style="padding: 1.5rem;">
+                            <RadzenStack Gap="1.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" Style="font-weight: 600; margin: 0;">Microsoft Authentication</RadzenText>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Enabled" Component="MicrosoftEnabled" Style="font-weight: 500;" />
+                                    <RadzenSwitch @bind-Value="@MicrosoftEnabled" Name="MicrosoftEnabled" />
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Client ID" Component="MicrosoftClientId" Style="font-weight: 500;" />
+                                    <RadzenTextBox @bind-Value="@MicrosoftClientId"
+                                                   Style="width: 100%; max-width: 500px;"
+                                                   Name="MicrosoftClientId"
+                                                   Placeholder="Application (client) ID from Azure App Registration" />
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Client Secret" Component="MicrosoftClientSecret" Style="font-weight: 500;" />
+                                    <RadzenTextBox @bind-Value="@MicrosoftClientSecret"
+                                                   Style="width: 100%; max-width: 500px;"
+                                                   Name="MicrosoftClientSecret"
+                                                   Placeholder="Client secret value"
+                                                   type="password" />
+                                </RadzenStack>
+
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                    Register at <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank">Azure Portal &gt; App registrations</a>.
+                                    Set redirect URI to: <code>https://yoursite/signin-microsoft</code>
+                                </RadzenText>
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        <RadzenCard Style="padding: 1.5rem;">
+                            <RadzenStack Gap="1.5rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" Style="font-weight: 600; margin: 0;">Google Authentication</RadzenText>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Enabled" Component="GoogleEnabled" Style="font-weight: 500;" />
+                                    <RadzenSwitch @bind-Value="@GoogleEnabled" Name="GoogleEnabled" />
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Client ID" Component="GoogleClientId" Style="font-weight: 500;" />
+                                    <RadzenTextBox @bind-Value="@GoogleClientId"
+                                                   Style="width: 100%; max-width: 500px;"
+                                                   Name="GoogleClientId"
+                                                   Placeholder="Google OAuth 2.0 Client ID" />
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenLabel Text="Client Secret" Component="GoogleClientSecret" Style="font-weight: 500;" />
+                                    <RadzenTextBox @bind-Value="@GoogleClientSecret"
+                                                   Style="width: 100%; max-width: 500px;"
+                                                   Name="GoogleClientSecret"
+                                                   Placeholder="Client secret"
+                                                   type="password" />
+                                </RadzenStack>
+
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                                    Configure at <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console &gt; APIs &amp; Services &gt; Credentials</a>.
+                                    Set redirect URI to: <code>https://yoursite/signin-google</code>
+                                </RadzenText>
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                                Changes to Client ID or Client Secret require an application restart to take effect. Toggling the Enabled switch takes effect immediately for the login page buttons.
+                            </RadzenText>
+                        </RadzenAlert>
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="Save Authentication Settings" Icon="save" ButtonStyle="ButtonStyle.Success"
+                                          Click="@SaveAuthSettings" Disabled="@IsSavingAuthSettings" />
+                            @if (IsSavingAuthSettings)
+                            {
+                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                            }
+                        </RadzenStack>
+                    }
+                </RadzenStack>
+            </RadzenTabsItem>
         </Tabs>
     </RadzenTabs>
 </RadzenStack>
@@ -425,6 +531,16 @@
     private List<string> AvailableModels { get; set; } = new();
     private List<string> AIServiceTypes { get; set; } = new() { "OpenAI", "Azure OpenAI", "Anthropic", "Google AI" };
 
+    // Authentication Settings fields
+    private bool IsLoadingAuthSettings { get; set; } = true;
+    private bool IsSavingAuthSettings { get; set; } = false;
+    private bool MicrosoftEnabled { get; set; }
+    private string MicrosoftClientId { get; set; } = "";
+    private string MicrosoftClientSecret { get; set; } = "";
+    private bool GoogleEnabled { get; set; }
+    private string GoogleClientId { get; set; } = "";
+    private string GoogleClientSecret { get; set; } = "";
+
     protected override async Task OnInitializedAsync()
     {
         // Load settings
@@ -434,6 +550,7 @@
         await LoadJobGroups();
         await LoadJobQueues();
         await LoadAISettings();
+        await LoadAuthSettings();
     }
 
     #region Settings
@@ -697,6 +814,78 @@
         finally
         {
             IsSavingAISettings = false;
+            StateHasChanged();
+        }
+    }
+
+    #endregion
+
+    #region Authentication Settings
+
+    private async Task LoadAuthSettings()
+    {
+        IsLoadingAuthSettings = true;
+        StateHasChanged();
+
+        try
+        {
+            var microsoftConfig = await AuthenticationSettingsService.GetMicrosoftConfigAsync();
+            MicrosoftEnabled = microsoftConfig.Enabled;
+            MicrosoftClientId = microsoftConfig.ClientId;
+            MicrosoftClientSecret = microsoftConfig.ClientSecret;
+
+            var googleConfig = await AuthenticationSettingsService.GetGoogleConfigAsync();
+            GoogleEnabled = googleConfig.Enabled;
+            GoogleClientId = googleConfig.ClientId;
+            GoogleClientSecret = googleConfig.ClientSecret;
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to load authentication settings: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingAuthSettings = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAuthSettings()
+    {
+        IsSavingAuthSettings = true;
+        StateHasChanged();
+
+        try
+        {
+            var microsoftConfig = new BlazorOrchestrator.Web.Models.AuthProviderConfig
+            {
+                Enabled = MicrosoftEnabled,
+                ClientId = MicrosoftClientId,
+                ClientSecret = MicrosoftClientSecret
+            };
+            await AuthenticationSettingsService.SaveMicrosoftConfigAsync(microsoftConfig);
+
+            var googleConfig = new BlazorOrchestrator.Web.Models.AuthProviderConfig
+            {
+                Enabled = GoogleEnabled,
+                ClientId = GoogleClientId,
+                ClientSecret = GoogleClientSecret
+            };
+            await AuthenticationSettingsService.SaveGoogleConfigAsync(googleConfig);
+
+            // Update the singleton immediately so login page buttons reflect the change
+            AuthSettings.Refresh(microsoftConfig.IsFullyConfigured, googleConfig.IsFullyConfigured);
+
+            NotificationService.Notify(NotificationSeverity.Success, "Success",
+                "Authentication settings saved. Changes to Client ID or Secret require an application restart.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to save authentication settings: {ex.Message}");
+        }
+        finally
+        {
+            IsSavingAuthSettings = false;
             StateHasChanged();
         }
     }

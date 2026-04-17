@@ -57,6 +57,7 @@ TemporaryDependencyNodeTargetIdentifier=net10.0
 /warnaserror+:NU1605,SYSLIB0011
 
 [sourceFiles]
+Constants/AuthSettingKeys.cs
 Controllers/
  AccountController.cs
  BuildErrorsController.cs
@@ -82,6 +83,7 @@ Data/
  JobOrganizationsAspNetUser.cs
  JobQueue.cs
  JobSchedule.cs
+Models/AuthProviderConfig.cs
 obj/Debug/net10.0/
  .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
  BlazorOrchestrator.Web.AssemblyInfo.cs
@@ -91,9 +93,12 @@ obj/Debug/net10.0/
 Program.cs
 Services/
  AppSettingsService.cs
+ AuthenticationSettings.cs
+ AuthenticationSettingsService.cs
  AuthService.cs
  CSharpCompilationService.cs
  EditorFileStorageService.cs
+ ExternalLoginService.cs
  JobCodeEditorService.cs
  JobGroupService.cs
  JobQueueService.cs
@@ -467,6 +472,8 @@ Services/
  kubernetesclient/18.0.13/lib/net10.0/KubernetesClient.dll
  messagepack.annotations/2.5.192/lib/netstandard2.0/MessagePack.Annotations.dll
  messagepack/2.5.192/lib/net6.0/MessagePack.dll
+ microsoft.aspnetcore.authentication.google/10.0.0/lib/net10.0/Microsoft.AspNetCore.Authentication.Google.dll
+ microsoft.aspnetcore.authentication.microsoftaccount/10.0.0/lib/net10.0/Microsoft.AspNetCore.Authentication.MicrosoftAccount.dll
  microsoft.bcl.asyncinterfaces/10.0.3/lib/netstandard2.1/Microsoft.Bcl.AsyncInterfaces.dll
  microsoft.codeanalysis.common/5.3.0/lib/net10.0/Microsoft.CodeAnalysis.dll
  microsoft.codeanalysis.csharp.scripting/5.3.0/lib/net10.0/Microsoft.CodeAnalysis.CSharp.Scripting.dll

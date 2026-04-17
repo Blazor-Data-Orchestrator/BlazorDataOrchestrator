@@ -7,6 +7,7 @@ using BlazorDataOrchestrator.Core.Services;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -24,7 +25,11 @@ builder.AddAzureTableServiceClient("tables");
 builder.AddAzureQueueServiceClient("queues");
 
 // Add authentication with cookie scheme
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+var authBuilder = builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+})
     .AddCookie(options =>
     {
         options.LoginPath = "/account/login";
@@ -88,6 +93,11 @@ else
 
 // Register authentication service
 builder.Services.AddScoped<AuthService>();
+
+// Register external authentication services
+builder.Services.AddSingleton<AuthenticationSettings>();
+builder.Services.AddScoped<AuthenticationSettingsService>();
+builder.Services.AddScoped<ExternalLoginService>();
 
 // Register custom services
 builder.Services.AddScoped<ProjectCreatorService>();
@@ -198,6 +208,46 @@ builder.Services.AddScoped<WebNuGetPackageService>();
 
 builder.Services.AddRadzenComponents();
 var app = builder.Build();
+
+// Configure external authentication providers from Azure Table Storage settings
+try
+{
+    using var scope = app.Services.CreateScope();
+    var authSettingsService = scope.ServiceProvider.GetRequiredService<AuthenticationSettingsService>();
+    var authSettings = app.Services.GetRequiredService<AuthenticationSettings>();
+
+    var microsoftConfig = await authSettingsService.GetMicrosoftConfigAsync();
+    var googleConfig = await authSettingsService.GetGoogleConfigAsync();
+
+    if (microsoftConfig.IsFullyConfigured)
+    {
+        authBuilder.AddMicrosoftAccount("Microsoft", options =>
+        {
+            options.ClientId = microsoftConfig.ClientId;
+            options.ClientSecret = microsoftConfig.ClientSecret;
+            options.AuthorizationEndpoint =
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?prompt=select_account";
+            options.SaveTokens = true;
+        });
+        authSettings.IsMicrosoftConfigured = true;
+    }
+
+    if (googleConfig.IsFullyConfigured)
+    {
+        authBuilder.AddGoogle("Google", options =>
+        {
+            options.ClientId = googleConfig.ClientId;
+            options.ClientSecret = googleConfig.ClientSecret;
+            options.SaveTokens = true;
+        });
+        authSettings.IsGoogleConfigured = true;
+    }
+}
+catch (Exception ex)
+{
+    // External auth configuration is optional — don't block startup
+    Console.WriteLine($"Warning: Could not configure external authentication providers: {ex.Message}");
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

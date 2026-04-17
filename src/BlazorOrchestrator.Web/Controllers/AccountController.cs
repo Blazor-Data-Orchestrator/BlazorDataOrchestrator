@@ -16,10 +16,12 @@ namespace BlazorOrchestrator.Web.Controllers;
 public class AccountController : Controller
 {
     private readonly AuthService _authService;
+    private readonly ExternalLoginService _externalLoginService;
 
-    public AccountController(AuthService authService)
+    public AccountController(AuthService authService, ExternalLoginService externalLoginService)
     {
         _authService = authService;
+        _externalLoginService = externalLoginService;
     }
 
     /// <summary>
@@ -73,5 +75,81 @@ public class AccountController : Controller
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         return Redirect("/account/login");
+    }
+
+    /// <summary>
+    /// Initiates an external login challenge (redirects to Microsoft or Google).
+    /// </summary>
+    [HttpGet("/account/external-login")]
+    public IActionResult ExternalLogin(string provider, string? returnUrl = "/")
+    {
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = Url.Action("ExternalLoginCallback", new { returnUrl }),
+            Items = { { "provider", provider } }
+        };
+        return Challenge(properties, provider);
+    }
+
+    /// <summary>
+    /// Handles the OAuth callback after external provider authentication.
+    /// Links the external identity to an existing local account, or rejects if no account found.
+    /// </summary>
+    [HttpGet("/account/external-login-callback")]
+    public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = "/")
+    {
+        // Authenticate the external cookie
+        var result = await HttpContext.AuthenticateAsync();
+        if (!result.Succeeded || result.Principal == null)
+        {
+            return Redirect("/account/login?error=External+authentication+failed");
+        }
+
+        // Extract claims
+        var externalClaims = result.Principal.Claims.ToList();
+        var providerKey = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+        var email = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+        var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
+        var provider = result.Properties?.Items["provider"] ?? "Unknown";
+
+        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email))
+        {
+            return Redirect("/account/login?error=Could+not+retrieve+email+from+external+provider");
+        }
+
+        // Find or link the user
+        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, email, name);
+
+        if (user == null)
+        {
+            var encodedError = Uri.EscapeDataString("No local account found for this email. Please contact an administrator to create your account.");
+            return Redirect($"/account/login?error={encodedError}");
+        }
+
+        // Build enriched ClaimsPrincipal for the local cookie
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id),
+            new(ClaimTypes.Name, user.UserName ?? name),
+            new(ClaimTypes.Email, user.Email ?? email)
+        };
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = true,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30)
+            });
+
+        // Validate returnUrl is local to prevent open redirect
+        if (string.IsNullOrEmpty(returnUrl) || !Url.IsLocalUrl(returnUrl))
+            returnUrl = "/";
+
+        return LocalRedirect(returnUrl);
     }
 }
