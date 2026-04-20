@@ -64,7 +64,7 @@ The repository includes an `azure.yaml` file in the AppHost project, enabling de
 
 The fastest way to deploy is a single command that combines provisioning and deployment.
 
-Navigate to the AppHost root directory and run:
+In the Command prompt window, or the Terminal window in `Visual Studio` or `Visual Studio Code`, navigate to the `AppHost` directory and run:
 
 ```bash
 azd auth login
@@ -80,7 +80,7 @@ This command:
 2. Builds and containerizes all services (Web, Scheduler, Agent)
 3. Deploys everything to Azure Container Apps
 
-No manual infrastructure setup is required. The Aspire AppHost defines the entire application topology, and `azd` translates it into Azure resources automatically.
+No manual infrastructure setup is required. The **Aspire AppHost** defines the entire application topology, and `azd` translates it into Azure resources automatically.
 
 ### Step-by-Step Deployment
 

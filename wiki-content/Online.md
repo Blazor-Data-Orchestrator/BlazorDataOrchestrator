@@ -6,53 +6,42 @@ The online code editor allows you to write, compile, and deploy jobs directly in
 
 ## Overview
 
-The editor is embedded in the **Code Tab** of the Job Details dialog. It uses the [Monaco Editor](https://microsoft.github.io/monaco-editor/) (the same editor that powers Visual Studio Code) and supports both C# and Python. Combined with the AI Code Assistant, it provides a complete development environment for automation jobs without any local setup.
+![create-online-job.png](images/create-online-job.png)
+
+The editor is embedded in the **Code Tab** of the Job Details dialog. It uses the [Monaco Editor](https://microsoft.github.io/monaco-editor/) (the same editor that powers Visual Studio Code) and supports both `C#` and `Python`. Combined with the AI Code Assistant, it provides a complete development environment for automation jobs without any local setup.
+
 
 ---
 
-## Code Tab User Flow
+## Create A New Job
 
-```mermaid
-flowchart TD
-    %% Styling
-    classDef action fill:#0078d4,stroke:#005a9e,stroke-width:2px,color:#fff,rx:5,ry:5;
-    classDef decision fill:#fff,stroke:#0078d4,stroke-width:2px,rx:5,ry:5;
-    classDef state fill:#eef6ff,stroke:#0078d4,stroke-width:2px,rx:5,ry:5;
+![create-online-job.png](images/create-new-job-button.png)
 
-    A[🚀 Open Job Details]:::action --> B[Navigate to Code Tab]:::action
-    B --> C{Select Mode}:::decision
-    C -->|Code Edit| D[📝 Monaco Editor]:::state
-    C -->|Code Upload| E[📂 Upload .nupkg]:::action
-    D --> F[Select File from Dropdown]:::action
-    F --> G[✍️ Edit Code]:::state
-    G --> H[💾 Save & Compile]:::action
-    H --> I{Compilation Result}:::decision
-    I -->|Success| J[📦 NuGet Package Created]:::state
-    I -->|Error| K[⚠️ Error Dialog]:::state
-    K --> G
-    J --> L[☁️ Upload to Blob Storage]:::state
-    E --> L
-    L --> M[✅ Job Ready to Execute]:::state
-    D --> N[▶️ Run Job Now]:::action
-    N --> H
-```
+To create a new job click the `Create New Job` button.
 
----
+![create-new-job-dialog.png](images/create-new-job-dialog.png)
+
+Give the job a name and click the `Save` button.
 
 ## UI Modes
 
-The Code Tab has two modes, selectable via a dropdown:
+![create-new-job-dialog.png](images/code-tab.png)
+
+Click the `Code` tab. The `Code` tab has two modes:
 
 | Mode | Description |
 |------|-------------|
-| **Code Edit** (default) | Write and edit code in the Monaco editor |
-| **Code Upload** | Upload a pre-built `.nupkg` file directly |
+| **Editor** | Write and edit code in the Monaco editor |
+| **Upload** | Upload a pre-built `.nupkg` file. Create this file by saving code created with the `Editor` or using the [Visual Studio](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Visual-Studio) project.  |
 
 ---
 
-## File Navigation
+## Editor
 
-In **Code Edit** mode, a dropdown at the top of the editor lists all files in the job package. You can switch between files to edit them.
+![editor-full-editor](images/editor-full-editor.png)
+
+
+In **Editor** mode, the `Languge` dropdown allows you to switch beteen coding in `C#` or `Python`. The `File` dropdown lists all files in the job package. You can switch between files to edit them.
 
 ### C# Job Files
 
@@ -141,7 +130,9 @@ Dependencies are resolved at compilation time. Transitive dependencies (dependen
 
 ## AI Code Assistant
 
-The AI Code Assistant is available in **Code Edit** mode. Click the **AI** button in the editor toolbar to open the chat dialog.
+![editor-full-editor](images/ai-chat-box.png)
+
+The AI Code Assistant is available in **Code Edit** mode. Click the **AI** button in the editor toolbar to open the chat dialog. **Note:** For best performance use Claude Opus 4.6 or higher as the AI model.
 
 ### Capabilities
 
