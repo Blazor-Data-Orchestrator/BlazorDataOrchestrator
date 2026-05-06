@@ -26,6 +26,10 @@ public class Worker : BackgroundService
     // Visibility timeout configuration for long-running jobs
     private static readonly TimeSpan VisibilityTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan RenewalInterval = TimeSpan.FromMinutes(3);
+    
+    // Ensures only one job runs at a time per agent instance.
+    // Prevents picking up a new job while the current one is still executing.
+    private static readonly SemaphoreSlim _jobExecutionLock = new(1, 1);
 
     public Worker(
         ILogger<Worker> logger, 
@@ -95,6 +99,10 @@ public class Worker : BackgroundService
                 // Create a cancellation token source for the visibility renewal task
                 using var renewalCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 Task<string>? renewalTask = null;
+
+                // Acquire the execution lock — blocks if a previous job is somehow still running
+                await _jobExecutionLock.WaitAsync(stoppingToken);
+                _logger.LogInformation("Execution lock acquired for message {MessageId}", message.MessageId);
 
                 try
                 {
@@ -182,6 +190,18 @@ public class Worker : BackgroundService
                     
                     // Message will become visible again after visibility timeout
                     // After too many failures, it will go to poison queue (if configured)
+                }
+                finally
+                {
+                    // Release the execution lock so the next job can be picked up
+                    _jobExecutionLock.Release();
+                    _logger.LogInformation("Execution lock released for message {MessageId}", message.MessageId);
+
+                    // Force cleanup between jobs to prevent memory leaks and state bleed
+                    _codeExecutor.CleanupAfterExecution();
+                    GC.Collect(2, GCCollectionMode.Aggressive, blocking: true);
+                    GC.WaitForPendingFinalizers();
+                    _logger.LogInformation("Post-job memory cleanup completed");
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

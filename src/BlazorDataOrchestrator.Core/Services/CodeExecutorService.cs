@@ -775,6 +775,24 @@ if result:
 
         return null;
     }
+
+    /// <summary>
+    /// Cleans up state between job executions to prevent memory leaks and state bleed.
+    /// Resets the CSScript evaluator and forces unloading of collectible AssemblyLoadContexts.
+    /// Must be called after every job execution, regardless of success or failure.
+    /// </summary>
+    public void CleanupAfterExecution()
+    {
+        try
+        {
+            // Reset the CSScript evaluator to clear all cached references and compiled assemblies
+            CSScript.Evaluator.Reset();
+        }
+        catch
+        {
+            // Evaluator may not have been initialized — safe to ignore
+        }
+    }
 }
 
 /// <summary>
