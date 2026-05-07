@@ -77,3 +77,6 @@ Thumbs.db
 /.playwright-mcp
 .azure
 /src/BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj.lscache
+
+# Auto-generated job template zip (built by scripts/Package-JobTemplate.ps1)
+/src/BlazorOrchestrator.Web/JobTemplate/BlazorDataOrchestrator.JobCreatorTemplate.zip
