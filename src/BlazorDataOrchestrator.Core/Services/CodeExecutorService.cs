@@ -177,19 +177,16 @@ public class CodeExecutorService
                 }
             }
 
-            // Add references to DLLs found in the package
+            // Security: Reject packages that contain .dll files.
+            // Only NuGet package dependencies (resolved via .nuspec) are allowed.
             var dlls = Directory.GetFiles(extractedPath, "*.dll", SearchOption.AllDirectories);
-            foreach (var dll in dlls)
+            if (dlls.Length > 0)
             {
-                try
-                {
-                    evaluator.ReferenceAssembly(dll);
-                    result.Logs.Add($"Added reference: {Path.GetFileName(dll)}");
-                }
-                catch
-                {
-                    // Ignore DLLs that can't be loaded
-                }
+                var dllNames = string.Join(", ", dlls.Select(Path.GetFileName));
+                result.Success = false;
+                result.ErrorMessage = $"Package contains .dll files which are not allowed. Use NuGet packages instead. Found: {dllNames}";
+                result.Logs.Add($"Security: Rejected package containing .dll files: {dllNames}");
+                return result;
             }
 
             // Add common references
@@ -231,24 +228,6 @@ public class CodeExecutorService
                 catch (Exception ex)
                 {
                     result.Logs.Add($"Warning: Could not pre-load {Path.GetFileName(assemblyPath)}: {ex.Message}");
-                }
-            }
-
-            // Also load DLLs from the package
-            foreach (var dll in dlls)
-            {
-                try
-                {
-                    var loadedAsm = Assembly.LoadFrom(dll);
-                    var asmName = loadedAsm.GetName().Name;
-                    if (asmName != null && !loadedAssemblies.ContainsKey(asmName))
-                    {
-                        loadedAssemblies[asmName] = loadedAsm;
-                    }
-                }
-                catch
-                {
-                    // Ignore DLLs that can't be loaded
                 }
             }
 

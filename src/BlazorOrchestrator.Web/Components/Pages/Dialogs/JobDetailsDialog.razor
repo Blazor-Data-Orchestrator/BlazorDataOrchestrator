@@ -803,6 +803,25 @@ Content-Type: application/json
             await stream.CopyToAsync(memoryStream);
             memoryStream.Position = 0;
 
+            // Security: Validate that the package does not contain .dll files.
+            // Users must use NuGet package dependencies declared in .nuspec instead.
+            using (var archive = new System.IO.Compression.ZipArchive(memoryStream, System.IO.Compression.ZipArchiveMode.Read, leaveOpen: true))
+            {
+                var dllEntries = archive.Entries
+                    .Where(e => e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    .Select(e => e.FullName)
+                    .ToList();
+
+                if (dllEntries.Count > 0)
+                {
+                    var dllNames = string.Join(", ", dllEntries.Select(Path.GetFileName));
+                    NotificationService.Notify(NotificationSeverity.Error, "Upload Rejected",
+                        $"Package contains .dll files which are not allowed. Use NuGet packages instead. Found: {dllNames}");
+                    return;
+                }
+            }
+            memoryStream.Position = 0;
+
             // Upload package using JobManager - this updates Job.JobCodeFile automatically
             var blobName = await JobManager.UploadJobPackageAsync(JobId, memoryStream, SelectedFile.Name);
             
