@@ -140,6 +140,15 @@ public class PackageProcessorService
             }
         }
 
+        // Security: Reject packages containing .dll files.
+        // Users must use NuGet package dependencies declared in .nuspec instead.
+        var dllFiles = Directory.GetFiles(extractedPath, "*.dll", SearchOption.AllDirectories);
+        if (dllFiles.Length > 0)
+        {
+            var dllNames = string.Join(", ", dllFiles.Select(Path.GetFileName));
+            result.Errors.Add($"Package contains .dll files which are not allowed. Only NuGet package dependencies (declared in .nuspec) are permitted. Found: {dllNames}");
+        }
+
         result.IsValid = result.Errors.Count == 0;
         return result;
     }

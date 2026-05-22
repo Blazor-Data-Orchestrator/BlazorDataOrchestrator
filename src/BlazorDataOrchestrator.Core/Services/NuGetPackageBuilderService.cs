@@ -125,6 +125,21 @@ public class NuGetPackageBuilderService
             var csharpFolder = Path.Combine(config.CodeRootPath, "CodeCSharp");
             var pythonFolder = Path.Combine(config.CodeRootPath, "CodePython");
 
+            // Security: Reject source directories that contain .dll files.
+            // Users must use NuGet package dependencies declared in .nuspec instead.
+            if (Directory.Exists(config.CodeRootPath))
+            {
+                var dllFiles = Directory.GetFiles(config.CodeRootPath, "*.dll", SearchOption.AllDirectories);
+                if (dllFiles.Length > 0)
+                {
+                    var dllNames = string.Join(", ", dllFiles.Select(Path.GetFileName));
+                    result.Success = false;
+                    result.ErrorMessage = $"Source directory contains .dll files which are not allowed in packages. Use NuGet packages instead. Found: {dllNames}";
+                    result.Logs.Add($"Security: Rejected build due to .dll files: {dllNames}");
+                    return result;
+                }
+            }
+
             // Copy JSON files from the root Code folder
             if (Directory.Exists(config.CodeRootPath))
             {

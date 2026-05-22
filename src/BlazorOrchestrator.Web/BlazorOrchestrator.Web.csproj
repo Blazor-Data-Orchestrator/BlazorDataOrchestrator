@@ -6,6 +6,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Auto-package the JobCreatorTemplate zip before build -->
+  <ItemGroup>
+    <JobTemplateInputs Include="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\**\*.*" Exclude="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\bin\**;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\obj\**" />
+    <JobTemplateInputs Include="$(MSBuildProjectDirectory)\..\..\JobTemplate.slnx" />
+  </ItemGroup>
+  <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild" Inputs="@(JobTemplateInputs)" Outputs="$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip">
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -SlnxFile &quot;$(MSBuildProjectDirectory)\..\..\JobTemplate.slnx&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
+  </Target>
+
   <!-- Exclude Mockups folder from compilation - these are reference files only -->
   <ItemGroup>
     <Compile Remove="Mockups\**" />
@@ -36,6 +45,7 @@
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
     <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />
     <!-- AI packages for ConfigureAIDialog connection testing -->

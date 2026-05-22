@@ -494,12 +494,14 @@ namespace BlazorDataOrchestrator.Core
 
                     var evaluator = CSScript.Evaluator;
 
-                    // Add references to all DLLs found in the package
+                    // Security: Reject packages that contain .dll files.
+                    // Only NuGet package dependencies (resolved via .nuspec) are allowed.
                     var dlls = Directory.GetFiles(tempDir, "*.dll", SearchOption.AllDirectories);
-                    foreach (var dll in dlls)
+                    if (dlls.Length > 0)
                     {
-                        evaluator.ReferenceAssembly(dll);
-                        await LogAsync("RunJob", $"Added reference: {Path.GetFileName(dll)}", "Debug");
+                        var dllNames = string.Join(", ", dlls.Select(System.IO.Path.GetFileName));
+                        await LogAsync("RunJob", $"Security: Rejected package containing .dll files: {dllNames}", "Error");
+                        throw new InvalidOperationException($"Package contains .dll files which are not allowed. Use NuGet packages instead. Found: {dllNames}");
                     }
                     
                     // Load and execute
