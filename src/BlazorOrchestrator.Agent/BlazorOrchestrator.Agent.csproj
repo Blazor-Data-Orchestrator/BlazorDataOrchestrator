@@ -16,6 +16,7 @@
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.2.0" />
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.2.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.5" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
   </ItemGroup>
 
   <ItemGroup>
