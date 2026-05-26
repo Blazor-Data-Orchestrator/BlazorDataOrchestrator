@@ -173,7 +173,7 @@ After initial deployment, you can upgrade easily using *Visual Studio* by right-
 
 ### Podman deployment
 
-If having issues deploying when using Podman the following may be required when running *azd*:
+If having issues deploying when using Podman the following may be required when running *azd* (run in Powershell):
 
 $env:PATH += ";$env:LOCALAPPDATA\Programs\Azure Dev CLI"
 
