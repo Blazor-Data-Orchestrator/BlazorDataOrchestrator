@@ -98,7 +98,7 @@ If you prefer more control, you can run each step separately (run from the `AppH
    azd auth login
    ```
 
-3. **Initialize** (first time only)
+3. **Initialize** (first time only - if there are issues and you are using Podman rather than docker see *Podman deployment* below)
 
    ```bash
    azd init
@@ -170,6 +170,17 @@ You can scale agents horizontally by deploying multiple replicas or multiple Con
 After initial deployment, you can upgrade easily using *Visual Studio* by right-clicking on the `AppHost` project and selecting publish and following the wizard.
 
 ![alt text](images/upgrade-using-azure.png)
+
+### Podman deployment
+
+If having issues deploying when using Podman the following may be required when running *azd*:
+
+$env:PATH += ";$env:LOCALAPPDATA\Programs\Azure Dev CLI"
+
+$env:AZURE_DEV_CONTAINER_TOOL = "podman"
+
+azd up
+
 ---
 
 *Back to [Home](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Home)*
