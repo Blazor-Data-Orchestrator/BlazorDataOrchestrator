@@ -275,9 +275,10 @@ else
     {
         await CheckSystemStatus();
 
-        if (!IsInstalling && !IsLoading)
+        if (!IsInstalling)
         {
-            // Redirect unauthenticated users to login when not in install/wizard mode
+            // Redirect unauthenticated users to login when not in install/wizard mode.
+            // IsLoading is still true here to prevent the dashboard from flashing.
             if (AuthStateTask != null)
             {
                 var authState = await AuthStateTask;
@@ -287,9 +288,13 @@ else
                     // This avoids the NavigationException thrown by imperative
                     // NavigateTo calls during server-side prerendering.
                     ShouldRedirectToLogin = true;
+                    IsLoading = false;
                     return;
                 }
             }
+
+            // Auth check passed — safe to show the dashboard
+            IsLoading = false;
 
             // Load dashboard data and check for GitHub updates in the background
             _ = InvokeAsync(async () =>
@@ -386,9 +391,10 @@ else
             return;
         }
 
-        // All checks passed - show the dashboard
+        // All checks passed - will show the dashboard after auth check
         IsInstalling = false;
-        IsLoading = false;
+        // Keep IsLoading = true here; OnInitializedAsync sets it to false after auth check
+        // to prevent the dashboard from flashing before the redirect to login.
     }
 
     /// <summary>

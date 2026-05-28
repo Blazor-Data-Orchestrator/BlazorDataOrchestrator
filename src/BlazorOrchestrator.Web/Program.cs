@@ -226,8 +226,13 @@ try
             options.ClientId = microsoftConfig.ClientId;
             options.ClientSecret = microsoftConfig.ClientSecret;
             options.AuthorizationEndpoint =
-                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?prompt=select_account";
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+            // Request email scope so the email claim is always returned
+            if (!options.Scope.Contains("email"))
+                options.Scope.Add("email");
             options.SaveTokens = true;
+            // Use the callback path that matches the external-login-callback route
+            options.CallbackPath = "/signin-microsoft";
         });
         authSettings.IsMicrosoftConfigured = true;
     }

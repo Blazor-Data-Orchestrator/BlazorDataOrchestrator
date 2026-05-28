@@ -98,8 +98,9 @@ public class AccountController : Controller
     [HttpGet("/account/external-login-callback")]
     public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = "/")
     {
-        // Authenticate the external cookie
-        var result = await HttpContext.AuthenticateAsync();
+        // Authenticate the external cookie.
+        // The OAuth handler signs into the default cookie scheme, so read from it explicitly.
+        var result = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (!result.Succeeded || result.Principal == null)
         {
             return Redirect("/account/login?error=External+authentication+failed");
@@ -108,9 +109,10 @@ public class AccountController : Controller
         // Extract claims
         var externalClaims = result.Principal.Claims.ToList();
         var providerKey = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
-        var email = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+        var email = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value
+                    ?? externalClaims.FirstOrDefault(c => c.Type == "preferred_username")?.Value;
         var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
-        var provider = result.Properties?.Items["provider"] ?? "Unknown";
+        var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : "Unknown";
 
         if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email))
         {
