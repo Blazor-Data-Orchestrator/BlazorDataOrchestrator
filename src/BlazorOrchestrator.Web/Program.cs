@@ -95,7 +95,11 @@ else
 builder.Services.AddScoped<AuthService>();
 
 // Register external authentication services
-builder.Services.AddSingleton<AuthenticationSettings>();
+// NOTE: AuthenticationSettings is created as an instance so its flags can be
+// populated during the pre-build external-auth configuration block below and
+// observed by the registered singleton at runtime.
+var authenticationSettings = new AuthenticationSettings();
+builder.Services.AddSingleton(authenticationSettings);
 builder.Services.AddScoped<AuthenticationSettingsService>();
 builder.Services.AddScoped<ExternalLoginService>();
 
@@ -207,17 +211,27 @@ builder.Services.AddScoped<PythonValidationService>();
 builder.Services.AddScoped<WebNuGetPackageService>();
 
 builder.Services.AddRadzenComponents();
-var app = builder.Build();
 
-// Configure external authentication providers from Azure Table Storage settings
+// Configure external authentication providers from Azure Table Storage settings.
+// This MUST run before builder.Build() because AddMicrosoftAccount/AddGoogle
+// register services into IServiceCollection, which is sealed once Build() runs.
+// We construct a dedicated TableServiceClient here (rather than calling
+// builder.Services.BuildServiceProvider()) to avoid building the DI container
+// twice, which causes disposed-singleton issues at runtime.
 try
 {
-    using var scope = app.Services.CreateScope();
-    var authSettingsService = scope.ServiceProvider.GetRequiredService<AuthenticationSettingsService>();
-    var authSettings = app.Services.GetRequiredService<AuthenticationSettings>();
+    var tablesConnectionString = builder.Configuration.GetConnectionString("tables");
+    if (string.IsNullOrWhiteSpace(tablesConnectionString))
+    {
+        throw new InvalidOperationException("Connection string 'tables' is not configured.");
+    }
 
-    var microsoftConfig = await authSettingsService.GetMicrosoftConfigAsync();
-    var googleConfig = await authSettingsService.GetGoogleConfigAsync();
+    var tableServiceClient = new TableServiceClient(tablesConnectionString);
+    var bootstrapSettingsService = new SettingsService(tableServiceClient);
+    var bootstrapAuthConfigService = new AuthenticationSettingsService(bootstrapSettingsService);
+
+    var microsoftConfig = await bootstrapAuthConfigService.GetMicrosoftConfigAsync();
+    var googleConfig = await bootstrapAuthConfigService.GetGoogleConfigAsync();
 
     if (microsoftConfig.IsFullyConfigured)
     {
@@ -225,16 +239,21 @@ try
         {
             options.ClientId = microsoftConfig.ClientId;
             options.ClientSecret = microsoftConfig.ClientSecret;
+            // Use the v2.0 endpoints so we can sign in personal + work/school accounts
             options.AuthorizationEndpoint =
                 "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
-            // Request email scope so the email claim is always returned
-            if (!options.Scope.Contains("email"))
-                options.Scope.Add("email");
+            options.TokenEndpoint =
+                "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+            // v2.0 requires the openid scope; also request profile + email so we get
+            // the user's name and email claims back.
+            if (!options.Scope.Contains("openid")) options.Scope.Add("openid");
+            if (!options.Scope.Contains("profile")) options.Scope.Add("profile");
+            if (!options.Scope.Contains("email")) options.Scope.Add("email");
             options.SaveTokens = true;
             // Use the callback path that matches the external-login-callback route
             options.CallbackPath = "/signin-microsoft";
         });
-        authSettings.IsMicrosoftConfigured = true;
+        authenticationSettings.IsMicrosoftConfigured = true;
     }
 
     if (googleConfig.IsFullyConfigured)
@@ -245,7 +264,7 @@ try
             options.ClientSecret = googleConfig.ClientSecret;
             options.SaveTokens = true;
         });
-        authSettings.IsGoogleConfigured = true;
+        authenticationSettings.IsGoogleConfigured = true;
     }
 }
 catch (Exception ex)
@@ -253,6 +272,8 @@ catch (Exception ex)
     // External auth configuration is optional — don't block startup
     Console.WriteLine($"Warning: Could not configure external authentication providers: {ex.Message}");
 }
+
+var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
