@@ -1,0 +1,226 @@
+@page "/admin/users"
+@attribute [Authorize]
+@using Radzen
+@using Radzen.Blazor
+@using BlazorOrchestrator.Web.Models
+@using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@inject AllowedUserService Users
+@inject DialogService DialogService
+@inject NotificationService Notify
+@inject BlazorOrchestrator.Web.Services.TimeDisplayService TimeDisplay
+
+<PageTitle>Allowed Users</PageTitle>
+
+<RadzenStack Gap="1.25rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenIcon Icon="manage_accounts" Style="font-size: 1.5rem;" />
+        <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" Style="margin: 0;">Allowed Users</RadzenText>
+    </RadzenStack>
+
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+            Users must be added here before they can sign in with Microsoft, Google, or a local password.
+            External logins will never auto-create accounts.
+        </RadzenText>
+    </RadzenAlert>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+        <RadzenTextBox @bind-Value="_search" Placeholder="Search by email or username"
+                        Change="@(_ => ReloadAsync())" Style="flex: 1; max-width: 400px;" />
+        <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Click="@ReloadAsync" Disabled="@_isLoading" />
+        <div style="flex: 1;"></div>
+        <RadzenButton Text="Add user" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@OpenCreateAsync" />
+    </RadzenStack>
+
+    <RadzenDataGrid @ref="_grid" Data="@_items" Count="@_total" TItem="AllowedUserListItem"
+                    LoadData="@LoadDataAsync" IsLoading="@_isLoading"
+                    AllowPaging="true" PageSize="25" AllowSorting="false"
+                    PagerHorizontalAlign="HorizontalAlign.Center" Style="height: auto;">
+        <Columns>
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Property="Email" Title="Email" />
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Property="UserName" Title="Username" Width="160px" />
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Property="DisplayName" Title="Display name" Width="200px" />
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Title="Status" Width="110px">
+                <Template Context="u">
+                    @if (u.IsLocked)
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Danger" Text="Locked" />
+                    }
+                    else if (u.IsEnabled)
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="Enabled" />
+                    }
+                    else
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Secondary" Text="Disabled" />
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Title="Providers" Width="220px">
+                <Template Context="u">
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                        @if (u.HasLocalPassword)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="Local" />
+                        }
+                        @foreach (var p in u.LinkedProviders)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Primary" Text="@p" />
+                        }
+                    </RadzenStack>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="AllowedUserListItem" Title="Actions" Width="240px">
+                <Template Context="u">
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                      Click="@(() => OpenEditAsync(u))" title="Edit" />
+                        <RadzenButton Icon="key" ButtonStyle="ButtonStyle.Warning" Size="ButtonSize.Small"
+                                      Variant="Variant.Outlined"
+                                      Click="@(() => OpenResetAsync(u))" title="Reset password" />
+                        <RadzenButton Icon="@(u.IsLocked ? "lock_open" : "lock")"
+                                      ButtonStyle="@(u.IsLocked ? ButtonStyle.Success : ButtonStyle.Warning)"
+                                      Size="ButtonSize.Small" Variant="Variant.Outlined"
+                                      Click="@(() => ToggleLockAsync(u))"
+                                      title="@(u.IsLocked ? "Unlock" : "Lock")" />
+                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                      Variant="Variant.Outlined"
+                                      Click="@(() => DeleteAsync(u))" title="Delete" />
+                    </RadzenStack>
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private RadzenDataGrid<AllowedUserListItem>? _grid;
+    private IList<AllowedUserListItem> _items = new List<AllowedUserListItem>();
+    private int _total;
+    private bool _isLoading;
+    private string _search = string.Empty;
+    private bool _initialLoadDone;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_initialLoadDone && _grid != null)
+        {
+            _initialLoadDone = true;
+            await _grid.Reload();
+        }
+    }
+
+    private async Task LoadDataAsync(LoadDataArgs args)
+    {
+        _isLoading = true;
+        try
+        {
+            var skip = args.Skip ?? 0;
+            var take = args.Top ?? 25;
+            _total = await Users.CountAsync(_search);
+            _items = (await Users.ListAsync(_search, skip, take)).ToList();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_grid != null) await _grid.Reload();
+    }
+
+    private async Task OpenCreateAsync()
+    {
+        var result = await DialogService.OpenAsync<UserEditDialog>("Add user",
+            new Dictionary<string, object?>
+            {
+                ["ExistingUser"] = null,
+                ["IsLastAdmin"] = false
+            },
+            new DialogOptions { Width = "560px", CloseDialogOnOverlayClick = false });
+
+        if (result is true) await ReloadAsync();
+    }
+
+    private async Task OpenEditAsync(AllowedUserListItem u)
+    {
+        var detail = await Users.GetAsync(u.Id);
+        if (detail == null) return;
+
+        var enabledAdminCount = _items.Count(i => i.IsAdmin && i.IsEnabled);
+        var isLastAdmin = detail.IsAdmin && enabledAdminCount <= 1;
+
+        var result = await DialogService.OpenAsync<UserEditDialog>($"Edit {detail.Email}",
+            new Dictionary<string, object?>
+            {
+                ["ExistingUser"] = detail,
+                ["IsLastAdmin"] = isLastAdmin
+            },
+            new DialogOptions { Width = "560px", CloseDialogOnOverlayClick = false });
+
+        if (result is true) await ReloadAsync();
+    }
+
+    private async Task OpenResetAsync(AllowedUserListItem u)
+    {
+        var result = await DialogService.OpenAsync<ResetPasswordDialog>($"Reset password — {u.Email}",
+            new Dictionary<string, object?>
+            {
+                ["UserId"] = u.Id,
+                ["Email"] = u.Email ?? ""
+            },
+            new DialogOptions { Width = "480px", CloseDialogOnOverlayClick = false });
+
+        if (result is true) await ReloadAsync();
+    }
+
+    private async Task ToggleLockAsync(AllowedUserListItem u)
+    {
+        try
+        {
+            if (u.IsLocked)
+            {
+                await Users.SetLockoutAsync(u.Id, null);
+                Notify.Notify(NotificationSeverity.Success, "User unlocked");
+            }
+            else
+            {
+                await Users.SetLockoutAsync(u.Id, DateTimeOffset.MaxValue);
+                Notify.Notify(NotificationSeverity.Success, "User locked");
+            }
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Notify.Notify(NotificationSeverity.Error, "Operation failed", ex.Message);
+        }
+    }
+
+    private async Task DeleteAsync(AllowedUserListItem u)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Permanently delete {u.Email}? This removes their external login links and claims.",
+            "Delete user",
+            new ConfirmOptions { OkButtonText = "Delete", CancelButtonText = "Cancel" });
+        if (confirmed != true) return;
+
+        try
+        {
+            await Users.DeleteAsync(u.Id);
+            Notify.Notify(NotificationSeverity.Success, "User deleted");
+            await ReloadAsync();
+        }
+        catch (AdminLockoutException ex)
+        {
+            Notify.Notify(NotificationSeverity.Warning, "Cannot delete user", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Notify.Notify(NotificationSeverity.Error, "Delete failed", ex.Message);
+        }
+    }
+}

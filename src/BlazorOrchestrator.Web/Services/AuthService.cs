@@ -36,6 +36,10 @@ public class AuthService
         if (user == null || string.IsNullOrEmpty(user.PasswordHash))
             return null;
 
+        // Reject disabled or currently-locked accounts.
+        if (!user.EmailConfirmed) return null;
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow) return null;
+
         var passwordHasher = new PasswordHasher<AspNetUser>();
         var result = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, password);
 

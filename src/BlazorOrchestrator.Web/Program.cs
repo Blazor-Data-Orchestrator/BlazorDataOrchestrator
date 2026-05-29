@@ -102,6 +102,7 @@ var authenticationSettings = new AuthenticationSettings();
 builder.Services.AddSingleton(authenticationSettings);
 builder.Services.AddScoped<AuthenticationSettingsService>();
 builder.Services.AddScoped<ExternalLoginService>();
+builder.Services.AddScoped<AllowedUserService>();
 
 // Register custom services
 builder.Services.AddScoped<ProjectCreatorService>();
@@ -325,6 +326,19 @@ public class BackgroundInitializer : BackgroundService
             // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+
+            // Ensure the Admin role exists and that at least one enabled user is assigned to it.
+            // Bootstraps the new Allowed Users administration screen.
+            try
+            {
+                using var scope = _sp.CreateScope();
+                var allowedUsers = scope.ServiceProvider.GetRequiredService<AllowedUserService>();
+                await allowedUsers.BootstrapAdminRoleAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Admin role bootstrap skipped.");
+            }
         }
         catch (Exception ex)
         {

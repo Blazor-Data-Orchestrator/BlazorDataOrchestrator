@@ -1,8 +1,10 @@
+using BlazorOrchestrator.Web.Data.Data;
 using BlazorOrchestrator.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace BlazorOrchestrator.Web.Controllers;
@@ -17,11 +19,13 @@ public class AccountController : Controller
 {
     private readonly AuthService _authService;
     private readonly ExternalLoginService _externalLoginService;
+    private readonly ApplicationDbContext _dbContext;
 
-    public AccountController(AuthService authService, ExternalLoginService externalLoginService)
+    public AccountController(AuthService authService, ExternalLoginService externalLoginService, ApplicationDbContext dbContext)
     {
         _authService = authService;
         _externalLoginService = externalLoginService;
+        _dbContext = dbContext;
     }
 
     /// <summary>
@@ -45,6 +49,7 @@ public class AccountController : Controller
             new(ClaimTypes.Name, user.UserName ?? username),
             new(ClaimTypes.Email, user.Email ?? "")
         };
+        await AddRoleClaimsAsync(claims, user.Id);
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
@@ -135,6 +140,7 @@ public class AccountController : Controller
             new(ClaimTypes.Name, user.UserName ?? name),
             new(ClaimTypes.Email, user.Email ?? email)
         };
+        await AddRoleClaimsAsync(claims, user.Id);
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
@@ -153,5 +159,23 @@ public class AccountController : Controller
             returnUrl = "/";
 
         return LocalRedirect(returnUrl);
+    }
+
+    /// <summary>
+    /// Loads role names for the user from AspNetUserRoles and appends them as ClaimTypes.Role
+    /// claims so authorization attributes such as [Authorize(Roles = "Admin")] work.
+    /// </summary>
+    private async Task AddRoleClaimsAsync(List<Claim> claims, string userId)
+    {
+        var roleNames = await _dbContext.AspNetUsers
+            .Where(u => u.Id == userId)
+            .SelectMany(u => u.Roles.Select(r => r.Name))
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToListAsync();
+
+        foreach (var roleName in roleNames)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, roleName!));
+        }
     }
 }

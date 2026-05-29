@@ -1,0 +1,196 @@
+@using Radzen
+@using Radzen.Blazor
+@using BlazorOrchestrator.Web.Models
+@using System.ComponentModel.DataAnnotations
+
+<EditForm EditContext="@_editContext" OnValidSubmit="@OnValidSubmit">
+    <DataAnnotationsValidator />
+
+    <RadzenStack Gap="1rem" Style="min-width: 480px;">
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Email" Component="email" Style="font-weight: 500;" />
+            <RadzenTextBox @bind-Value="_model.Email" Name="email" Style="width: 100%;" />
+            <ValidationMessage For="@(() => _model.Email)" />
+        </RadzenStack>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Username" Component="username" Style="font-weight: 500;" />
+            <RadzenTextBox @bind-Value="_model.UserName" Name="username" Style="width: 100%;" />
+            <ValidationMessage For="@(() => _model.UserName)" />
+        </RadzenStack>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Display name (optional)" Component="displayName" Style="font-weight: 500;" />
+            <RadzenTextBox @bind-Value="_model.DisplayName" Name="displayName" Style="width: 100%;" />
+            <ValidationMessage For="@(() => _model.DisplayName)" />
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1.5rem">
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenCheckBox @bind-Value="_model.IsEnabled" Name="enabled"
+                                Disabled="@(IsEditMode && ExistingUser!.IsEnabled && IsLastAdmin)" />
+                <RadzenLabel Text="Enabled" Component="enabled" />
+            </RadzenStack>
+        </RadzenStack>
+
+        @if (!IsEditMode)
+        {
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Initial password (optional)" Component="password" Style="font-weight: 500;" />
+                <RadzenPassword @bind-Value="_initialPassword" Name="password" Style="width: 100%;" />
+                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; margin: 0;">
+                    Leave blank to create an external-login-only account. Min 12 chars, mixed case, digit + symbol.
+                </RadzenText>
+            </RadzenStack>
+        }
+
+        @if (IsEditMode && ExistingUser!.Logins.Any())
+        {
+            <RadzenStack Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2">Linked external providers</RadzenText>
+                @foreach (var login in ExistingUser.Logins)
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 JustifyContent="JustifyContent.SpaceBetween"
+                                 Style="border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; border-radius: 6px;">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                            <RadzenBadge BadgeStyle="BadgeStyle.Secondary" Text="@login.LoginProvider" />
+                            <RadzenText TextStyle="TextStyle.Body2">
+                                @(login.ProviderDisplayName ?? login.ProviderKey)
+                            </RadzenText>
+                        </RadzenStack>
+                        <RadzenButton Icon="link_off" ButtonStyle="ButtonStyle.Danger"
+                                      Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                      Click="@(() => UnlinkAsync(login))" />
+                    </RadzenStack>
+                }
+            </RadzenStack>
+        }
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false" ShowIcon="true">
+                @_errorMessage
+            </RadzenAlert>
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" JustifyContent="JustifyContent.End">
+            <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined"
+                          Click="@(() => DialogService.Close())" Disabled="@_isSaving" />
+            <RadzenButton ButtonType="ButtonType.Submit"
+                          Text="@(IsEditMode ? "Update" : "Create")"
+                          ButtonStyle="ButtonStyle.Success" Icon="save" Disabled="@_isSaving" />
+        </RadzenStack>
+    </RadzenStack>
+</EditForm>
+
+@code {
+    [Inject] DialogService DialogService { get; set; } = default!;
+    [Inject] AllowedUserService Users { get; set; } = default!;
+    [Inject] NotificationService Notify { get; set; } = default!;
+
+    [Parameter] public AllowedUserDetail? ExistingUser { get; set; }
+    [Parameter] public bool IsLastAdmin { get; set; }
+
+    private FormModel _model = new() { IsAdmin = true };
+    private EditContext _editContext = default!;
+    private string _initialPassword = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _isSaving;
+
+    public bool IsEditMode => ExistingUser != null;
+
+    protected override void OnInitialized()
+    {
+        if (ExistingUser != null)
+        {
+            _model = new FormModel
+            {
+                Email = ExistingUser.Email ?? "",
+                UserName = ExistingUser.UserName ?? "",
+                DisplayName = ExistingUser.DisplayName,
+                IsAdmin = ExistingUser.IsAdmin,
+                IsEnabled = ExistingUser.IsEnabled
+            };
+        }
+        _editContext = new EditContext(_model);
+    }
+
+    private async Task OnValidSubmit()
+    {
+        _errorMessage = string.Empty;
+        _isSaving = true;
+        try
+        {
+            if (IsEditMode)
+            {
+                await Users.UpdateAsync(ExistingUser!.Id, new UpdateAllowedUserRequest
+                {
+                    Email = _model.Email,
+                    UserName = _model.UserName,
+                    DisplayName = _model.DisplayName,
+                    IsAdmin = _model.IsAdmin,
+                    IsEnabled = _model.IsEnabled
+                });
+                Notify.Notify(NotificationSeverity.Success, "User updated");
+            }
+            else
+            {
+                await Users.CreateAsync(new CreateAllowedUserRequest
+                {
+                    Email = _model.Email,
+                    UserName = _model.UserName,
+                    DisplayName = _model.DisplayName,
+                    IsAdmin = _model.IsAdmin,
+                    IsEnabled = _model.IsEnabled,
+                    InitialPassword = string.IsNullOrWhiteSpace(_initialPassword) ? null : _initialPassword
+                });
+                Notify.Notify(NotificationSeverity.Success, "User created");
+            }
+            DialogService.Close(true);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task UnlinkAsync(AllowedUserLogin login)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Unlink {login.LoginProvider} from this user?", "Confirm unlink");
+        if (confirmed != true) return;
+
+        try
+        {
+            await Users.UnlinkProviderAsync(ExistingUser!.Id, login.LoginProvider, login.ProviderKey);
+            ExistingUser.Logins.Remove(login);
+            ExistingUser.LinkedProviders.Remove(login.LoginProvider);
+            Notify.Notify(NotificationSeverity.Success, $"{login.LoginProvider} unlinked");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Notify.Notify(NotificationSeverity.Error, "Unlink failed", ex.Message);
+        }
+    }
+
+    private class FormModel
+    {
+        [Required, EmailAddress, StringLength(256)]
+        public string Email { get; set; } = string.Empty;
+
+        [Required, StringLength(256)]
+        public string UserName { get; set; } = string.Empty;
+
+        [StringLength(100)]
+        public string? DisplayName { get; set; }
+
+        public bool IsAdmin { get; set; }
+        public bool IsEnabled { get; set; } = true;
+    }
+}

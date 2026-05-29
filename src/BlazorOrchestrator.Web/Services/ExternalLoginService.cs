@@ -31,7 +31,7 @@ public class ExternalLoginService
 
         if (existingLogin != null)
         {
-            return existingLogin.User;
+            return IsLoginAllowed(existingLogin.User) ? existingLogin.User : null;
         }
 
         // 2. Check AspNetUsers by NormalizedEmail
@@ -44,6 +44,9 @@ public class ExternalLoginService
             // No local account exists — admin must pre-create the account
             return null;
         }
+
+        // Refuse to link external identities to disabled or locked accounts.
+        if (!IsLoginAllowed(user)) return null;
 
         // 3. Create AspNetUserLogins entry to link
         var login = new AspNetUserLogin
@@ -58,5 +61,12 @@ public class ExternalLoginService
         await _dbContext.SaveChangesAsync();
 
         return user;
+    }
+
+    private static bool IsLoginAllowed(AspNetUser user)
+    {
+        if (!user.EmailConfirmed) return false;
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow) return false;
+        return true;
     }
 }
