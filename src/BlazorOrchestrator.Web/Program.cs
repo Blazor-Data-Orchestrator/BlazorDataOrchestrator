@@ -253,6 +253,8 @@ try
             options.SaveTokens = true;
             // Use the callback path that matches the external-login-callback route
             options.CallbackPath = "/signin-microsoft";
+            // Force re-authentication so the user must sign in again each time
+            options.AdditionalAuthorizationParameters.Add("prompt", "login");
         });
         authenticationSettings.IsMicrosoftConfigured = true;
     }
@@ -264,6 +266,8 @@ try
             options.ClientId = googleConfig.ClientId;
             options.ClientSecret = googleConfig.ClientSecret;
             options.SaveTokens = true;
+            // Force re-authentication so the user must sign in again each time
+            options.AdditionalAuthorizationParameters.Add("prompt", "login");
         });
         authenticationSettings.IsGoogleConfigured = true;
     }
