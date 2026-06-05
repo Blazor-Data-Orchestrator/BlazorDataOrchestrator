@@ -254,7 +254,11 @@ try
             // Use the callback path that matches the external-login-callback route
             options.CallbackPath = "/signin-microsoft";
             // Force re-authentication so the user must sign in again each time
-            options.AdditionalAuthorizationParameters.Add("prompt", "login");
+            options.Events.OnRedirectToAuthorizationEndpoint = context =>
+            {
+                context.Response.Redirect(context.RedirectUri + "&prompt=login");
+                return Task.CompletedTask;
+            };
         });
         authenticationSettings.IsMicrosoftConfigured = true;
     }
@@ -266,8 +270,13 @@ try
             options.ClientId = googleConfig.ClientId;
             options.ClientSecret = googleConfig.ClientSecret;
             options.SaveTokens = true;
-            // Force re-authentication so the user must sign in again each time
-            options.AdditionalAuthorizationParameters.Add("prompt", "login");
+            // Force account selection so the user must choose an account each time.
+            // Google does not support prompt=login; use select_account instead.
+            options.Events.OnRedirectToAuthorizationEndpoint = context =>
+            {
+                context.Response.Redirect(context.RedirectUri + "&prompt=select_account");
+                return Task.CompletedTask;
+            };
         });
         authenticationSettings.IsGoogleConfigured = true;
     }
