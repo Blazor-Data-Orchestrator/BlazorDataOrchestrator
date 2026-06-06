@@ -252,7 +252,7 @@ try
 }
 catch (Exception ex)
 {
-    app.Logger.LogWarning(ex, "Could not load external authentication settings at startup.");
+    app.Logger.LogWarning(ex, "Could not load external authentication settings at startup. External authentication will be unavailable until credentials are configured in the admin panel.");
 }
 
 // Configure the HTTP request pipeline.

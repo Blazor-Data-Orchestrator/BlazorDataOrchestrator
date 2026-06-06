@@ -16,6 +16,8 @@ public sealed class ExternalAuthOptionsStore :
     private const string MicrosoftScheme = "Microsoft";
     private const string GoogleScheme = "Google";
     private const string NotConfigured = "not-configured";
+    private const string MicrosoftAuthorizationEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+    private const string MicrosoftTokenEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 
     private readonly object _lock = new();
     private readonly IOptionsMonitorCache<MicrosoftAccountOptions> _microsoftCache;
@@ -59,9 +61,8 @@ public sealed class ExternalAuthOptionsStore :
         lock (_lock)
         {
             _microsoftConfig = Clone(config);
+            _microsoftCache.TryRemove(MicrosoftScheme);
         }
-
-        _microsoftCache.TryRemove(MicrosoftScheme);
     }
 
     public void UpdateGoogle(AuthProviderConfig config)
@@ -69,9 +70,8 @@ public sealed class ExternalAuthOptionsStore :
         lock (_lock)
         {
             _googleConfig = Clone(config);
+            _googleCache.TryRemove(GoogleScheme);
         }
-
-        _googleCache.TryRemove(GoogleScheme);
     }
 
     void IPostConfigureOptions<MicrosoftAccountOptions>.PostConfigure(string? name, MicrosoftAccountOptions options)
@@ -84,8 +84,8 @@ public sealed class ExternalAuthOptionsStore :
         var config = MicrosoftConfig;
         options.ClientId = NonEmpty(config.ClientId);
         options.ClientSecret = NonEmpty(config.ClientSecret);
-        options.AuthorizationEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
-        options.TokenEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+        options.AuthorizationEndpoint = MicrosoftAuthorizationEndpoint;
+        options.TokenEndpoint = MicrosoftTokenEndpoint;
         if (!options.Scope.Contains("openid")) options.Scope.Add("openid");
         if (!options.Scope.Contains("profile")) options.Scope.Add("profile");
         if (!options.Scope.Contains("email")) options.Scope.Add("email");
