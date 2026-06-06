@@ -7,10 +7,13 @@ using BlazorDataOrchestrator.Core.Services;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Radzen;
 using System.Data;
 
@@ -39,6 +42,19 @@ var authBuilder = builder.Services.AddAuthentication(options =>
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     });
+
+// Always register external schemes with placeholder credentials.
+// Real credentials are injected dynamically by ExternalAuthOptionsStore.
+authBuilder.AddMicrosoftAccount("Microsoft", options =>
+{
+    options.ClientId = "not-configured";
+    options.ClientSecret = "not-configured";
+});
+authBuilder.AddGoogle("Google", options =>
+{
+    options.ClientId = "not-configured";
+    options.ClientSecret = "not-configured";
+});
 
 builder.Services.AddAuthorization(options =>
 {
@@ -100,6 +116,9 @@ builder.Services.AddScoped<AuthService>();
 // observed by the registered singleton at runtime.
 var authenticationSettings = new AuthenticationSettings();
 builder.Services.AddSingleton(authenticationSettings);
+builder.Services.AddSingleton<ExternalAuthOptionsStore>();
+builder.Services.AddSingleton<IPostConfigureOptions<MicrosoftAccountOptions>>(sp => sp.GetRequiredService<ExternalAuthOptionsStore>());
+builder.Services.AddSingleton<IPostConfigureOptions<GoogleOptions>>(sp => sp.GetRequiredService<ExternalAuthOptionsStore>());
 builder.Services.AddScoped<AuthenticationSettingsService>();
 builder.Services.AddScoped<ExternalLoginService>();
 builder.Services.AddScoped<AllowedUserService>();
@@ -213,72 +232,28 @@ builder.Services.AddScoped<WebNuGetPackageService>();
 
 builder.Services.AddRadzenComponents();
 
-// Configure external authentication providers from Azure Table Storage settings.
-// This MUST run before builder.Build() because AddMicrosoftAccount/AddGoogle
-// register services into IServiceCollection, which is sealed once Build() runs.
-// We construct a dedicated TableServiceClient here (rather than calling
-// builder.Services.BuildServiceProvider()) to avoid building the DI container
-// twice, which causes disposed-singleton issues at runtime.
+var app = builder.Build();
+
+// Load initial external-auth settings and prime the dynamic options store.
+// Startup should continue even if external auth settings cannot be loaded.
 try
 {
-    var tablesConnectionString = builder.Configuration.GetConnectionString("tables");
-    if (string.IsNullOrWhiteSpace(tablesConnectionString))
-    {
-        throw new InvalidOperationException("Connection string 'tables' is not configured.");
-    }
+    using var startupScope = app.Services.CreateScope();
+    var authSettingsService = startupScope.ServiceProvider.GetRequiredService<AuthenticationSettingsService>();
+    var externalAuthStore = startupScope.ServiceProvider.GetRequiredService<ExternalAuthOptionsStore>();
+    var startupAuthSettings = startupScope.ServiceProvider.GetRequiredService<AuthenticationSettings>();
 
-    var tableServiceClient = new TableServiceClient(tablesConnectionString);
-    var bootstrapSettingsService = new SettingsService(tableServiceClient);
-    var bootstrapAuthConfigService = new AuthenticationSettingsService(bootstrapSettingsService);
+    var microsoftConfig = await authSettingsService.GetMicrosoftConfigAsync();
+    var googleConfig = await authSettingsService.GetGoogleConfigAsync();
 
-    var microsoftConfig = await bootstrapAuthConfigService.GetMicrosoftConfigAsync();
-    var googleConfig = await bootstrapAuthConfigService.GetGoogleConfigAsync();
-
-    if (microsoftConfig.IsFullyConfigured)
-    {
-        authBuilder.AddMicrosoftAccount("Microsoft", options =>
-        {
-            options.ClientId = microsoftConfig.ClientId;
-            options.ClientSecret = microsoftConfig.ClientSecret;
-            // Use the v2.0 endpoints so we can sign in personal + work/school accounts
-            options.AuthorizationEndpoint =
-                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
-            options.TokenEndpoint =
-                "https://login.microsoftonline.com/common/oauth2/v2.0/token";
-            // v2.0 requires the openid scope; also request profile + email so we get
-            // the user's name and email claims back.
-            if (!options.Scope.Contains("openid")) options.Scope.Add("openid");
-            if (!options.Scope.Contains("profile")) options.Scope.Add("profile");
-            if (!options.Scope.Contains("email")) options.Scope.Add("email");
-            options.SaveTokens = true;
-            // Use the callback path that matches the external-login-callback route
-            options.CallbackPath = "/signin-microsoft";
-            // Force re-authentication so the user must sign in again each time
-            options.AdditionalAuthorizationParameters.Add("prompt", "login");
-        });
-        authenticationSettings.IsMicrosoftConfigured = true;
-    }
-
-    if (googleConfig.IsFullyConfigured)
-    {
-        authBuilder.AddGoogle("Google", options =>
-        {
-            options.ClientId = googleConfig.ClientId;
-            options.ClientSecret = googleConfig.ClientSecret;
-            options.SaveTokens = true;
-            // Force re-authentication so the user must sign in again each time
-            options.AdditionalAuthorizationParameters.Add("prompt", "login");
-        });
-        authenticationSettings.IsGoogleConfigured = true;
-    }
+    externalAuthStore.UpdateMicrosoft(microsoftConfig);
+    externalAuthStore.UpdateGoogle(googleConfig);
+    startupAuthSettings.Refresh(microsoftConfig.IsFullyConfigured, googleConfig.IsFullyConfigured);
 }
 catch (Exception ex)
 {
-    // External auth configuration is optional — don't block startup
-    Console.WriteLine($"Warning: Could not configure external authentication providers: {ex.Message}");
+    app.Logger.LogWarning(ex, "Could not load external authentication settings at startup.");
 }
-
-var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

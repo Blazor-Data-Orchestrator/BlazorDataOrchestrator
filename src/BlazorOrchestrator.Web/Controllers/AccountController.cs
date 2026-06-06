@@ -20,12 +20,18 @@ public class AccountController : Controller
     private readonly AuthService _authService;
     private readonly ExternalLoginService _externalLoginService;
     private readonly ApplicationDbContext _dbContext;
+    private readonly AuthenticationSettings _authSettings;
 
-    public AccountController(AuthService authService, ExternalLoginService externalLoginService, ApplicationDbContext dbContext)
+    public AccountController(
+        AuthService authService,
+        ExternalLoginService externalLoginService,
+        ApplicationDbContext dbContext,
+        AuthenticationSettings authSettings)
     {
         _authService = authService;
         _externalLoginService = externalLoginService;
         _dbContext = dbContext;
+        _authSettings = authSettings;
     }
 
     /// <summary>
@@ -88,6 +94,19 @@ public class AccountController : Controller
     [HttpGet("/account/external-login")]
     public IActionResult ExternalLogin(string provider, string? returnUrl = "/")
     {
+        var isConfigured = provider switch
+        {
+            "Microsoft" => _authSettings.IsMicrosoftConfigured,
+            "Google" => _authSettings.IsGoogleConfigured,
+            _ => false
+        };
+
+        if (!isConfigured)
+        {
+            var error = Uri.EscapeDataString($"{provider} authentication is not configured.");
+            return Redirect($"/account/login?error={error}");
+        }
+
         var properties = new AuthenticationProperties
         {
             RedirectUri = Url.Action("ExternalLoginCallback", new { returnUrl }),

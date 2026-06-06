@@ -17,6 +17,7 @@
 @inject IJSRuntime JSRuntime
 @inject AuthenticationSettingsService AuthenticationSettingsService
 @inject AuthenticationSettings AuthSettings
+@inject ExternalAuthOptionsStore ExternalAuthStore
 @attribute [Authorize]
 
 <PageTitle>Administration</PageTitle>
@@ -874,11 +875,16 @@
             };
             await AuthenticationSettingsService.SaveGoogleConfigAsync(googleConfig);
 
+            // Update in-memory external auth options so the next challenge uses
+            // the latest credentials without requiring an app restart.
+            ExternalAuthStore.UpdateMicrosoft(microsoftConfig);
+            ExternalAuthStore.UpdateGoogle(googleConfig);
+
             // Update the singleton immediately so login page buttons reflect the change
             AuthSettings.Refresh(microsoftConfig.IsFullyConfigured, googleConfig.IsFullyConfigured);
 
             NotificationService.Notify(NotificationSeverity.Success, "Success",
-                "Authentication settings saved. Changes to Client ID or Secret require an application restart.");
+                "Authentication settings saved. External login changes apply immediately.");
         }
         catch (Exception ex)
         {
