@@ -484,9 +484,22 @@
                         </RadzenCard>
 
                         <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
-                            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
-                                Changes to Client ID or Client Secret require an application restart to take effect. Toggling the Enabled switch takes effect immediately for the login page buttons.
-                            </RadzenText>
+<RadzenStack Gap="0.75rem">
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; font-weight: 600;">
+        <RadzenIcon Icon="restart_alt" Style="font-size: 1rem; vertical-align: middle; margin-right: 0.25rem;" />
+        Application restart required
+    </RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+        Changes to Client ID or Client Secret require an application restart to take effect.
+        Toggling the Enabled switch updates the login page buttons immediately, but the
+        underlying OAuth handler is only registered at startup.
+    </RadzenText>
+    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: #92400e;">
+        <strong>Local development:</strong> Stop and restart the application from Visual Studio (Ctrl+F5 or the restart button).<br />
+        <strong>Azure Container Apps / App Service:</strong> Restart the container or app service from the Azure Portal.<br />
+        <strong>Docker / Kubernetes:</strong> Restart the container (<code>docker restart</code>) or roll the deployment.
+    </RadzenText>
+</RadzenStack>
                         </RadzenAlert>
 
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">

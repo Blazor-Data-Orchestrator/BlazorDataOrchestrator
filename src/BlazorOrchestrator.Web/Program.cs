@@ -242,7 +242,6 @@ try
     var authSettingsService = startupScope.ServiceProvider.GetRequiredService<AuthenticationSettingsService>();
     var externalAuthStore = startupScope.ServiceProvider.GetRequiredService<ExternalAuthOptionsStore>();
     var startupAuthSettings = startupScope.ServiceProvider.GetRequiredService<AuthenticationSettings>();
-
     var microsoftConfig = await authSettingsService.GetMicrosoftConfigAsync();
     var googleConfig = await authSettingsService.GetGoogleConfigAsync();
 
