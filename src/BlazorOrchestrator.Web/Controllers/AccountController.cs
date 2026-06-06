@@ -20,12 +20,18 @@ public class AccountController : Controller
     private readonly AuthService _authService;
     private readonly ExternalLoginService _externalLoginService;
     private readonly ApplicationDbContext _dbContext;
+    private readonly AuthenticationSettings _authSettings;
 
-    public AccountController(AuthService authService, ExternalLoginService externalLoginService, ApplicationDbContext dbContext)
+    public AccountController(
+        AuthService authService,
+        ExternalLoginService externalLoginService,
+        ApplicationDbContext dbContext,
+        AuthenticationSettings authSettings)
     {
         _authService = authService;
         _externalLoginService = externalLoginService;
         _dbContext = dbContext;
+        _authSettings = authSettings;
     }
 
     /// <summary>
@@ -88,6 +94,25 @@ public class AccountController : Controller
     [HttpGet("/account/external-login")]
     public IActionResult ExternalLogin(string provider, string? returnUrl = "/")
     {
+        if (!string.Equals(provider, "Microsoft", StringComparison.Ordinal)
+            && !string.Equals(provider, "Google", StringComparison.Ordinal))
+        {
+            return Redirect("/account/login?error=Unsupported+authentication+provider");
+        }
+
+        var isConfigured = provider switch
+        {
+            "Microsoft" => _authSettings.IsMicrosoftConfigured,
+            "Google" => _authSettings.IsGoogleConfigured,
+            _ => false
+        };
+
+        if (!isConfigured)
+        {
+            var error = Uri.EscapeDataString($"{provider} authentication is not configured.");
+            return Redirect($"/account/login?error={error}");
+        }
+
         var properties = new AuthenticationProperties
         {
             RedirectUri = Url.Action("ExternalLoginCallback", new { returnUrl }),
@@ -117,11 +142,16 @@ public class AccountController : Controller
         var email = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value
                     ?? externalClaims.FirstOrDefault(c => c.Type == "preferred_username")?.Value;
         var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
-        var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : "Unknown";
+        var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : null;
 
         if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email))
         {
             return Redirect("/account/login?error=Could+not+retrieve+email+from+external+provider");
+        }
+
+        if (string.IsNullOrEmpty(provider))
+        {
+            return Redirect("/account/login?error=External+authentication+provider+was+not+supplied");
         }
 
         // Find or link the user
