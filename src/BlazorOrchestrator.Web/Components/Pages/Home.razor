@@ -243,8 +243,9 @@ else
     // ********************************
     // INSTALLER/UPGRADE CONFIGURATION (START)
     // ********************************
-    // Current Application Version - should match the format in GitHub SQLVersion file
-    private const string CurrentVersion = "1.0";
+    // Current Application Version - single source of truth in BlazorDataOrchestrator.Core.
+    // Should match the format in the GitHub SQLVersion file and the !SQL script filenames.
+    private const string CurrentVersion = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
     // GitHub URL for the latest version
     private const string GitHubVersionUrl = "https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion";
     // ********************************

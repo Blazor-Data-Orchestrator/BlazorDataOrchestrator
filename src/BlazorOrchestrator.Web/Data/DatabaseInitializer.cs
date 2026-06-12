@@ -102,14 +102,25 @@ public static class DatabaseInitializer
             logger.LogInformation(successMsg);
             onProgress?.Invoke($"✅ {successMsg}");
 
-            // Write initial SchemaVersion to Azure Table Storage
+            // Seed the initial SchemaVersion to Azure Table Storage.
+            // EnsureDatabaseAsync runs on every startup (the baseline script is idempotent),
+            // so only write the row when it does not already exist — otherwise we would
+            // overwrite a higher version set by the upgrade wizard and re-trigger upgrades.
             if (settingsService != null && !string.IsNullOrEmpty(currentVersion))
             {
                 try
                 {
-                    onProgress?.Invoke($"📝 Setting SchemaVersion to {currentVersion}...");
-                    await settingsService.SetAsync("SchemaVersion", currentVersion, "Database schema version tracking");
-                    onProgress?.Invoke($"✅ SchemaVersion set to {currentVersion}.");
+                    var existingVersion = await settingsService.GetAsync("SchemaVersion");
+                    if (string.IsNullOrEmpty(existingVersion))
+                    {
+                        onProgress?.Invoke($"📝 Setting SchemaVersion to {currentVersion}...");
+                        await settingsService.SetAsync("SchemaVersion", currentVersion, "Database schema version tracking");
+                        onProgress?.Invoke($"✅ SchemaVersion set to {currentVersion}.");
+                    }
+                    else
+                    {
+                        onProgress?.Invoke($"ℹ️ SchemaVersion already set to {existingVersion}; leaving unchanged.");
+                    }
                 }
                 catch (Exception ex)
                 {

@@ -303,7 +303,15 @@ public class BackgroundInitializer : BackgroundService
         {
             // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-            await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+
+            // Resolve SettingsService so the baseline SchemaVersion row is seeded on first
+            // install. Without this, the SchemaVersion row is never written on the automatic
+            // startup path and Home.razor falls back to the code version default.
+            using (var initScope = _sp.CreateScope())
+            {
+                var settingsService = initScope.ServiceProvider.GetRequiredService<SettingsService>();
+                await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger, settingsService: settingsService, currentVersion: ApplicationVersion.Current);
+            }
 
             // Ensure the Admin role exists and that at least one enabled user is assigned to it.
             // Bootstraps the new Allowed Users administration screen.

@@ -12,10 +12,10 @@
     public EventCallback OnUpgradeComplete { get; set; }
 
     [Parameter]
-    public string CurrentCodeVersion { get; set; } = "1.0";
+    public string CurrentCodeVersion { get; set; } = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
 
     [Parameter]
-    public string DatabaseVersion { get; set; } = "1.0";
+    public string DatabaseVersion { get; set; } = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
 
     public string Stage { get; set; } = "login";
     public List<string> Logs = new();

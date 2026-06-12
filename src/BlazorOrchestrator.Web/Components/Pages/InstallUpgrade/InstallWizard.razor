@@ -261,7 +261,7 @@
                     await DatabaseInitializer.EnsureDatabaseAsync(Configuration, logger, (msg) =>
                     {
                         AddLog(msg);
-                    }, SettingsService, "1.0");
+                    }, SettingsService, BlazorDataOrchestrator.Core.ApplicationVersion.Current);
                 }
                 catch (Exception ex)
                 {
