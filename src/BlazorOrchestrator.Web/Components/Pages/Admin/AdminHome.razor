@@ -273,18 +273,28 @@
 
                                 <RadzenStack Gap="0.5rem">
                                     <RadzenLabel Text="@GetModelLabel()" Component="AIModel" Style="font-weight: 600;" />
-                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-                                        <RadzenDropDown Data="@AvailableModels" @bind-Value="@AIModel" 
-                                                        Style="width: 100%; max-width: 350px;"
-                                                        Name="AIModel"
-                                                        AllowFiltering="true" 
-                                                        FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
-                                                        AllowClear="true"
-                                                        Placeholder="@GetModelPlaceholder()" />
-                                        <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
-                                                      Click="@RefreshModelsFromApi" IsBusy="@IsLoadingModels"
-                                                      title="Refresh models from API" />
-                                    </RadzenStack>
+                                    @if (AIServiceType == "Azure OpenAI")
+                                    {
+                                        <RadzenTextBox @bind-Value="@AIModel"
+                                                       Style="width: 100%; max-width: 400px;"
+                                                       Name="AIModel"
+                                                       Placeholder="@GetModelPlaceholder()" />
+                                    }
+                                    else
+                                    {
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                            <RadzenDropDown Data="@AvailableModels" @bind-Value="@AIModel" 
+                                                            Style="width: 100%; max-width: 350px;"
+                                                            Name="AIModel"
+                                                            AllowFiltering="true" 
+                                                            FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                                                            AllowClear="true"
+                                                            Placeholder="@GetModelPlaceholder()" />
+                                            <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" 
+                                                          Click="@RefreshModelsFromApi" IsBusy="@IsLoadingModels"
+                                                          title="Refresh models from API" />
+                                        </RadzenStack>
+                                    }
                                     <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
                                         @GetModelHelpText()
                                         @if (IsLoadingModels)
