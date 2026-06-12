@@ -99,7 +99,9 @@ Keep responses concise and focused on the code task at hand.
             _cachedSettings.AIServiceType == settings.AIServiceType &&
             _cachedSettings.ApiKey == settings.ApiKey &&
             _cachedSettings.AIModel == settings.AIModel &&
-            _cachedSettings.Endpoint == settings.Endpoint)
+            _cachedSettings.Endpoint == settings.Endpoint &&
+            _cachedSettings.ApiVersion == settings.ApiVersion &&
+            _cachedSettings.DeploymentPath == settings.DeploymentPath)
         {
             return _chatClient;
         }
@@ -114,26 +116,7 @@ Keep responses concise and focused on the code task at hand.
 
         try
         {
-            if (settings.AIServiceType == "Azure OpenAI")
-            {
-                var azureClient = new AzureOpenAIClient(
-                    new Uri(settings.Endpoint),
-                    new ApiKeyCredential(settings.ApiKey));
-                _chatClient = azureClient.GetChatClient(settings.AIModel).AsIChatClient();
-            }
-            else if (settings.AIServiceType == "Anthropic")
-            {
-                _chatClient = new AnthropicChatClientAdapter(settings.ApiKey, settings.AIModel);
-            }
-            else if (settings.AIServiceType == "Google AI")
-            {
-                _chatClient = new GoogleAIChatClientAdapter(settings.ApiKey, settings.AIModel);
-            }
-            else // OpenAI
-            {
-                var openAIClient = new OpenAIClient(new ApiKeyCredential(settings.ApiKey));
-                _chatClient = openAIClient.GetChatClient(settings.AIModel).AsIChatClient();
-            }
+            _chatClient = ChatClientFactory.Create(settings);
         }
         catch (Exception)
         {

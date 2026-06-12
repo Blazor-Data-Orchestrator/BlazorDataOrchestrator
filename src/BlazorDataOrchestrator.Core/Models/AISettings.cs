@@ -12,5 +12,12 @@ public class AISettings
     public string ApiVersion { get; set; } = "";
     public string EmbeddingModel { get; set; } = "";
 
+    /// <summary>
+    /// Optional explicit Azure OpenAI deployment path.
+    /// Example: "openai/deployments/my-gpt4o" or a full custom route.
+    /// When empty, the SDK default convention is used.
+    /// </summary>
+    public string DeploymentPath { get; set; } = "";
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 }

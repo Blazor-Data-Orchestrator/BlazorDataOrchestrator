@@ -3,6 +3,7 @@
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using BlazorDataOrchestrator.Core.Services
 @using BlazorDataOrchestrator.Core.Models
+@using Microsoft.Extensions.AI
 @using OpenAI
 @using Azure.AI.OpenAI
 @using System.ClientModel
@@ -31,6 +32,11 @@
     {
         <RadzenFormField Text="Azure OpenAI Model Deployment Name:" Variant="Variant.Outlined">
             <RadzenTextBox @bind-Value="@aiModel" Style="width: 100%;" />
+        </RadzenFormField>
+
+        <RadzenFormField Text="Azure OpenAI Deployment Path (optional):" Variant="Variant.Outlined">
+            <RadzenTextBox @bind-Value="@deploymentPath" Style="width: 100%;"
+                           Placeholder="openai/deployments/my-deployment" />
         </RadzenFormField>
 
         <RadzenFormField Text="Azure OpenAI Embedding Model Deployment Name:" Variant="Variant.Outlined">
@@ -81,6 +87,7 @@
     private string endpoint = "";
     private string apiVersion = "";
     private string embeddingModel = "";
+    private string deploymentPath = "";
     private bool isSettingsEntered = false;
 
     private List<string> serviceTypes = new() { "OpenAI", "Azure OpenAI" };
@@ -96,6 +103,7 @@
             endpoint = settings.Endpoint;
             apiVersion = settings.ApiVersion;
             embeddingModel = settings.EmbeddingModel;
+            deploymentPath = settings.DeploymentPath;
 
             isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
         }
@@ -176,11 +184,25 @@
             {
                 if (aiServiceType == "Azure OpenAI")
                 {
-                    var azureClient = new AzureOpenAIClient(
-                        new Uri(endpoint),
-                        new ApiKeyCredential(apiKey));
-                    var chatClient = azureClient.GetChatClient(aiModel);
-                    await chatClient.CompleteChatAsync("Hello");
+                    // Build a settings instance so the test honors the deployment path and API version.
+                    var testSettings = new AISettings
+                    {
+                        AIServiceType = aiServiceType,
+                        ApiKey = apiKey,
+                        AIModel = aiModel,
+                        Endpoint = endpoint,
+                        ApiVersion = apiVersion,
+                        EmbeddingModel = embeddingModel,
+                        DeploymentPath = deploymentPath
+                    };
+
+                    var testClient = ChatClientFactory.Create(testSettings);
+                    if (testClient == null)
+                    {
+                        throw new InvalidOperationException("Unable to create Azure OpenAI client from the provided settings.");
+                    }
+
+                    await testClient.GetResponseAsync("Hello");
                 }
                 else
                 {
@@ -208,7 +230,8 @@
                 AIModel = aiModel,
                 Endpoint = endpoint,
                 ApiVersion = apiVersion,
-                EmbeddingModel = embeddingModel
+                EmbeddingModel = embeddingModel,
+                DeploymentPath = deploymentPath
             };
 
             await SettingsService.SaveSettingsAsync(settings);

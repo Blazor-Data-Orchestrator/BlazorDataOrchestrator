@@ -40,7 +40,8 @@ public class AISettingsService
                     AIModel = response.Value.AIModel ?? "gpt-4-turbo-preview",
                     Endpoint = response.Value.Endpoint ?? "",
                     ApiVersion = response.Value.ApiVersion ?? "",
-                    EmbeddingModel = response.Value.EmbeddingModel ?? ""
+                    EmbeddingModel = response.Value.EmbeddingModel ?? "",
+                    DeploymentPath = response.Value.DeploymentPath ?? ""
                 };
             }
         }
@@ -70,6 +71,7 @@ public class AISettingsService
             Endpoint = settings.Endpoint,
             ApiVersion = settings.ApiVersion,
             EmbeddingModel = settings.EmbeddingModel,
+            DeploymentPath = settings.DeploymentPath,
             Timestamp = DateTimeOffset.UtcNow
         };
 
@@ -111,4 +113,5 @@ public class AISettingsEntity : ITableEntity
     public string? Endpoint { get; set; }
     public string? ApiVersion { get; set; }
     public string? EmbeddingModel { get; set; }
+    public string? DeploymentPath { get; set; }
 }
