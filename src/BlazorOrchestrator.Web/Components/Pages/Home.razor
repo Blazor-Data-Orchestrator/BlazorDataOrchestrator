@@ -6,15 +6,12 @@
 @using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
-@using BlazorOrchestrator.Web.Components.Pages.InstallUpgrade
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
-@using BlazorOrchestrator.Web.Components.Pages.Account
-@attribute [AllowAnonymous]
+@attribute [Authorize]
 @inject IConfiguration Configuration
 @inject IServiceProvider ServiceProvider
-@inject WizardStateService WizardState
 @inject ProjectCreatorService ProjectCreatorService
 @inject JobService JobService
 @inject JobGroupService JobGroupService
@@ -24,54 +21,18 @@
 @inject JobManager JobManager
 @inject TimeDisplayService TimeDisplayService
 @inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
+@inject IJSRuntime JSRuntime
 
-<PageTitle>@(IsInstalling ? "Setup Wizard" : "Dashboard")</PageTitle>
-
-@if (ShouldRedirectToLogin)
-{
-    <RedirectToLogin />
-    return;
-}
+<PageTitle>Dashboard</PageTitle>
 
 @if (IsLoading)
 {
     <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
         <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
             <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
-            <RadzenText TextStyle="TextStyle.Body1">Checking system status...</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body1">Loading dashboard...</RadzenText>
         </RadzenStack>
     </div>
-}
-else if (IsInstalling)
-{
-    @if (!string.IsNullOrEmpty(ErrorMessage))
-    {
-        <div class="alert alert-danger" role="alert" style="margin: 1rem;">
-            <strong>Error:</strong> @ErrorMessage
-        </div>
-    }
-    
-    <div class="alert alert-info" role="alert" style="margin: 1rem;">
-        <strong>Wizard Mode:</strong> @WizardMode
-    </div>
-
-    @if (WizardMode == "INSTALL" || WizardMode == "RUNSCRIPTS" || WizardMode == "CreateAdministrator")
-    {
-        <InstallWizard WizardMode="@WizardMode" OnInstallComplete="OnInstallComplete" />
-    }
-    else if (WizardMode == "UPGRADE")
-    {
-        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" DatabaseVersion="@DatabaseVersion" OnUpgradeComplete="OnUpgradeComplete" />
-    }
-    else
-    {
-        <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
-            <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
-                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
-                <RadzenText TextStyle="TextStyle.Body1">Initializing wizard...</RadzenText>
-            </RadzenStack>
-        </div>
-    }
 }
 else
 {
@@ -209,6 +170,11 @@ else
                                         <RadzenButton Text="Run Now" ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small"
                                                       Style="background-color: #16a34a; color: #fff; border: none;" Click="@(() => RunJobNow(job))" />
                                     }
+                                    @if (job.HasCode)
+                                    {
+                                        <RadzenButton Text="Download" Icon="download" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                                      Style="border-color: #d1d5db; color: #374151;" Click="@(() => DownloadJobPackage(job.Id))" />
+                                    }
                                     <span style="flex: 1;"></span>
                                     <RadzenButton Text="View Logs" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
                                                   Style="color: #6b7280; font-weight: 400; text-decoration: none;" Click="@(() => OpenLogsDialog(job.Id, job.Name))" />
@@ -241,12 +207,9 @@ else
 
 @code {
     // ********************************
-    // INSTALLER/UPGRADE CONFIGURATION (START)
+    // VERSION CONFIGURATION
     // ********************************
-    // Current Application Version - single source of truth in BlazorDataOrchestrator.Core.
-    // Should match the format in the GitHub SQLVersion file and the !SQL script filenames.
     private const string CurrentVersion = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
-    // GitHub URL for the latest version
     private const string GitHubVersionUrl = "https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion";
     // ********************************
 
@@ -254,12 +217,7 @@ else
 
     private bool IsLoading { get; set; } = true;
     private bool isLoading { get; set; } = true;
-    private bool IsInstalling { get; set; } = true;
-    private bool ShouldRedirectToLogin { get; set; }
-    private string WizardMode { get; set; } = "";
-    private string ErrorMessage { get; set; } = "";
     private string GitHubVersion { get; set; } = "";
-    private string DatabaseVersion { get; set; } = "";
     private bool ShowUpdateBanner { get; set; }
     private bool BannerDismissed { get; set; }
 
@@ -269,217 +227,18 @@ else
     private List<FilterOption> JobGroupFilterOptions { get; set; } = new();
     private int? selectedJobGroupId = null;
 
-    [CascadingParameter]
-    private Task<AuthenticationState>? AuthStateTask { get; set; }
-
     protected override async Task OnInitializedAsync()
     {
-        await CheckSystemStatus();
+        IsLoading = false;
 
-        if (!IsInstalling)
+        _ = InvokeAsync(async () =>
         {
-            // Redirect unauthenticated users to login when not in install/wizard mode.
-            // IsLoading is still true here to prevent the dashboard from flashing.
-            if (AuthStateTask != null)
-            {
-                var authState = await AuthStateTask;
-                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
-                {
-                    // Set flag to render RedirectToLogin declaratively.
-                    // This avoids the NavigationException thrown by imperative
-                    // NavigateTo calls during server-side prerendering.
-                    ShouldRedirectToLogin = true;
-                    IsLoading = false;
-                    return;
-                }
-            }
-
-            // Auth check passed — safe to show the dashboard
-            IsLoading = false;
-
-            // Load dashboard data and check for GitHub updates in the background
-            _ = InvokeAsync(async () =>
-            {
-                await LoadDashboardData();
-                await CheckForGitHubUpdateAsync();
-                StateHasChanged();
-            });
-        }
+            await LoadDashboardData();
+            await CheckForGitHubUpdateAsync();
+            StateHasChanged();
+        });
     }
 
-    private async Task CheckSystemStatus()
-    {
-        IsLoading = true;
-        ErrorMessage = string.Empty;
-
-        try
-        {
-            // Check if database can connect
-            if (!await CanConnectToDatabase())
-            {
-                WizardMode = "INSTALL";
-                IsInstalling = true;
-                IsLoading = false;
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Database connection error: {ex.Message}";
-            WizardMode = "INSTALL";
-            IsInstalling = true;
-            IsLoading = false;
-            return;
-        }
-
-        // Check if database tables exist
-        try
-        {
-            if (!await IsDatabaseSetUpAsync())
-            {
-                WizardMode = "RUNSCRIPTS";
-                IsInstalling = true;
-                IsLoading = false;
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Database setup check error: {ex.Message}";
-            WizardMode = "RUNSCRIPTS";
-            IsInstalling = true;
-            IsLoading = false;
-            return;
-        }
-
-        // Check if admin user exists
-        try
-        {
-            if (!await AdminExistsAsync())
-            {
-                WizardMode = "CreateAdministrator";
-                IsInstalling = true;
-                IsLoading = false;
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Admin check error: {ex.Message}";
-            WizardMode = "CreateAdministrator";
-            IsInstalling = true;
-            IsLoading = false;
-            return;
-        }
-
-        // Check if code version is ahead of DB version (needs migration)
-        try
-        {
-            if (await IsCodeAheadOfDatabaseAsync())
-            {
-                WizardMode = "UPGRADE";
-                IsInstalling = true;
-                IsLoading = false;
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Version check error: {ex.Message}";
-            // On error reading DB version, don't block — continue to dashboard
-            IsInstalling = false;
-            IsLoading = false;
-            return;
-        }
-
-        // All checks passed - will show the dashboard after auth check
-        IsInstalling = false;
-        // Keep IsLoading = true here; OnInitializedAsync sets it to false after auth check
-        // to prevent the dashboard from flashing before the redirect to login.
-    }
-
-    /// <summary>
-    /// Timeout for database operations during system status checks.
-    /// Prevents the page from hanging indefinitely if the DB is unreachable.
-    /// </summary>
-    private static readonly TimeSpan DbCheckTimeout = TimeSpan.FromSeconds(15);
-
-    private async Task<bool> CanConnectToDatabase()
-    {
-        using var cts = new CancellationTokenSource(DbCheckTimeout);
-        using var scope = ServiceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        return await context.Database.CanConnectAsync(cts.Token);
-    }
-
-    private async Task<bool> IsDatabaseSetUpAsync()
-    {
-        try
-        {
-            using var cts = new CancellationTokenSource(DbCheckTimeout);
-            using var scope = ServiceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            
-            // Check if essential tables exist by trying to query them
-            // If tables don't exist, this will throw an exception
-            _ = await context.AspNetUsers.AsNoTracking().FirstOrDefaultAsync(cts.Token);
-            return true;
-        }
-        catch
-        {
-            // Tables don't exist or DB timeout
-            return false;
-        }
-    }
-
-    private async Task<bool> AdminExistsAsync()
-    {
-        try
-        {
-            using var cts = new CancellationTokenSource(DbCheckTimeout);
-            using var scope = ServiceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            // Check if any user exists with SuperAdmin role
-            // For now, just check if any user exists
-            var userExists = await context.AspNetUsers.AsNoTracking().AnyAsync(cts.Token);
-            return userExists;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if the compiled code version is ahead of the database schema version.
-    /// If so, migration scripts need to run (blocking upgrade wizard).
-    /// </summary>
-    private async Task<bool> IsCodeAheadOfDatabaseAsync()
-    {
-        try
-        {
-            DatabaseVersion = await SettingsService.GetOrDefaultAsync("SchemaVersion", CurrentVersion);
-
-            if (ConvertVersionToInteger(CurrentVersion) > ConvertVersionToInteger(DatabaseVersion))
-            {
-                return true;
-            }
-
-            return false;
-        }
-        catch
-        {
-            // If we can't read the DB version, assume it matches code version
-            DatabaseVersion = CurrentVersion;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Non-blocking background check: fetches the GitHub version to show an advisory banner.
-    /// This does NOT trigger the upgrade wizard.
-    /// </summary>
     private async Task CheckForGitHubUpdateAsync()
     {
         try
@@ -495,7 +254,6 @@ else
         }
         catch
         {
-            // Can't reach GitHub — no banner
             GitHubVersion = CurrentVersion;
         }
     }
@@ -506,9 +264,6 @@ else
         ShowUpdateBanner = false;
     }
 
-    /// <summary>
-    /// Converts a version string like "01.00.00" to an integer for comparison
-    /// </summary>
     private int ConvertVersionToInteger(string version)
     {
         if (string.IsNullOrEmpty(version)) return 0;
@@ -533,73 +288,6 @@ else
         await LoadJobGroupsAsync();
         await LoadJobsAsync();
     }
-
-    private async Task OnInstallComplete()
-    {
-        // Reset wizard state
-        WizardState.SetInstalling(false);
-        WizardState.SetStep(1);
-        // Re-check system status after installation
-        await CheckSystemStatus();
-
-        if (!IsInstalling && !IsLoading)
-        {
-            // Redirect unauthenticated users to login when not in install/wizard mode
-            if (AuthStateTask != null)
-            {
-                var authState = await AuthStateTask;
-                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
-                {
-                    ShouldRedirectToLogin = true;
-                    StateHasChanged();
-                    return;
-                }
-            }
-
-            // Load dashboard data in the background so the UI becomes interactive immediately
-            _ = InvokeAsync(async () =>
-            {
-                await LoadDashboardData();
-                await CheckForGitHubUpdateAsync();
-                StateHasChanged();
-            });
-        }
-    }
-
-    private async Task OnUpgradeComplete()
-    {
-        // Reset wizard state
-        WizardState.SetUpgrading(false);
-        // Re-check system status after upgrade
-        await CheckSystemStatus();
-
-        if (!IsInstalling && !IsLoading)
-        {
-            // Redirect unauthenticated users to login when not in install/wizard mode
-            if (AuthStateTask != null)
-            {
-                var authState = await AuthStateTask;
-                if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
-                {
-                    ShouldRedirectToLogin = true;
-                    StateHasChanged();
-                    return;
-                }
-            }
-
-            // Load dashboard data in the background so the UI becomes interactive immediately
-            _ = InvokeAsync(async () =>
-            {
-                await LoadDashboardData();
-                await CheckForGitHubUpdateAsync();
-                StateHasChanged();
-            });
-        }
-    }
-
-    // ********************************
-    // INSTALLER/UPGRADE CONFIGURATION (STOP)
-    // ********************************
 
     private async Task LoadJobGroupsAsync()
     {
@@ -637,6 +325,7 @@ else
                     IsEnabled = j.JobEnabled,
                     IsQueued = j.JobQueued,
                     HasError = j.JobInError,
+                    HasCode = !string.IsNullOrEmpty(j.JobCodeFile),
                     LastRun = GetLastRunDisplay(j),
                     NextRun = GetNextRunDisplay(j),
                     JobGroups = jobGroups.Select(g => g.JobGroupName ?? "Unnamed").ToList(),
@@ -869,6 +558,7 @@ else
         public bool IsEnabled { get; set; }
         public bool IsQueued { get; set; }
         public bool HasError { get; set; }
+        public bool HasCode { get; set; }
         public string LastRun { get; set; } = string.Empty;
         public string NextRun { get; set; } = string.Empty;
         public List<string> JobGroups { get; set; } = new();
@@ -1245,6 +935,19 @@ else
         </RadzenStack>,
         new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
         );
+    }
+
+    private async Task DownloadJobPackage(int jobId)
+    {
+        try
+        {
+            var downloadUrl = $"/api/job-package/{jobId}/download";
+            await JSRuntime.InvokeVoidAsync("open", downloadUrl, "_blank");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to download package: {ex.Message}");
+        }
     }
 
     private async Task RunJobNow(JobViewModel job)

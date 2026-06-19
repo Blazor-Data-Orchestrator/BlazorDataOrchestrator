@@ -52,9 +52,17 @@ public class JobPackageController : ControllerBase
                 return NotFound(new { error = "Package not found in storage" });
             }
 
-            _logger.LogInformation("Successfully retrieved package for job: {JobId}, FileName: {FileName}", jobId, fileName);
+            // Build a friendly download filename: JobName_yyyyMMdd_HHmmss.nupkg
+            var job = await _jobManager.GetJobAsync(jobId);
+            var jobName = job?.JobName ?? $"Job{jobId}";
+            // Sanitize the job name for use as a filename
+            var invalidChars = Path.GetInvalidFileNameChars();
+            var safeName = string.Concat(jobName.Select(c => invalidChars.Contains(c) ? '_' : c));
+            var downloadFileName = $"{safeName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.nupkg";
+
+            _logger.LogInformation("Successfully retrieved package for job: {JobId}, FileName: {FileName}", jobId, downloadFileName);
             
-            return File(packageStream, "application/octet-stream", fileName);
+            return File(packageStream, "application/octet-stream", downloadFileName);
         }
         catch (Exception ex)
         {

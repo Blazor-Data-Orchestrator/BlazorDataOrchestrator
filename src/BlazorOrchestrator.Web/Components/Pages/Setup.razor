@@ -1,0 +1,265 @@
+@page "/setup"
+@using Radzen
+@using Radzen.Blazor
+@using BlazorDataOrchestrator.Core
+@using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Data
+@using BlazorOrchestrator.Web.Data.Data
+@using BlazorOrchestrator.Web.Components.Pages.InstallUpgrade
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [AllowAnonymous]
+@layout Components.Layout.LoginLayout
+@inject IConfiguration Configuration
+@inject IServiceProvider ServiceProvider
+@inject WizardStateService WizardState
+@inject NavigationManager NavigationManager
+@inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
+
+<PageTitle>Setup Wizard</PageTitle>
+
+@if (IsLoading)
+{
+    <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+        <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+            <RadzenText TextStyle="TextStyle.Body1">Checking system status...</RadzenText>
+        </RadzenStack>
+    </div>
+}
+else if (IsConfigured)
+{
+    <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+        <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #16a34a;" />
+            <RadzenText TextStyle="TextStyle.H5">System is already configured</RadzenText>
+            <RadzenButton Text="Go to Dashboard" Icon="home" ButtonStyle="ButtonStyle.Primary" Click="@(() => NavigationManager.NavigateTo("/", forceLoad: true))" />
+        </RadzenStack>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert" style="margin: 1rem;">
+            <strong>Error:</strong> @ErrorMessage
+        </div>
+    }
+
+    <div class="alert alert-info" role="alert" style="margin: 1rem;">
+        <strong>Wizard Mode:</strong> @WizardMode
+    </div>
+
+    @if (WizardMode == "INSTALL" || WizardMode == "RUNSCRIPTS" || WizardMode == "CreateAdministrator")
+    {
+        <InstallWizard WizardMode="@WizardMode" OnInstallComplete="OnInstallComplete" />
+    }
+    else if (WizardMode == "UPGRADE")
+    {
+        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" DatabaseVersion="@DatabaseVersion" OnUpgradeComplete="OnUpgradeComplete" />
+    }
+    else
+    {
+        <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.Body1">Initializing wizard...</RadzenText>
+            </RadzenStack>
+        </div>
+    }
+}
+
+@code {
+    private const string CurrentVersion = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
+
+    private bool IsLoading { get; set; } = true;
+    private bool IsConfigured { get; set; }
+    private string WizardMode { get; set; } = "";
+    private string ErrorMessage { get; set; } = "";
+    private string DatabaseVersion { get; set; } = "";
+
+    private static readonly TimeSpan DbCheckTimeout = TimeSpan.FromSeconds(15);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckSystemStatus();
+    }
+
+    private async Task CheckSystemStatus()
+    {
+        IsLoading = true;
+        ErrorMessage = string.Empty;
+
+        try
+        {
+            if (!await CanConnectToDatabase())
+            {
+                WizardMode = "INSTALL";
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Database connection error: {ex.Message}";
+            WizardMode = "INSTALL";
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            if (!await IsDatabaseSetUpAsync())
+            {
+                WizardMode = "RUNSCRIPTS";
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Database setup check error: {ex.Message}";
+            WizardMode = "RUNSCRIPTS";
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            if (!await AdminExistsAsync())
+            {
+                WizardMode = "CreateAdministrator";
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Admin check error: {ex.Message}";
+            WizardMode = "CreateAdministrator";
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            if (await IsCodeAheadOfDatabaseAsync())
+            {
+                WizardMode = "UPGRADE";
+                IsLoading = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Version check error: {ex.Message}";
+            IsLoading = false;
+            IsConfigured = true;
+            return;
+        }
+
+        // System is fully configured
+        IsConfigured = true;
+        IsLoading = false;
+    }
+
+    private async Task<bool> CanConnectToDatabase()
+    {
+        using var cts = new CancellationTokenSource(DbCheckTimeout);
+        using var scope = ServiceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return await context.Database.CanConnectAsync(cts.Token);
+    }
+
+    private async Task<bool> IsDatabaseSetUpAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(DbCheckTimeout);
+            using var scope = ServiceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            _ = await context.AspNetUsers.AsNoTracking().FirstOrDefaultAsync(cts.Token);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> AdminExistsAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(DbCheckTimeout);
+            using var scope = ServiceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            return await context.AspNetUsers.AsNoTracking().AnyAsync(cts.Token);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> IsCodeAheadOfDatabaseAsync()
+    {
+        try
+        {
+            DatabaseVersion = await SettingsService.GetOrDefaultAsync("SchemaVersion", CurrentVersion);
+            if (ConvertVersionToInteger(CurrentVersion) > ConvertVersionToInteger(DatabaseVersion))
+                return true;
+            return false;
+        }
+        catch
+        {
+            DatabaseVersion = CurrentVersion;
+            return false;
+        }
+    }
+
+    private int ConvertVersionToInteger(string version)
+    {
+        if (string.IsNullOrEmpty(version)) return 0;
+        int versionNumber = 0;
+        var segments = version.Split('.');
+        var multipliers = new List<int> { 10000, 100, 1 };
+        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
+        {
+            if (int.TryParse(segments[i], out int segment))
+                versionNumber += segment * multipliers[i];
+        }
+        return versionNumber;
+    }
+
+    private async Task OnInstallComplete()
+    {
+        WizardState.SetInstalling(false);
+        WizardState.SetStep(1);
+
+        // Reset the cached system status so middleware re-evaluates
+        var systemStatus = ServiceProvider.GetService<ISystemStatusService>();
+        systemStatus?.Reset();
+
+        await CheckSystemStatus();
+        if (IsConfigured)
+        {
+            NavigationManager.NavigateTo("/account/login", forceLoad: true);
+        }
+    }
+
+    private async Task OnUpgradeComplete()
+    {
+        WizardState.SetUpgrading(false);
+
+        // Reset the cached system status so middleware re-evaluates
+        var systemStatus = ServiceProvider.GetService<ISystemStatusService>();
+        systemStatus?.Reset();
+
+        await CheckSystemStatus();
+        if (IsConfigured)
+        {
+            NavigationManager.NavigateTo("/account/login", forceLoad: true);
+        }
+    }
+}

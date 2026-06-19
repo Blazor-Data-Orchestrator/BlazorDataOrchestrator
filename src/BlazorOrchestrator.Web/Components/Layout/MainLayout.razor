@@ -6,16 +6,16 @@
 @inject BlazorOrchestrator.Web.Services.AuthService AuthService
 @inject Radzen.NotificationService NotificationService
 <RadzenComponents @rendermode="InteractiveServer" />
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<AuthorizeView>
+    <Authorized>
+        <div class="page">
+            <div class="sidebar">
+                <NavMenu />
+            </div>
 
-    <main>
-        <div class="top-row px-4">
-            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Style="margin-left: auto;">
-                <AuthorizeView>
-                    <Authorized>
+            <main>
+                <div class="top-row px-4">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Style="margin-left: auto;">
                         <RadzenText TextStyle="TextStyle.Body2" Style="color: #6b7280; margin: 0;">@context.User.Identity?.Name</RadzenText>
                         <RadzenButton Icon="lock_reset" ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Text" Size="ButtonSize.Medium"
                                       Title="Change Password" Click="@(() => ShowChangePassword = true)" Style="color: #6b7280;" />
@@ -23,16 +23,19 @@
                         <a href="/account/logout" data-enhance="false" style="text-decoration: none;">
                             <RadzenButton Text="Sign out" Icon="logout" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Flat" Size="ButtonSize.Small" />
                         </a>
-                    </Authorized>
-                </AuthorizeView>
-            </RadzenStack>
-        </div>
+                    </RadzenStack>
+                </div>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+                <article class="content px-4">
+                    @Body
+                </article>
+            </main>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        @Body
+    </NotAuthorized>
+</AuthorizeView>
 
 @if (ShowChangePassword)
 {

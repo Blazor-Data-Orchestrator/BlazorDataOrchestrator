@@ -334,7 +334,7 @@ Content-Type: application/json
                                         </RadzenText>
                                         @if (!string.IsNullOrEmpty(Job.JobCodeFile))
                                         {
-                                            <RadzenButton Icon="download" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                            <RadzenButton Text="Download" Icon="download" ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                           Title="Download Package" Click="@DownloadCodePackage" />
                                         }
                                     </RadzenStack>

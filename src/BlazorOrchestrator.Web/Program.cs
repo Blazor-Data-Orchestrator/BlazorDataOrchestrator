@@ -232,6 +232,8 @@ builder.Services.AddScoped<WebNuGetPackageService>();
 
 builder.Services.AddRadzenComponents();
 
+builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
+
 var app = builder.Build();
 
 // Load initial external-auth settings and prime the dynamic options store.
@@ -265,6 +267,25 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseStaticFiles();
+
+// Redirect to /setup if system is not configured (no DB, no users)
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    if (!path.StartsWithSegments("/setup") &&
+        !path.StartsWithSegments("/account") &&
+        !path.StartsWithSegments("/_blazor") &&
+        !path.StartsWithSegments("/_framework"))
+    {
+        var systemStatus = context.RequestServices.GetRequiredService<ISystemStatusService>();
+        if (!await systemStatus.IsConfiguredAsync())
+        {
+            context.Response.Redirect("/setup");
+            return;
+        }
+    }
+    await next();
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
