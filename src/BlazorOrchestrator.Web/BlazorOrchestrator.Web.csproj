@@ -12,7 +12,7 @@
     <JobTemplateInputs Include="$(MSBuildProjectDirectory)\JobTemplate\JobCreatorTemplate.slnx.template" />
   </ItemGroup>
   <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild" Inputs="@(JobTemplateInputs)" Outputs="$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip">
-    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
   </Target>
 
   <!-- Exclude Mockups folder from compilation - these are reference files only -->
