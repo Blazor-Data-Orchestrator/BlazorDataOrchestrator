@@ -4,7 +4,7 @@ using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.JobCreatorTemplate.Components;
 using BlazorDataOrchestrator.JobCreatorTemplate.Services;
 using Azure.Data.Tables;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Radzen;
 using IAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
 using CopilotChatService = BlazorDataOrchestrator.JobCreatorTemplate.Services.CopilotChatService;
@@ -45,19 +45,10 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             // Register Copilot Client as Singleton (one CLI process for the app)
             builder.Services.AddSingleton<CopilotClient>(sp =>
             {
-                var config = sp.GetRequiredService<IConfiguration>();
-                var cliUrl = config.GetValue<string>("Copilot:CliUrl");
                 var options = new CopilotClientOptions
                 {
-                    AutoStart = true,
-                    AutoRestart = true,
-                    UseStdio = true,
-                    LogLevel = "info"
+                    Mode = CopilotClientMode.CopilotCli
                 };
-                if (!string.IsNullOrEmpty(cliUrl))
-                {
-                    options.CliUrl = cliUrl;
-                }
                 return new CopilotClient(options);
             });
 

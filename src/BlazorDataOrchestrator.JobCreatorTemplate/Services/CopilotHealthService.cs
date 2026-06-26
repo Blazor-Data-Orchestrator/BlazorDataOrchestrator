@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
@@ -23,9 +23,9 @@ public class CopilotHealthService
     }
 
     /// <summary>
-    /// True when the CLI is installed, authenticated, and the CopilotClient is connected.
+    /// True when the CLI is installed, authenticated, and the CopilotClient has started successfully.
     /// </summary>
-    public bool IsReady => _cliInstalled && _startSucceeded && _client.State == ConnectionState.Connected;
+    public bool IsReady => _cliInstalled && _startSucceeded;
 
     /// <summary>
     /// Human-readable status string for the UI.
@@ -294,7 +294,11 @@ public class CopilotHealthService
         // If CLI is installed, try to verify the client connection
         try
         {
-            if (_client.State != ConnectionState.Connected)
+            bool connected;
+            try { await _client.GetStatusAsync(); connected = true; }
+            catch { connected = false; }
+
+            if (!connected)
             {
                 await _client.StartAsync();
             }

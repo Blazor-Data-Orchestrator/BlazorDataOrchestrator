@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="../BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
+  <Project Path="BlazorDataOrchestrator.JobCreatorTemplate.csproj" />
+</Solution>

@@ -1,4 +1,4 @@
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
@@ -52,7 +52,11 @@ public class CopilotModelService
 
         try
         {
-            if (_client.State == ConnectionState.Connected)
+            bool connected;
+            try { await _client.GetStatusAsync(); connected = true; }
+            catch { connected = false; }
+
+            if (connected)
             {
                 var models = await FetchModelsFromSdkAsync();
                 if (models != null && models.Count > 0)

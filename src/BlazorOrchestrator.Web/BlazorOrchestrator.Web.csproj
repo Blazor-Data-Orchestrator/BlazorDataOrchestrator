@@ -9,10 +9,10 @@
   <!-- Auto-package the JobCreatorTemplate zip before build -->
   <ItemGroup>
     <JobTemplateInputs Include="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\**\*.*" Exclude="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\bin\**;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\obj\**" />
-    <JobTemplateInputs Include="$(MSBuildProjectDirectory)\..\..\JobTemplate.slnx" />
+    <JobTemplateInputs Include="$(MSBuildProjectDirectory)\JobTemplate\JobCreatorTemplate.slnx.template" />
   </ItemGroup>
   <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild" Inputs="@(JobTemplateInputs)" Outputs="$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip">
-    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -SlnxFile &quot;$(MSBuildProjectDirectory)\..\..\JobTemplate.slnx&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
   </Target>
 
   <!-- Exclude Mockups folder from compilation - these are reference files only -->
@@ -36,16 +36,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.4.3" />
-    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.4.3" />
-    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.4.3" />
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.4.3" />
-    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.4.3" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.0" />
+    <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.4.6" />
+    <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.4.6" />
+    <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.4.6" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.4.6" />
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.4.6" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.1" />
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient.Extensions.Azure" Version="1.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient.Extensions.Azure" Version="7.0.2" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
     <PackageReference Include="Radzen.Blazor" Version="*" />
     <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />

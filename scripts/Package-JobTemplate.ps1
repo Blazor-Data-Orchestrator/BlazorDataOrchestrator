@@ -3,20 +3,15 @@
     Packages the JobCreatorTemplate project into a zip for distribution.
 .DESCRIPTION
     Copies the JobCreatorTemplate source, removes build artifacts and user-specific files,
-    includes the JobTemplate.slnx, and produces a zip ready for the Web project.
+    includes the JobCreatorTemplate.slnx (from the .slnx.template), and produces a zip ready for the Web project.
 .PARAMETER SourceDir
     Path to the BlazorDataOrchestrator.JobCreatorTemplate project directory.
-.PARAMETER SlnxFile
-    Path to the JobTemplate.slnx file.
 .PARAMETER OutputZip
     Full path for the output .zip file.
 #>
 param(
     [Parameter(Mandatory)]
     [string]$SourceDir,
-
-    [Parameter(Mandatory)]
-    [string]$SlnxFile,
 
     [Parameter(Mandatory)]
     [string]$OutputZip
@@ -64,9 +59,12 @@ try {
             }
     }
 
-    # Copy the .slnx file into the staging root (sibling to the project folder)
-    Copy-Item -Path $SlnxFile -Destination $stagingDir
-    Write-Host "  Included $(Split-Path $SlnxFile -Leaf)"
+    # Copy the .slnx template into the staging root (sibling to the project folder),
+    # renaming it from JobCreatorTemplate.slnx.template to JobCreatorTemplate.slnx
+    $slnxTemplate = Join-Path $PSScriptRoot '..\src\BlazorOrchestrator.Web\JobTemplate\JobCreatorTemplate.slnx.template'
+    $slnxDest = Join-Path $stagingDir 'JobCreatorTemplate.slnx'
+    Copy-Item -Path $slnxTemplate -Destination $slnxDest
+    Write-Host "  Included JobCreatorTemplate.slnx"
 
     # Ensure the output directory exists
     $outputDir = Split-Path $OutputZip -Parent

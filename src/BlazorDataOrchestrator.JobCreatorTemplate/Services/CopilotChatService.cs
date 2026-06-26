@@ -8,10 +8,10 @@ using System.ComponentModel;
 using Radzen.Blazor;
 using BlazorDataOrchestrator.Core.Services;
 using BlazorDataOrchestrator.Core.Models;
-using GitHub.Copilot.SDK;
 using CoreIAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
 using ConversationSession = BlazorDataOrchestrator.Core.Models.ConversationSession;
 using RadzenChatMessage = Radzen.Blazor.ChatMessage;
+using GitHub.Copilot;
 
 namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
@@ -329,7 +329,7 @@ Keep responses concise and focused on the code task at hand.";
                 Mode = SystemMessageMode.Append,
                 Content = systemPrompt
             },
-            Tools = CreateTools(),
+            Tools = CreateTools().Cast<AIFunctionDeclaration>().ToList(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
             OnPermissionRequest = PermissionHandler.ApproveAll
         });
@@ -411,7 +411,11 @@ Keep responses concise and focused on the code task at hand.";
             var fullPrompt = promptBuilder.ToString();
 
             // Ensure the client is started
-            if (_client.State != ConnectionState.Connected)
+            bool clientConnected;
+            try { await _client.GetStatusAsync(); clientConnected = true; }
+            catch { clientConnected = false; }
+
+            if (!clientConnected)
             {
                 try
                 {
@@ -453,7 +457,7 @@ Keep responses concise and focused on the code task at hand.";
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
             // Subscribe to session events
-            using var subscription = copilotSession.On(evt =>
+            using var subscription = copilotSession.On<SessionEvent>(evt =>
             {
                 switch (evt)
                 {
@@ -509,7 +513,7 @@ Keep responses concise and focused on the code task at hand.";
                     "- Set the `GITHUB_TOKEN` environment variable\n" +
                     "- Run `copilot login` from the CLI binary in the app's runtimes folder\n" +
                     "- Run `gh auth login` if GitHub CLI is installed";
-                _logger.LogWarning("Copilot request timed out after 120s. Client state: {State}. This may indicate the Copilot CLI is not authenticated.", _client.State);
+                _logger.LogWarning("Copilot request timed out after 120s. Client runtime port: {Port}. This may indicate the Copilot CLI is not authenticated.", _client.RuntimePort);
                 session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = timeoutMsg });
                 writer.TryWrite(timeoutMsg);
                 return;
