@@ -892,6 +892,22 @@ else
             if (result.Success)
             {
                 ds.Close(true);
+
+                // Create a corresponding job in the database so it appears on the dashboard
+                try
+                {
+                    var org = await JobService.GetDefaultOrganizationAsync();
+                    if (org != null)
+                    {
+                        await JobService.CreateJobAsync(projectName, org.Id);
+                    }
+                }
+                catch (Exception jobEx)
+                {
+                    NotificationService.Notify(NotificationSeverity.Warning, "Warning", $"Project created but failed to register job: {jobEx.Message}");
+                }
+
+                await LoadJobsAsync();
                 await ShowSuccessDialog(projectName, result.OutputPath!);
             }
             else

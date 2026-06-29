@@ -62,7 +62,8 @@
                                         <RadzenButton Icon="refresh" Text="Refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" title="Reload file from disk" Click="@OnRefreshFile" />
                                         <RadzenButton Icon="save" Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" title="Save file" Click="@OnSaveFile" IsBusy="@isSaving" />
                                         <RadzenSplitButton Click="@OnRunCode" Text="Run" Icon="play_arrow"
-                                                           ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small">
+                                                           ButtonStyle="ButtonStyle.Success" Size="ButtonSize.Small"
+                                                           IsBusy="@isExecuting">
                                             <ChildContent>
                                                 <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
                                                 <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
@@ -195,6 +196,20 @@
                 <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
                 <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Executing Job...</RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait while your code is running</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+
+@* Saving Overlay *@
+@if (isSaving && !isExecuting)
+{
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="20">
+                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
+                <RadzenText TextStyle="TextStyle.H5" Style="margin: 0; color: #333; font-weight: 600;">Saving & Compiling…</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: #666;">Please wait while your code is being saved and validated</RadzenText>
             </RadzenStack>
         </RadzenCard>
     </div>
@@ -533,7 +548,7 @@
 
         var environment = item?.Value?.ToString() ?? "Development";
         logOutput = $"[{DateTime.Now:HH:mm:ss}] Running code in {environment} mode...\n";
-        
+
         isExecuting = true;
         StateHasChanged();
         await Task.Delay(1); // Allow UI to update
@@ -1163,6 +1178,7 @@ except Exception as e:
     {
         isSaving = true;
         if (!_disposed) StateHasChanged();
+        await Task.Delay(1); // Allow UI to render the saving overlay
 
         try
         {
