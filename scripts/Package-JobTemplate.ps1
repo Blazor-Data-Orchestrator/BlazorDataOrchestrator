@@ -26,17 +26,15 @@ $templateDir = Join-Path $stagingDir "BlazorDataOrchestrator.JobCreatorTemplate"
 try {
     Write-Host "Packaging JobCreatorTemplate..."
 
-    # Copy the template project to staging
-    Copy-Item -Path $SourceDir -Destination $templateDir -Recurse
-
-    # Remove directories that should not be shipped
+    # Copy the template project to staging, excluding directories that should not be
+    # shipped. robocopy is used (instead of Copy-Item) because bin/obj can contain
+    # deeply nested node packages whose paths exceed Windows MAX_PATH, which makes a
+    # naive recursive copy fail with DirectoryNotFoundException.
+    New-Item -ItemType Directory -Path $templateDir -Force | Out-Null
     $dirsToRemove = @('bin', 'obj', 'Properties')
-    foreach ($dir in $dirsToRemove) {
-        $target = Join-Path $templateDir $dir
-        if (Test-Path $target) {
-            Remove-Item $target -Recurse -Force
-            Write-Host "  Removed $dir/"
-        }
+    robocopy $SourceDir $templateDir /E /XD $dirsToRemove /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        throw "robocopy failed copying template (exit code $LASTEXITCODE)"
     }
 
     # Remove __pycache__ directories anywhere in the tree
