@@ -59,6 +59,18 @@ try {
             }
     }
 
+    # Patch the ProjectReference in the staged .csproj so it resolves correctly
+    # In the extracted layout the project is one level deeper (inside a subfolder of the output dir),
+    # so the relative path to BlazorDataOrchestrator.Core needs an extra "../"
+    $stagedCsproj = Get-ChildItem -Path $templateDir -Filter '*.csproj' -Recurse | Select-Object -First 1
+    if ($stagedCsproj) {
+        $csprojContent = Get-Content $stagedCsproj.FullName -Raw
+        $csprojContent = $csprojContent -replace 'Include="\.\.\\BlazorDataOrchestrator\.Core\\', 'Include="..\..\BlazorDataOrchestrator.Core\'
+        $csprojContent = $csprojContent -replace 'Include="\.\./BlazorDataOrchestrator\.Core/', 'Include="../../BlazorDataOrchestrator.Core/'
+        Set-Content -Path $stagedCsproj.FullName -Value $csprojContent -NoNewline
+        Write-Host "  Patched ProjectReference path in $($stagedCsproj.Name)"
+    }
+
     # Copy the .slnx template into the staging root (sibling to the project folder),
     # renaming it from JobCreatorTemplate.slnx.template to JobCreatorTemplate.slnx
     $slnxTemplate = Join-Path $PSScriptRoot '..\src\BlazorOrchestrator.Web\JobTemplate\JobCreatorTemplate.slnx.template'
