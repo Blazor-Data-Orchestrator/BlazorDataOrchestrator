@@ -155,9 +155,25 @@ public class CodeExecutorService
 
                     if (resolution.Success && resolution.AssemblyPaths.Count > 0)
                     {
+                        // Skip any resolved assembly whose simple name matches an
+                        // assembly already loaded by the host. Referencing both causes
+                        // duplicate-type errors (CS0433/CS0121) at compile time.
+                        var hostAssemblyNames = new HashSet<string>(
+                            AppDomain.CurrentDomain.GetAssemblies()
+                                .Select(a => a.GetName().Name)
+                                .Where(n => !string.IsNullOrEmpty(n))!,
+                            StringComparer.OrdinalIgnoreCase);
+
                         result.Logs.Add($"Resolved {resolution.AssemblyPaths.Count} assemblies from NuGet packages:");
                         foreach (var assemblyPath in resolution.AssemblyPaths)
                         {
+                            var simpleName = Path.GetFileNameWithoutExtension(assemblyPath);
+                            if (hostAssemblyNames.Contains(simpleName))
+                            {
+                                result.Logs.Add($"  ~ Skipping {Path.GetFileName(assemblyPath)} (already provided by host)");
+                                continue;
+                            }
+
                             try
                             {
                                 evaluator.ReferenceAssembly(assemblyPath);

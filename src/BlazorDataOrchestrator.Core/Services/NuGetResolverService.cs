@@ -469,7 +469,13 @@ public class NuGetResolverService
             "Microsoft.NETCore.App",
             "Microsoft.NETCore.Platforms",
             "NETStandard.Library",
-            "runtime."
+            "runtime.",
+            // Provided by the host runtime/app — resolving these from NuGet causes
+            // duplicate-assembly conflicts (CS0433/CS0121) with the host versions.
+            "System.",
+            "Microsoft.EntityFrameworkCore",
+            "Microsoft.Extensions.",
+            "BlazorDataOrchestrator"
         };
 
         var exactMatches = new[]
