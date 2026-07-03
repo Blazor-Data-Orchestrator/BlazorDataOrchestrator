@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Azure.Provisioning.AppContainers;
 using Microsoft.Extensions.Hosting;
 
 // Auto-detect Docker or Podman before Aspire reads the env var.
@@ -52,7 +53,14 @@ var queues = storage.AddQueues("queues");
 var webApp = builder.AddProject<Projects.BlazorOrchestrator_Web>("webapp")
     .WithExternalHttpEndpoints()
     .WithReference(db).WaitFor(db)
-    .WithReference(blobs).WithReference(tables).WithReference(queues);
+    .WithReference(blobs).WithReference(tables).WithReference(queues)
+    // Enable ingress session affinity (sticky sessions) so a client's requests
+    // are routed to the same replica. Required for Blazor Server's SignalR
+    // circuit when scaling beyond a single replica in Azure Container Apps.
+    .PublishAsAzureContainerApp((infrastructure, app) =>
+    {
+        app.Configuration.Ingress.StickySessionsAffinity = StickySessionAffinity.Sticky;
+    });
 
 // Scheduler service
 var scheduler = builder.AddProject<Projects.BlazorOrchestrator_Scheduler>("scheduler")
