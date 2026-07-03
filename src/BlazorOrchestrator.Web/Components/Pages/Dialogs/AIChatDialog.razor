@@ -6,6 +6,7 @@
 @inject AISettingsService SettingsService
 @inject NotificationService NotificationService
 @inject DialogService DialogService
+@inject BlazorOrchestrator.Web.Services.TimeDisplayService TimeDisplayService
 
 <div class="ai-chat-dialog-overlay" @onclick="OnOverlayClick">
     <div class="ai-chat-dialog" @onclick:stopPropagation="true">
@@ -54,7 +55,7 @@
                             <div class="message-content">
                                 <div class="message-header">
                                     <span class="message-sender">@(message.IsUser ? "You" : "AI Assistant")</span>
-                                    <span class="message-time">@message.Timestamp.ToString("h:mm tt")</span>
+                                    <span class="message-time">@TimeDisplayService.FormatDateTime(message.Timestamp, "h:mm tt")</span>
                                 </div>
                                 <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
                                 @if (message.IsStreaming)
@@ -396,7 +397,7 @@
         {
             Content = userMessage,
             IsUser = true,
-            Timestamp = DateTime.Now
+            Timestamp = DateTime.UtcNow
         });
 
         // Add placeholder for assistant response
@@ -404,7 +405,7 @@
         {
             Content = "",
             IsUser = false,
-            Timestamp = DateTime.Now,
+            Timestamp = DateTime.UtcNow,
             IsStreaming = true
         };
         Messages.Add(assistantMessage);
