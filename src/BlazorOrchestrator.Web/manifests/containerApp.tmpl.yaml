@@ -12,7 +12,8 @@ properties:
       targetPort: {{ targetPortOrDefault 8080 }}
       transport: auto
       allowInsecure: false
-      stickySessionsMode: sticky
+      stickySessions:
+        affinity: sticky
     registries:
       - server: "{{ .Env.AZURE_CONTAINER_REGISTRY_ENDPOINT }}"
         identity: "{{ .Env.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID }}"
