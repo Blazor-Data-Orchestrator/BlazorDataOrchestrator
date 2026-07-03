@@ -36,6 +36,7 @@ Go from `git clone` to a fully operational job automation system in minutes:
 2. **Clone & restore** — `git clone https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator.git && cd BlazorDataOrchestrator && dotnet workload restore`
 3. **Run locally** — `aspire run` — Aspire starts SQL Server, Azurite, and all application services automatically. Complete the Install Wizard on first launch.
 4. **Deploy to Azure** — `azd up` — Provisions Azure SQL, Storage, Container Registry, and Container Apps, then builds and deploys all services in a single command.
+5. **Update a deployed instance** — `azd deploy` — Rebuilds and redeploys all services without re-provisioning infrastructure.
 
 See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for detailed local setup and the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for Azure deployment.
 

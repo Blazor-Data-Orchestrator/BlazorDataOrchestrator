@@ -1,0 +1,25 @@
+api: resources/2024-03-01
+location: {{ .Env.AZURE_LOCATION }}
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? "{{ .Env.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID }}"
+    : {}
+properties:
+  configuration:
+    ingress:
+      external: true
+      targetPort: {{ targetPortOrDefault 8080 }}
+      transport: auto
+      allowInsecure: false
+      stickySessionsMode: sticky
+    registries:
+      - server: "{{ .Env.AZURE_CONTAINER_REGISTRY_ENDPOINT }}"
+        identity: "{{ .Env.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID }}"
+  template:
+    containers:
+      - image: {{ .Image }}
+        name: webapp
+        env:
+          - name: AZURE_CLIENT_ID
+            value: "{{ .Env.MANAGED_IDENTITY_CLIENT_ID }}"

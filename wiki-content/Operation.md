@@ -179,6 +179,38 @@ Navigate to the **Administration** page via the navigation link on the home page
 | **API Key** | Enter the API key supplied by the AI provider |
 | **Model** | Choose the model to use |
 
+### External Authentication Providers
+
+Blazor Data Orchestrator supports optional external authentication via **Microsoft** (Azure Entra ID) and **Google** (OAuth 2.0). These providers are managed from the **Administration** > **Authentication** tab.
+
+#### Authentication Settings Reference
+
+| Setting | Storage Key | Description |
+|---------|-------------|-------------|
+| Microsoft Enabled | `Authentication:Microsoft:Enabled` | Toggles the Microsoft login button on the Login page |
+| Microsoft Client ID | `Authentication:Microsoft:ClientId` | Application (client) ID from Azure Entra ID |
+| Microsoft Client Secret | `Authentication:Microsoft:ClientSecret` | Client secret value from Azure Entra ID |
+| Google Enabled | `Authentication:Google:Enabled` | Toggles the Google login button on the Login page |
+| Google Client ID | `Authentication:Google:ClientId` | OAuth 2.0 Client ID from Google Cloud Console |
+| Google Client Secret | `Authentication:Google:ClientSecret` | OAuth 2.0 Client Secret from Google Cloud Console |
+
+> **Important:** These settings are stored in Azure Table Storage, not in `appsettings.json`. They are managed exclusively through the Admin UI.
+
+#### Account Linking
+
+External logins only **link to existing user accounts**. They do not auto-create new accounts. A user must already exist in the system (created via the Install Wizard or by an administrator) before they can sign in with Microsoft or Google.
+
+> **⚠️ Warning: Application Restart Required**
+>
+> After enabling, disabling, or changing the Client ID / Client Secret for any external authentication provider, you **must restart the application** for the changes to take effect.
+>
+> - **Local development:** Stop and re-run `aspire run`
+> - **Azure Container Apps:** Restart the Container App via the Azure Portal, Azure CLI, or redeploy using `azd deploy`
+>
+> Authentication middleware is initialized at application startup. The `ExternalAuthOptionsStore` injects credentials via `IPostConfigureOptions`, but enabling or disabling a provider requires the authentication pipeline to be fully re-initialized — which only happens on restart. The Login page will not show or hide provider buttons until the restart is complete.
+
+For setup instructions including Azure Portal and Google Cloud Console walkthroughs, see the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide.
+
 ---
 
 ## Agent Behavior

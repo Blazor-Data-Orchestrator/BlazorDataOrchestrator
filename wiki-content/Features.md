@@ -108,6 +108,19 @@ You can enable webhook triggers on a per-job basis. Each webhook-enabled job rec
 
 ---
 
+## External Authentication (Microsoft & Google)
+
+Blazor Data Orchestrator supports optional external authentication via **Microsoft** (Azure Entra ID) and **Google** (OAuth 2.0) identity providers. External logins are configured entirely through the Admin UI — no changes to `appsettings.json` are needed.
+
+- **Microsoft authentication** — Register an application in Azure Entra ID, then enter the Client ID and Client Secret in the Administration > Authentication tab.
+- **Google authentication** — Create OAuth 2.0 credentials in the Google Cloud Console, then enter the Client ID and Client Secret in the Administration > Authentication tab.
+- **Account linking only** — External logins link to existing user accounts. They do not auto-create new accounts.
+- **Settings stored in Azure Table Storage** — Authentication configuration is persisted alongside other application settings, not in configuration files.
+
+> **Important:** After enabling or disabling an authentication provider, you must **restart the application** for the change to take effect. See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for details.
+
+---
+
 ## Environment-Specific Configuration
 
 Jobs support per-environment configuration files that are loaded at execution time based on the job's `JobEnvironment` setting.
@@ -169,7 +182,15 @@ The repository includes full Azure Developer CLI (`azd`) integration. A single c
 azd up
 ```
 
-This takes you from `git clone` to a fully deployed Azure Container Apps environment with no manual infrastructure setup. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
+This takes you from `git clone` to a fully deployed Azure Container Apps environment with no manual infrastructure setup.
+
+For subsequent updates after the initial deployment, use `azd deploy` to rebuild and redeploy all services without re-provisioning infrastructure:
+
+```bash
+azd deploy
+```
+
+See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
 ---
 

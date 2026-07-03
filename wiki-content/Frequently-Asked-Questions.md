@@ -34,6 +34,14 @@ No. Aspire automatically starts an **Azurite** container (Azure Storage emulator
 
 Run `azd up` from the repository root. This single command provisions all required Azure resources (Azure SQL, Storage Account, Container Registry, Container Apps Environment), builds and containerizes all services, and deploys them to Azure Container Apps. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
+### How do I update my deployed instance after making code changes?
+
+Run `azd deploy` from the AppHost directory. This rebuilds all services, pushes updated container images, and deploys them to Azure Container Apps without re-provisioning infrastructure. Use `azd up` only for the initial deployment or when the AppHost topology has changed (e.g., added or removed services/resources in `Program.cs`).
+
+### Can I deploy just one service instead of all three?
+
+Yes. Run `azd deploy <service-name>` where the service name is `webapp`, `scheduler`, or `agent`. This deploys only the specified service.
+
 ---
 
 ## Installation
@@ -121,6 +129,30 @@ Yes. Enable the webhook on the **Webhook** tab in Job Details. The displayed URL
 Deploy multiple Agent instances or replicas. Each agent monitors a specific queue (configured via the `QueueName` setting). You can:
 - Deploy multiple replicas of the same agent for horizontal scaling on a single queue.
 - Deploy separate agents with different `QueueName` values to create dedicated processing pools.
+
+---
+
+## Authentication
+
+### How do I set up Microsoft authentication?
+
+Register an application in Azure Entra ID (formerly Azure AD) with a redirect URI of `https://<your-app-url>/signin-microsoft`, create a client secret, then enter the Client ID and Client Secret in **Administration** > **Authentication** in the web UI. Restart the application after saving. See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for a full walkthrough.
+
+### How do I set up Google authentication?
+
+Create OAuth 2.0 credentials in the Google Cloud Console with a redirect URI of `https://<your-app-url>/signin-google`, then enter the Client ID and Client Secret in **Administration** > **Authentication** in the web UI. Restart the application after saving. See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for a full walkthrough.
+
+### I configured Microsoft/Google authentication but the login buttons do not appear
+
+After changing any authentication settings in the Admin UI, you must **restart the application**. Authentication middleware is initialized at startup, and changes are not picked up at runtime. For local development, stop and re-run `aspire run`. For Azure, restart the Container App or redeploy with `azd deploy`.
+
+### Do external logins create new user accounts automatically?
+
+No. External logins only link to **existing** user accounts. A user must already be created in the system (via the Install Wizard or by an administrator) before they can sign in with Microsoft or Google.
+
+### Where are the authentication settings stored?
+
+Authentication settings (Client ID, Client Secret, Enabled flags) are stored in **Azure Table Storage**, not in `appsettings.json`. They are managed exclusively through the Administration > Authentication tab in the web UI.
 
 ---
 

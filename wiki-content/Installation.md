@@ -87,6 +87,55 @@ After the Install Wizard completes:
 
 ---
 
+## 6. Configure External Authentication (Optional)
+
+Blazor Data Orchestrator supports optional sign-in via **Microsoft** (Azure Entra ID) and **Google** (OAuth 2.0). These providers are configured entirely through the Admin UI — no changes to configuration files are needed.
+
+### Microsoft Authentication
+
+1. Navigate to the [Azure Portal](https://portal.azure.com) and go to **Microsoft Entra ID** > **App registrations** > **New registration**.
+2. Set the application name (e.g., `BlazorDataOrchestrator`).
+3. Set **Supported account types** to the appropriate scope:
+   - *Single tenant* — only users in your Azure AD directory
+   - *Multitenant* — users from any Azure AD directory
+   - *Multitenant + personal Microsoft accounts* — broadest scope
+4. Set the **Redirect URI**:
+   - Type: **Web**
+   - URI: `https://<your-app-url>/signin-microsoft`
+   - For local development: `https://localhost:<port>/signin-microsoft`
+5. Go to **Certificates & secrets** > **Client secrets** > **New client secret**. Copy the **Value** immediately (it is only shown once).
+6. Go to the app registration **Overview** page and copy the **Application (client) ID**.
+7. In Blazor Data Orchestrator, navigate to **Administration** > **Authentication**.
+8. Enable **Microsoft Authentication**, paste the **Client ID** and **Client Secret**, and click **Save**.
+9. **Restart the application** (see warning below).
+
+### Google Authentication
+
+1. Navigate to [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
+2. Go to **APIs & Services** > **Credentials** > **Create Credentials** > **OAuth client ID**.
+3. If prompted, configure the **OAuth consent screen** — set the app name, support email, and add scopes: `openid`, `email`, `profile`.
+4. Set **Application type** to **Web application**.
+5. Add **Authorized redirect URIs**:
+   - `https://<your-app-url>/signin-google`
+   - For local development: `https://localhost:<port>/signin-google`
+6. Copy the **Client ID** and **Client Secret** from the credentials page.
+7. In Blazor Data Orchestrator, navigate to **Administration** > **Authentication**.
+8. Enable **Google Authentication**, paste the **Client ID** and **Client Secret**, and click **Save**.
+9. **Restart the application** (see warning below).
+
+> **⚠️ Warning: Application Restart Required**
+>
+> After enabling, disabling, or changing the Client ID / Client Secret for any external authentication provider (Microsoft or Google), you **must restart the application** for the changes to take effect.
+>
+> - **Local development:** Stop and re-run `aspire run`
+> - **Azure Container Apps:** Restart the Container App via the Azure Portal, Azure CLI, or redeploy using `azd deploy`
+>
+> The Login page will not show or hide provider buttons until the restart is complete.
+
+> **Note:** External logins only **link to existing user accounts**. They do not auto-create new accounts. The user must already exist in the system before they can sign in with an external provider.
+
+---
+
 ## Configuration Files
 
 Blazor Data Orchestrator uses standard .NET configuration files. In development, Aspire injects connection strings automatically, so you typically do not need to edit these files.

@@ -165,11 +165,81 @@ You can scale agents horizontally by deploying multiple replicas or multiple Con
 - **Default pool**: 2 replicas monitoring the `default` queue
 - **Large job pool**: 1 replica monitoring `jobs-large-container` with more CPU/memory allocated
 
-### Upgrade
+### Updating a Deployed Instance
 
-After initial deployment, you can upgrade easily using *Visual Studio* by right-clicking on the `AppHost` project and selecting publish and following the wizard.
+After the initial deployment with `azd up`, use `azd deploy` for all subsequent updates. This rebuilds and redeploys all services without re-provisioning infrastructure.
 
-![alt text](images/upgrade-using-azure.png)
+From the AppHost directory, run:
+
+```bash
+azd deploy
+```
+
+This command:
+1. Builds all projects (Web, Scheduler, Agent)
+2. Containerizes the services
+3. Pushes updated images to Azure Container Registry
+4. Deploys updated containers to Azure Container Apps
+
+**When to use each command:**
+
+| Command | Use When |
+|---------|----------|
+| `azd up` | First-time deployment (provisions infrastructure + deploys) |
+| `azd deploy` | Updating an existing deployment with code or configuration changes |
+| `azd provision` | Updating only infrastructure (e.g., adding new Azure resources) |
+
+> **Note:** If you have changed the Aspire AppHost topology (added or removed services/resources in `Program.cs`), run `azd up` instead to ensure infrastructure is updated.
+
+**Deploying a single service:**
+
+To deploy only one service (e.g., after a change to only the web app):
+
+```bash
+azd deploy webapp
+```
+
+Service names match those defined in the AppHost: `webapp`, `scheduler`, `agent`.
+
+```mermaid
+flowchart TD
+    A["Code changes committed"] --> B{"First deployment?"}
+    B -- Yes --> C["azd auth login"]
+    C --> D["azd up"]
+    D --> E["Infrastructure provisioned and app deployed"]
+    B -- No --> F{"Infrastructure changes?"}
+    F -- Yes --> G["azd up"]
+    G --> E
+    F -- No --> H["azd deploy"]
+    H --> I["Updated containers deployed to existing infrastructure"]
+
+    style D fill:#0078d4,stroke:#005a9e,color:#fff
+    style G fill:#0078d4,stroke:#005a9e,color:#fff
+    style H fill:#107c10,stroke:#0b5e0b,color:#fff
+```
+
+> **Alternative: Visual Studio Publish**
+>
+> You can also publish from Visual Studio by right-clicking the AppHost project and selecting **Publish**. However, `azd deploy` is the recommended approach as it is scriptable, repeatable, and consistent with the initial deployment workflow.
+>
+> ![alt text](images/upgrade-using-azure.png)
+
+### External Authentication Redirect URIs
+
+When deploying to Azure Container Apps, external authentication redirect URIs must use the Container App's fully qualified domain name (FQDN):
+
+| Provider | Redirect URI Pattern |
+|----------|---------------------|
+| Microsoft | `https://<container-app-fqdn>/signin-microsoft` |
+| Google | `https://<container-app-fqdn>/signin-google` |
+
+The FQDN is assigned by Azure Container Apps after deployment. Retrieve it from the Azure Portal or via:
+
+```bash
+az containerapp show --name <webapp-name> --resource-group <rg-name> --query properties.configuration.ingress.fqdn -o tsv
+```
+
+If using a custom domain, use that domain in the redirect URIs instead. Update the redirect URIs in your Azure Entra ID app registration and/or Google Cloud Console credentials to match.
 
 ### Podman deployment
 
