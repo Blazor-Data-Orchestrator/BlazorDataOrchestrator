@@ -223,6 +223,7 @@ builder.Services.AddScoped<JobManager>(sp =>
 // Register code editor services
 builder.Services.AddSingleton<EditorFileStorageService>();
 builder.Services.AddScoped<JobCodeEditorService>();
+builder.Services.AddScoped<CodeChangeLogService>();
 
 // Register CSharpCompilationService (uses Core NuGetResolverService for dotnet restore-based resolution)
 builder.Services.AddScoped<CSharpCompilationService>();

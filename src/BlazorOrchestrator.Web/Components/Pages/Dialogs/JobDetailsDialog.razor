@@ -3,6 +3,7 @@
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorDataOrchestrator.Core
 @using System.Text.RegularExpressions
+@using System.IO.Compression
 @using Radzen
 @using Radzen.Blazor
 @using SimpleBlazorMonaco
@@ -22,6 +23,8 @@
 @inject PythonValidationService PythonValidator
 @inject WebNuGetPackageService PackageService
 @inject EditorFileStorageService FileStorage
+@inject CodeChangeLogService CodeChangeLog
+@inject ProjectCreatorService ProjectCreatorService
 @inject ILogger<JobDetailsDialog> _logger
 
 @if (IsLoading)
@@ -246,6 +249,7 @@ Content-Type: application/json
                                 <Items>
                                     <RadzenSelectBarItem Text="Editor" Value="CodeEditMode.Editor" />
                                     <RadzenSelectBarItem Text="Upload" Value="CodeEditMode.Upload" />
+                                    <RadzenSelectBarItem Text="@($"History ({changeHistoryCount})")" Value="CodeEditMode.History" />
                                 </Items>
                             </RadzenSelectBar>
                         </RadzenStack>
@@ -319,7 +323,7 @@ Content-Type: application/json
                                             Margin="0" />
                             </div>
                         }
-                        else
+                        else if (codeEditMode == CodeEditMode.Upload)
                         {
                             @* File Upload Section *@
                             <RadzenStack Gap="1rem" Style="padding: 1rem; background: #f8f9fa; border-radius: 8px; flex-grow: 1;">
@@ -334,8 +338,11 @@ Content-Type: application/json
                                         </RadzenText>
                                         @if (!string.IsNullOrEmpty(Job.JobCodeFile))
                                         {
-                                            <RadzenButton Text="Download" Icon="download" ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined" Size="ButtonSize.Small"
-                                                          Title="Download Package" Click="@DownloadCodePackage" />
+                                            <RadzenButton Text="Download NuGet Package" Icon="inventory_2" ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                                          Title="Download NuGet Package (.nupkg)" Click="@DownloadCodePackage" />
+                                            <RadzenButton Text="Download as VS Solution" Icon="code" ButtonStyle="ButtonStyle.Success"
+                                                          Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                                          Title="Download Visual Studio Solution" Click="@CreateVSSolutionFromJob" />
                                         }
                                     </RadzenStack>
                                 </RadzenStack>
@@ -355,6 +362,79 @@ Content-Type: application/json
                                         }
                                     </RadzenStack>
                                 </RadzenStack>
+                            </RadzenStack>
+                        }
+                        else if (codeEditMode == CodeEditMode.History)
+                        {
+                            @* Change History Panel *@
+                            <RadzenStack Gap="1rem" Style="flex-grow: 1; overflow-y: auto;">
+                                @if (isLoadingHistory)
+                                {
+                                    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Gap="1rem" Style="padding: 2rem;">
+                                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                                        <RadzenText TextStyle="TextStyle.Body1">Loading change history...</RadzenText>
+                                    </RadzenStack>
+                                }
+                                else if (changeHistory == null || !changeHistory.Any())
+                                {
+                                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                        No code change history found for this job. Changes will be recorded when you save, compile, or modify code.
+                                    </RadzenAlert>
+                                }
+                                else
+                                {
+                                    @foreach (var change in changeHistory)
+                                    {
+                                        <RadzenCard Style="padding: 0.75rem;">
+                                            <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start">
+                                                <RadzenStack Gap="0.25rem">
+                                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                                        <RadzenBadge BadgeStyle="@GetChangeTypeBadgeStyle(change.ChangeType)" 
+                                                                     Text="@change.ChangeType" />
+                                                        <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 600;">
+                                                            @change.FileName
+                                                        </RadzenText>
+                                                    </RadzenStack>
+                                                    @if (!string.IsNullOrEmpty(change.Summary))
+                                                    {
+                                                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #666;">
+                                                            @change.Summary
+                                                        </RadzenText>
+                                                    }
+                                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                                        <RadzenText TextStyle="TextStyle.Caption" Style="color: #888;">
+                                                            @change.UserName — @change.CreatedDate.ToString("yyyy-MM-dd HH:mm:ss") UTC
+                                                        </RadzenText>
+                                                        @if (change.LinesAdded > 0 || change.LinesRemoved > 0)
+                                                        {
+                                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #2e7d32;">+@change.LinesAdded</RadzenText>
+                                                            <RadzenText TextStyle="TextStyle.Caption" Style="color: #c62828;">-@change.LinesRemoved</RadzenText>
+                                                        }
+                                                    </RadzenStack>
+                                                </RadzenStack>
+                                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                                    @if (!string.IsNullOrEmpty(change.SnapshotRowKey))
+                                                    {
+                                                        <RadzenButton Text="View" Icon="visibility" Size="ButtonSize.ExtraSmall"
+                                                                      ButtonStyle="ButtonStyle.Info" Variant="Variant.Text"
+                                                                      Click="@(() => ViewSnapshot(change))" />
+                                                        <RadzenButton Text="Restore" Icon="restore" Size="ButtonSize.ExtraSmall"
+                                                                      ButtonStyle="ButtonStyle.Warning" Variant="Variant.Text"
+                                                                      Click="@(() => RestoreSnapshot(change))" />
+                                                    }
+                                                </RadzenStack>
+                                            </RadzenStack>
+                                        </RadzenCard>
+                                    }
+
+                                    @if (changeHistory.Count >= historyPageSize)
+                                    {
+                                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center">
+                                            <RadzenButton Text="Load More" Icon="expand_more" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.Small" Click="@LoadMoreHistory" />
+                                        </RadzenStack>
+                                    }
+                                }
                             </RadzenStack>
                         }
 
@@ -449,6 +529,13 @@ Content-Type: application/json
     private bool showAIChatDialog = false;
     private string? aiChatInitialPrompt;
 
+    // Code Change History State
+    private List<BlazorOrchestrator.Web.Data.Data.JobCodeChangeLog> changeHistory = new();
+    private int changeHistoryCount = 0;
+    private bool isLoadingHistory = false;
+    private int historyPageSize = 20;
+    private int historySkip = 0;
+
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
         new LanguageOption { Name = "C#", Value = "csharp" },
@@ -458,7 +545,8 @@ Content-Type: application/json
     public enum CodeEditMode
     {
         Editor,
-        Upload
+        Upload,
+        History
     }
 
     public class LanguageOption
@@ -503,6 +591,9 @@ Content-Type: application/json
                 Schedules = await JobService.GetJobSchedulesAsync(JobId);
                 Parameters = await JobService.GetJobParametersAsync(JobId);
                 await LoadLogs();
+                
+                // Load change history count for the History tab badge
+                try { changeHistoryCount = await CodeChangeLog.GetChangeCountAsync(JobId); } catch { }
                 
                 // Load current job group assignment (single group)
                 var currentGroups = await JobGroupService.GetJobGroupsForJobAsync(JobId);
@@ -842,6 +933,8 @@ Content-Type: application/json
         }
     }
 
+    private bool IsRunningLocally => new Uri(NavigationManager.BaseUri).IsLoopback;
+
     private async Task DownloadCodePackage()
     {
         if (Job == null || string.IsNullOrEmpty(Job.JobCodeFile)) return;
@@ -856,6 +949,179 @@ Content-Type: application/json
         {
             NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to download package: {ex.Message}");
         }
+    }
+
+    private async Task CreateVSSolutionFromJob()
+    {
+        try
+        {
+            var projectName = SanitizeProjectName(Job?.JobName ?? "Job");
+
+            var packageStream = await JobManager.DownloadJobPackageAsync(JobId);
+            if (packageStream == null)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error",
+                    "Could not download the code package.");
+                return;
+            }
+
+            byte[] packageBytes;
+            using (var ms = new MemoryStream())
+            {
+                await packageStream.CopyToAsync(ms);
+                packageBytes = ms.ToArray();
+            }
+
+            var codeFiles = ExtractCodeFilesFromNupkg(packageBytes);
+
+            if (IsRunningLocally)
+            {
+                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles);
+
+                if (!result.Success)
+                {
+                    NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage);
+                    return;
+                }
+
+                await ShowVSSolutionSuccessDialog(projectName, result.OutputPath!);
+            }
+            else
+            {
+                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles);
+                using var streamRef = new DotNetStreamReference(new MemoryStream(zipBytes));
+                await JSRuntime.InvokeVoidAsync("downloadFileFromStream", $"{projectName}.zip", streamRef);
+                await ShowVSSolutionDownloadDialog(projectName);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error",
+                $"Failed to create VS Solution: {ex.Message}");
+        }
+    }
+
+    private static Dictionary<string, string> ExtractCodeFilesFromNupkg(byte[] packageBytes)
+    {
+        var codeFiles = new Dictionary<string, string>();
+        using var nupkgStream = new MemoryStream(packageBytes);
+        using var archive = new ZipArchive(nupkgStream, ZipArchiveMode.Read);
+
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.StartsWith("[Content_Types]") ||
+                entry.FullName.StartsWith("_rels/") ||
+                entry.FullName.EndsWith(".nuspec") ||
+                string.IsNullOrEmpty(entry.Name))
+                continue;
+
+            using var reader = new StreamReader(entry.Open());
+            codeFiles[entry.Name] = reader.ReadToEnd();
+        }
+        return codeFiles;
+    }
+
+    private static string SanitizeProjectName(string jobName)
+    {
+        var sanitized = new string(jobName
+            .Replace(" ", "")
+            .Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.')
+            .ToArray());
+        if (sanitized.Length > 20) sanitized = sanitized[..20];
+        if (string.IsNullOrWhiteSpace(sanitized)) sanitized = "Job";
+        return sanitized;
+    }
+
+    private async Task ShowVSSolutionSuccessDialog(string name, string outputPath)
+    {
+        await DialogService.OpenAsync("VS Solution Created", ds =>
+            @<RadzenStack Gap="1.5rem" Style="min-width: 450px; text-align: center; padding: 1rem;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #22c55e;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+                    Your project '@name' has been created with the job code!
+                </RadzenText>
+            </RadzenStack>
+
+            <RadzenStack Gap="1rem" Style="text-align: left; background-color: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    Project location:
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption"
+                    Style="margin: 0; padding: 0.5rem; background-color: #e2e8f0; border-radius: 4px; font-family: monospace; word-break: break-all;">
+                    @outputPath
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    How to open:
+                </RadzenText>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>1.</strong> Open Visual Studio
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>2.</strong> Select <em>File &gt; Open &gt; Project/Solution</em>
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>3.</strong> Navigate to the path above and open the <code>.csproj</code> or <code>.sln</code> file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>4.</strong> Your job code is in the <code>Code/</code> directory
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>5.</strong> Press <strong>F5</strong> to build and run
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary"
+                Click="@(() => ds.Close())" Style="min-width: 100px;" />
+        </RadzenStack>,
+        new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
+        );
+    }
+
+    private async Task ShowVSSolutionDownloadDialog(string name)
+    {
+        await DialogService.OpenAsync("VS Solution Downloaded", ds =>
+            @<RadzenStack Gap="1.5rem" Style="min-width: 450px; text-align: center; padding: 1rem;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #22c55e;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+                    Your project '@name' has been downloaded as a ZIP file!
+                </RadzenText>
+            </RadzenStack>
+
+            <RadzenStack Gap="1rem" Style="text-align: left; background-color: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    How to use:
+                </RadzenText>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>1.</strong> Extract the downloaded ZIP file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>2.</strong> Copy the extracted folder to the <code>src/</code> directory under your Blazor Data Orchestrator project
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>3.</strong> Open Visual Studio and select <em>File &gt; Open &gt; Project/Solution</em>
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>4.</strong> Navigate to the extracted folder and open the <code>.csproj</code> or <code>.sln</code> file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>5.</strong> Your job code is in the <code>Code/</code> directory
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>6.</strong> Press <strong>F5</strong> to build and run
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary"
+                Click="@(() => ds.Close())" Style="min-width: 100px;" />
+        </RadzenStack>,
+        new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
+        );
     }
 
     private async Task RunJobNow()
@@ -991,6 +1257,11 @@ Content-Type: application/json
         // The value parameter contains the new language selected by the user
         // codeLanguage is already updated via @bind-Value before this fires
         var newLanguage = value?.ToString() ?? codeLanguage;
+        var oldLanguage = codeLanguage;
+        
+        // Capture old code before reset for change logging
+        var oldMainFile = oldLanguage == "csharp" ? "main.cs" : "main.py";
+        var oldCode = FileStorage.GetFile(JobId, oldMainFile) ?? currentJobCode;
         
         // Ensure codeLanguage is set correctly (defensive, should already be set by binding)
         if (!string.IsNullOrEmpty(newLanguage))
@@ -999,6 +1270,16 @@ Content-Type: application/json
         }
         
         _logger.LogInformation("Language changed to: {Language}", codeLanguage);
+
+        // Log language switch
+        if (Job != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, oldMainFile, oldLanguage, "LanguageSwitch", oldCode, null, $"Switched from {oldLanguage} to {codeLanguage}"); }
+                catch { }
+            });
+        }
         
         // Reset loaded package state - we're starting fresh with new language
         // Don't reload from package because existing package is for the old language
@@ -1198,6 +1479,10 @@ Content-Type: application/json
                 }
             }
         }
+        else if (codeEditMode == CodeEditMode.History)
+        {
+            await LoadChangeHistory();
+        }
         StateHasChanged();
     }
 
@@ -1278,6 +1563,16 @@ Content-Type: application/json
                 
                 _logger.LogInformation("Loaded {Count} files from package for job {JobId} with language {Language}", 
                     codeFileList.Count, Job.Id, codeLanguage);
+
+                // Log baseline snapshot
+                if (!string.IsNullOrEmpty(currentJobCode) && !string.IsNullOrEmpty(selectedCodeFile))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, selectedCodeFile, codeLanguage, "Load", currentJobCode, null, "Code loaded from package"); }
+                        catch { }
+                    });
+                }
             }
             else
             {
@@ -1388,6 +1683,10 @@ Content-Type: application/json
             // Get current code from editor
             currentJobCode = await jobCodeEditor.GetCodeAsync();
             
+            // Capture previous content before updating storage (for change logging)
+            var mainFileForLog = codeLanguage == "csharp" ? "main.cs" : "main.py";
+            var previousMainCode = FileStorage.GetFile(JobId, mainFileForLog);
+
             // Save current file to storage and loadedCodeModel
             if (!string.IsNullOrEmpty(selectedCodeFile))
             {
@@ -1521,6 +1820,13 @@ Content-Type: application/json
             
             if (!compilationResult.Success)
             {
+                // Log failed compilation
+                _ = Task.Run(async () =>
+                {
+                    try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, mainFileName, codeLanguage, "CompileFailed", mainCode, previousMainCode, $"Compilation failed: {compilationResult.Errors.Count} error(s)"); }
+                    catch { }
+                });
+
                 // Show compilation errors in popup dialog
                 await ShowCompilationErrorsDialog(compilationResult.Errors);
                 return;
@@ -1535,6 +1841,13 @@ Content-Type: application/json
             
             // Mark that we've saved, so next load will get this version
             hasLoadedPackageFiles = false;
+
+            // Log successful compilation
+            _ = Task.Run(async () =>
+            {
+                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, mainFileName, codeLanguage, "CompileSuccess", mainCode, previousMainCode, "Compiled and saved successfully"); }
+                catch { }
+            });
             
             NotificationService.Notify(NotificationSeverity.Success, "Success", 
                 "Code compiled and saved successfully!");
@@ -1713,6 +2026,9 @@ Content-Type: application/json
 
     private async Task OnAICodeApplied(string code)
     {
+        // Capture previous content for change logging
+        var previousCode = currentJobCode;
+
         // Check for embedded .nuspec content in the AI response
         var nuspecMatch = Regex.Match(code,
             @"###NUSPEC BEGIN###\s*```xml\s*(.*?)\s*```\s*###NUSPEC END###",
@@ -1781,6 +2097,17 @@ Content-Type: application/json
         }
         
         showAIChatDialog = false;
+
+        // Log AI fix
+        if (Job != null && !string.IsNullOrEmpty(selectedCodeFile))
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, selectedCodeFile, codeLanguage, "AIFix", code, previousCode, "AI fix applied"); }
+                catch { }
+            });
+        }
+
         NotificationService.Notify(NotificationSeverity.Success, "Code Applied", 
             "AI-generated code has been applied to the editor.");
         StateHasChanged();
@@ -1802,5 +2129,147 @@ Content-Type: application/json
         // Try file storage by file name
         var storedFile = FileStorage.GetFile(JobId, "BlazorDataOrchestrator.Job.nuspec");
         return storedFile ?? "";
+    }
+
+    // Change History Methods
+    private async Task LoadChangeHistory()
+    {
+        if (Job == null) return;
+
+        isLoadingHistory = true;
+        historySkip = 0;
+        StateHasChanged();
+
+        try
+        {
+            changeHistory = await CodeChangeLog.GetChangeHistoryAsync(Job.Id, historyPageSize, 0);
+            changeHistoryCount = await CodeChangeLog.GetChangeCountAsync(Job.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load change history for job {JobId}", Job.Id);
+            changeHistory = new();
+        }
+        finally
+        {
+            isLoadingHistory = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMoreHistory()
+    {
+        if (Job == null) return;
+
+        historySkip += historyPageSize;
+        try
+        {
+            var moreHistory = await CodeChangeLog.GetChangeHistoryAsync(Job.Id, historyPageSize, historySkip);
+            changeHistory.AddRange(moreHistory);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load more change history for job {JobId}", Job.Id);
+        }
+        StateHasChanged();
+    }
+
+    private async Task ViewSnapshot(BlazorOrchestrator.Web.Data.Data.JobCodeChangeLog change)
+    {
+        if (string.IsNullOrEmpty(change.SnapshotRowKey) || Job == null) return;
+
+        var content = await CodeChangeLog.GetSnapshotContentAsync(Job.Id, change.SnapshotRowKey);
+        if (content == null)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", "Snapshot content not found.");
+            return;
+        }
+
+        await DialogService.OpenAsync($"{change.ChangeType} - {change.FileName} ({change.CreatedDate:yyyy-MM-dd HH:mm})", ds =>
+            @<RadzenStack Gap="0.5rem" Style="padding: 0.5rem;">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenBadge BadgeStyle="@GetChangeTypeBadgeStyle(change.ChangeType)" Text="@change.ChangeType" />
+                    <RadzenText TextStyle="TextStyle.Caption">by @change.UserName</RadzenText>
+                </RadzenStack>
+                <pre style="max-height: 400px; overflow: auto; background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 12px; white-space: pre-wrap;">@content</pre>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+                    <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => ds.Close())" />
+                </RadzenStack>
+            </RadzenStack>,
+            new DialogOptions { Width = "800px", Height = "600px" }
+        );
+    }
+
+    private async Task RestoreSnapshot(BlazorOrchestrator.Web.Data.Data.JobCodeChangeLog change)
+    {
+        if (string.IsNullOrEmpty(change.SnapshotRowKey) || Job == null) return;
+
+        var confirmed = await DialogService.Confirm(
+            $"This will replace the current editor content with the version from {change.CreatedDate:yyyy-MM-dd HH:mm:ss} UTC. You can undo this before saving.",
+            "Restore Snapshot",
+            new ConfirmOptions { OkButtonText = "Restore", CancelButtonText = "Cancel" });
+
+        if (confirmed != true) return;
+
+        var content = await CodeChangeLog.GetSnapshotContentAsync(Job.Id, change.SnapshotRowKey);
+        if (content == null)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Warning", "Snapshot content not found.");
+            return;
+        }
+
+        var previousCode = currentJobCode;
+        currentJobCode = content;
+
+        // Update file storage
+        if (!string.IsNullOrEmpty(change.FileName))
+        {
+            FileStorage.SetFile(JobId, change.FileName, content);
+            if (loadedCodeModel != null)
+            {
+                CodeEditorService.SetFileContent(loadedCodeModel, change.FileName, content);
+            }
+        }
+
+        // Switch to Editor mode and update the editor
+        codeEditMode = CodeEditMode.Editor;
+        
+        // If the restored file is different from the currently selected one, switch to it
+        if (change.FileName != selectedCodeFile && codeFileList.Contains(change.FileName))
+        {
+            selectedCodeFile = change.FileName;
+            previousSelectedFile = selectedCodeFile;
+        }
+
+        await LoadPackageFilesAsync();
+        if (jobCodeEditor != null)
+        {
+            await jobCodeEditor.UpdateCodeAsync(content);
+        }
+
+        // Log the restore
+        _ = Task.Run(async () =>
+        {
+            try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, change.FileName, change.Language ?? codeLanguage, "Restore", content, previousCode, $"Restored from snapshot {change.CreatedDate:yyyy-MM-dd HH:mm}"); }
+            catch { }
+        });
+
+        NotificationService.Notify(NotificationSeverity.Success, "Restored", "Code restored from history snapshot. Save & Compile to apply.");
+        StateHasChanged();
+    }
+
+    private static BadgeStyle GetChangeTypeBadgeStyle(string changeType)
+    {
+        return changeType switch
+        {
+            "CompileSuccess" => BadgeStyle.Success,
+            "CompileFailed" => BadgeStyle.Danger,
+            "LanguageSwitch" => BadgeStyle.Info,
+            "AIFix" => BadgeStyle.Warning,
+            "Load" => BadgeStyle.Light,
+            "Restore" => BadgeStyle.Secondary,
+            "FileEdit" => BadgeStyle.Primary,
+            _ => BadgeStyle.Light
+        };
     }
 }

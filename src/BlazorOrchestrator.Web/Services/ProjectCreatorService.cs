@@ -166,6 +166,87 @@ public class ProjectCreatorService
             _logger.LogWarning(ex, "Could not process file: {FilePath}", filePath);
         }
     }
+
+    public async Task<ProjectCreationResult> CreateProjectWithCodeAsync(
+        string projectName,
+        Dictionary<string, string> codeFiles)
+    {
+        // 1. Use existing method to create the project on disk
+        var result = await CreateProjectAsync(projectName);
+
+        if (!result.Success || string.IsNullOrEmpty(result.OutputPath))
+        {
+            return result;
+        }
+
+        // 2. Inject code files into the Code/ subdirectory
+        if (codeFiles != null && codeFiles.Count > 0)
+        {
+            var codeDirectory = Path.Combine(result.OutputPath, projectName, "Code");
+
+            if (!Directory.Exists(codeDirectory))
+            {
+                Directory.CreateDirectory(codeDirectory);
+            }
+
+            foreach (var (fileName, fileContent) in codeFiles)
+            {
+                var filePath = Path.Combine(codeDirectory, fileName);
+                await File.WriteAllTextAsync(filePath, fileContent);
+                _logger.LogInformation("Injected code file: {FilePath}", filePath);
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<byte[]> CreateProjectZipAsync(
+        string projectName,
+        Dictionary<string, string> codeFiles)
+    {
+        var tempParent = Path.Combine(Path.GetTempPath(), $"bdo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempParent);
+
+        try
+        {
+            var templateZipPath = Path.Combine(_environment.ContentRootPath, "JobTemplate", "BlazorDataOrchestrator.JobCreatorTemplate.zip");
+
+            if (!File.Exists(templateZipPath))
+            {
+                throw new FileNotFoundException("Template file not found.");
+            }
+
+            var outputDirectory = Path.Combine(tempParent, projectName);
+            Directory.CreateDirectory(outputDirectory);
+
+            ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
+            await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
+
+            // Inject code files
+            if (codeFiles != null && codeFiles.Count > 0)
+            {
+                var codeDirectory = Path.Combine(outputDirectory, projectName, "Code");
+                if (!Directory.Exists(codeDirectory))
+                {
+                    Directory.CreateDirectory(codeDirectory);
+                }
+
+                foreach (var (fileName, fileContent) in codeFiles)
+                {
+                    var filePath = Path.Combine(codeDirectory, fileName);
+                    await File.WriteAllTextAsync(filePath, fileContent);
+                }
+            }
+
+            var zipFilePath = Path.Combine(tempParent, $"{projectName}.zip");
+            ZipFile.CreateFromDirectory(outputDirectory, zipFilePath, CompressionLevel.Optimal, includeBaseDirectory: true);
+            return await File.ReadAllBytesAsync(zipFilePath);
+        }
+        finally
+        {
+            try { Directory.Delete(tempParent, true); } catch { }
+        }
+    }
 }
 
 public class ProjectCreationResult

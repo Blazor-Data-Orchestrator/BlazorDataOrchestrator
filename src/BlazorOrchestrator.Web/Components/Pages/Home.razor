@@ -9,6 +9,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
+@using System.IO.Compression
 @attribute [Authorize]
 @inject IConfiguration Configuration
 @inject IServiceProvider ServiceProvider
@@ -172,8 +173,11 @@ else
                                     }
                                     @if (job.HasCode)
                                     {
-                                        <RadzenButton Text="Download" Icon="download" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                        <RadzenButton Text="Download NuGet Package" Icon="inventory_2" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                       Style="border-color: #d1d5db; color: #374151;" Click="@(() => DownloadJobPackage(job.Id))" />
+                                        <RadzenButton Text="Download as VS Solution" Icon="code" ButtonStyle="ButtonStyle.Light"
+                                                      Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                                      Style="border-color: #d1d5db; color: #4f46e5;" Click="@(() => CreateVSSolutionFromJob(job.Id, job.Name))" />
                                     }
                                     <span style="flex: 1;"></span>
                                     <RadzenButton Text="View Logs" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
@@ -766,6 +770,9 @@ else
             DialogService.Close();
             NotificationService.Notify(NotificationSeverity.Success, "Success", $"Job '{data.JobName}' created successfully.");
 
+            // Refresh dashboard to include the new job
+            await LoadJobsAsync();
+
             // Open the job details dialog
             await OpenJobDetailsDialog(job.Id);
         }
@@ -964,6 +971,179 @@ else
         {
             NotificationService.Notify(NotificationSeverity.Error, "Error", $"Failed to download package: {ex.Message}");
         }
+    }
+
+    private async Task CreateVSSolutionFromJob(int jobId, string jobName)
+    {
+        try
+        {
+            var projectName = SanitizeProjectName(jobName);
+
+            var packageStream = await JobManager.DownloadJobPackageAsync(jobId);
+            if (packageStream == null)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error",
+                    "Could not download the code package.");
+                return;
+            }
+
+            byte[] packageBytes;
+            using (var ms = new MemoryStream())
+            {
+                await packageStream.CopyToAsync(ms);
+                packageBytes = ms.ToArray();
+            }
+
+            var codeFiles = ExtractCodeFilesFromNupkg(packageBytes);
+
+            if (IsRunningLocally)
+            {
+                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles);
+
+                if (!result.Success)
+                {
+                    NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage);
+                    return;
+                }
+
+                await ShowVSSolutionSuccessDialog(projectName, result.OutputPath!);
+            }
+            else
+            {
+                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles);
+                using var streamRef = new DotNetStreamReference(new MemoryStream(zipBytes));
+                await JSRuntime.InvokeVoidAsync("downloadFileFromStream", $"{projectName}.zip", streamRef);
+                await ShowVSSolutionDownloadDialog(projectName);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error",
+                $"Failed to create VS Solution: {ex.Message}");
+        }
+    }
+
+    private static Dictionary<string, string> ExtractCodeFilesFromNupkg(byte[] packageBytes)
+    {
+        var codeFiles = new Dictionary<string, string>();
+        using var nupkgStream = new MemoryStream(packageBytes);
+        using var archive = new ZipArchive(nupkgStream, ZipArchiveMode.Read);
+
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.StartsWith("[Content_Types]") ||
+                entry.FullName.StartsWith("_rels/") ||
+                entry.FullName.EndsWith(".nuspec") ||
+                string.IsNullOrEmpty(entry.Name))
+                continue;
+
+            using var reader = new StreamReader(entry.Open());
+            codeFiles[entry.Name] = reader.ReadToEnd();
+        }
+        return codeFiles;
+    }
+
+    private static string SanitizeProjectName(string jobName)
+    {
+        var sanitized = new string(jobName
+            .Replace(" ", "")
+            .Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.')
+            .ToArray());
+        if (sanitized.Length > 20) sanitized = sanitized[..20];
+        if (string.IsNullOrWhiteSpace(sanitized)) sanitized = "Job";
+        return sanitized;
+    }
+
+    private async Task ShowVSSolutionSuccessDialog(string name, string outputPath)
+    {
+        await DialogService.OpenAsync("VS Solution Created", ds =>
+            @<RadzenStack Gap="1.5rem" Style="min-width: 450px; text-align: center; padding: 1rem;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #22c55e;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+                    Your project '@name' has been created with the job code!
+                </RadzenText>
+            </RadzenStack>
+
+            <RadzenStack Gap="1rem" Style="text-align: left; background-color: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    Project location:
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption"
+                    Style="margin: 0; padding: 0.5rem; background-color: #e2e8f0; border-radius: 4px; font-family: monospace; word-break: break-all;">
+                    @outputPath
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    How to open:
+                </RadzenText>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>1.</strong> Open Visual Studio
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>2.</strong> Select <em>File &gt; Open &gt; Project/Solution</em>
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>3.</strong> Navigate to the path above and open the <code>.csproj</code> or <code>.sln</code> file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>4.</strong> Your job code is in the <code>Code/</code> directory
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>5.</strong> Press <strong>F5</strong> to build and run
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary"
+                Click="@(() => ds.Close())" Style="min-width: 100px;" />
+        </RadzenStack>,
+        new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
+        );
+    }
+
+    private async Task ShowVSSolutionDownloadDialog(string name)
+    {
+        await DialogService.OpenAsync("VS Solution Downloaded", ds =>
+            @<RadzenStack Gap="1.5rem" Style="min-width: 450px; text-align: center; padding: 1rem;">
+            <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #22c55e;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+                    Your project '@name' has been downloaded as a ZIP file!
+                </RadzenText>
+            </RadzenStack>
+
+            <RadzenStack Gap="1rem" Style="text-align: left; background-color: #f8fafc; padding: 1rem; border-radius: 8px;">
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                    How to use:
+                </RadzenText>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>1.</strong> Extract the downloaded ZIP file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>2.</strong> Copy the extracted folder to the <code>src/</code> directory under your Blazor Data Orchestrator project
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>3.</strong> Open Visual Studio and select <em>File &gt; Open &gt; Project/Solution</em>
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>4.</strong> Navigate to the extracted folder and open the <code>.csproj</code> or <code>.sln</code> file
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>5.</strong> Your job code is in the <code>Code/</code> directory
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        <strong>6.</strong> Press <strong>F5</strong> to build and run
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenButton Text="OK" ButtonStyle="ButtonStyle.Primary"
+                Click="@(() => ds.Close())" Style="min-width: 100px;" />
+        </RadzenStack>,
+        new DialogOptions { ShowTitle = true, CloseDialogOnEsc = true, CloseDialogOnOverlayClick = true }
+        );
     }
 
     private async Task RunJobNow(JobViewModel job)

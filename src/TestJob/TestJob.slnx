@@ -1,0 +1,6 @@
+﻿<Solution>
+  <Project Path="BlazorDataOrchestrator.TestJob/BlazorDataOrchestrator.TestJob.csproj" />
+  <Folder Name="/Dependencies/">
+    <Project Path="../BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
+  </Folder>
+</Solution>
