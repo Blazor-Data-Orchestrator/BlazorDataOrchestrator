@@ -66,6 +66,9 @@
   </ItemGroup>
 
   <ItemGroup>
+  <None Update="!SQL\01.20.00.sql">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="!SQL\01.10.00.sql">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

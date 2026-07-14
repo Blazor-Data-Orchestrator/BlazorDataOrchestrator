@@ -9,7 +9,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,ViewOnly")]
 @inject JobService JobService
 @inject JobManager JobManager
 @inject TimeDisplayService TimeDisplayService

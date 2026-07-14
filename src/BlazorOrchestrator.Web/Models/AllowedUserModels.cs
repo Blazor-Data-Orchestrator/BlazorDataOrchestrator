@@ -17,7 +17,8 @@ public class AllowedUserListItem
     public string? Email { get; set; }
     public string? UserName { get; set; }
     public string? DisplayName { get; set; }
-    public bool IsAdmin { get; set; }
+    public bool IsAdmin => string.Equals(RoleName, "Admin", StringComparison.OrdinalIgnoreCase);
+    public string RoleName { get; set; } = "ViewOnly";
     public bool IsEnabled { get; set; }
     public bool IsLocked { get; set; }
     public DateTimeOffset? LockoutEnd { get; set; }
@@ -48,7 +49,7 @@ public class CreateAllowedUserRequest
     [StringLength(100)]
     public string? DisplayName { get; set; }
 
-    public bool IsAdmin { get; set; }
+    public string RoleName { get; set; } = "Admin";
     public bool IsEnabled { get; set; } = true;
 
     public string? InitialPassword { get; set; }
@@ -65,6 +66,6 @@ public class UpdateAllowedUserRequest
     [StringLength(100)]
     public string? DisplayName { get; set; }
 
-    public bool IsAdmin { get; set; }
+    public string RoleName { get; set; } = "ViewOnly";
     public bool IsEnabled { get; set; } = true;
 }

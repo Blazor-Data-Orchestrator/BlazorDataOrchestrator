@@ -18,7 +18,7 @@
 @inject AuthenticationSettingsService AuthenticationSettingsService
 @inject AuthenticationSettings AuthSettings
 @inject ExternalAuthOptionsStore ExternalAuthStore
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,ViewOnly")]
 
 <PageTitle>Administration</PageTitle>
 
@@ -35,7 +35,9 @@
                     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
                         <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Job Group Configuration</RadzenText>
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="Add Job Group" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@OpenAddJobGroupDialog" />
+                            <AuthorizeView Roles="Admin">
+                                <RadzenButton Text="Add Job Group" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@OpenAddJobGroupDialog" />
+                            </AuthorizeView>
                             <RadzenButton Text="Refresh" Icon="refresh" ButtonStyle="ButtonStyle.Light" Click="@LoadJobGroups" Disabled="@IsLoadingJobGroups" />
                         </RadzenStack>
                     </RadzenStack>
@@ -62,7 +64,9 @@
                                 <RadzenText TextStyle="TextStyle.Body2" Style="color: #9ca3af; margin: 0;">
                                     Create a job group to organize your jobs
                                 </RadzenText>
-                                <RadzenButton Text="Add Job Group" ButtonStyle="ButtonStyle.Primary" Click="@OpenAddJobGroupDialog" />
+                                <AuthorizeView Roles="Admin">
+                                    <RadzenButton Text="Add Job Group" ButtonStyle="ButtonStyle.Primary" Click="@OpenAddJobGroupDialog" />
+                                </AuthorizeView>
                             </RadzenStack>
                         </RadzenCard>
                     }
@@ -74,12 +78,14 @@
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobGroup" Width="120px" Title="Actions">
                                     <Template Context="group">
-                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
-                                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
-                                                          Click="@(() => OpenEditJobGroupDialog(group))" />
-                                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
-                                                          Variant="Variant.Outlined" Click="@(() => DeleteJobGroup(group))" />
-                                        </RadzenStack>
+                                        <AuthorizeView Roles="Admin">
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                                              Click="@(() => OpenEditJobGroupDialog(group))" />
+                                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                                              Variant="Variant.Outlined" Click="@(() => DeleteJobGroup(group))" />
+                                            </RadzenStack>
+                                        </AuthorizeView>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobGroup" Property="Id" Title="ID" Width="80px" />
@@ -103,7 +109,9 @@
                 <RadzenStack Gap="1rem" Style="padding: 1.5rem 0;">
                     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
                         <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">Job Queue Configuration</RadzenText>
-                        <RadzenButton Text="Add New Queue" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@OpenAddQueueDialog" />
+                        <AuthorizeView Roles="Admin">
+                            <RadzenButton Text="Add New Queue" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@OpenAddQueueDialog" />
+                        </AuthorizeView>
                     </RadzenStack>
 
                     <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
@@ -141,12 +149,14 @@
                             <Columns>
                                 <RadzenDataGridColumn TItem="JobQueue" Width="120px" Title="Actions">
                                     <Template Context="queue">
-                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
-                                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
-                                                          Click="@(() => OpenEditQueueDialog(queue))" />
-                                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
-                                                          Variant="Variant.Outlined" Click="@(() => DeleteQueue(queue))" />
-                                        </RadzenStack>
+                                        <AuthorizeView Roles="Admin">
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                                              Click="@(() => OpenEditQueueDialog(queue))" />
+                                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                                              Variant="Variant.Outlined" Click="@(() => DeleteQueue(queue))" />
+                                            </RadzenStack>
+                                        </AuthorizeView>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="JobQueue" Property="Id" Title="ID" Width="80px" />
@@ -212,14 +222,16 @@
                                 </RadzenCard>
                             </RadzenStack>
 
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
-                                <RadzenButton Text="Save Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
-                                              Click="@SaveSettings" Disabled="@IsSavingSettings" />
-                                @if (IsSavingSettings)
-                                {
-                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                                }
-                            </RadzenStack>
+                            <AuthorizeView Roles="Admin">
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
+                                    <RadzenButton Text="Save Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
+                                                  Click="@SaveSettings" Disabled="@IsSavingSettings" />
+                                    @if (IsSavingSettings)
+                                    {
+                                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                    }
+                                </RadzenStack>
+                            </AuthorizeView>
                         </RadzenStack>
                     </RadzenCard>
                 </RadzenStack>
@@ -393,14 +405,16 @@
                                     </RadzenCard>
                                 }
 
-                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
-                                    <RadzenButton Text="Save AI Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
-                                                  Click="@SaveAISettings" Disabled="@IsSavingAISettings" />
-                                    @if (IsSavingAISettings)
-                                    {
-                                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                                    }
-                                </RadzenStack>
+                                <AuthorizeView Roles="Admin">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top: 1rem;">
+                                        <RadzenButton Text="Save AI Settings" Icon="save" ButtonStyle="ButtonStyle.Success" 
+                                                      Click="@SaveAISettings" Disabled="@IsSavingAISettings" />
+                                        @if (IsSavingAISettings)
+                                        {
+                                            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                        }
+                                    </RadzenStack>
+                                </AuthorizeView>
                             </RadzenStack>
                         </RadzenCard>
                     }
@@ -510,14 +524,16 @@
 </RadzenStack>
                         </RadzenAlert>
 
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="Save Authentication Settings" Icon="save" ButtonStyle="ButtonStyle.Success"
-                                          Click="@SaveAuthSettings" Disabled="@IsSavingAuthSettings" />
-                            @if (IsSavingAuthSettings)
-                            {
-                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
-                            }
-                        </RadzenStack>
+                        <AuthorizeView Roles="Admin">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                <RadzenButton Text="Save Authentication Settings" Icon="save" ButtonStyle="ButtonStyle.Success"
+                                              Click="@SaveAuthSettings" Disabled="@IsSavingAuthSettings" />
+                                @if (IsSavingAuthSettings)
+                                {
+                                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+                                }
+                            </RadzenStack>
+                        </AuthorizeView>
                     }
                 </RadzenStack>
             </RadzenTabsItem>

@@ -13,7 +13,11 @@ public class AllowedUserService
 {
     private const string AdminRoleName = "Admin";
     private const string AdminRoleNormalized = "ADMIN";
+    private const string ViewOnlyRoleName = "ViewOnly";
+    private const string ViewOnlyRoleNormalized = "VIEWONLY";
     private const string DisplayNameClaimType = "name";
+
+    private static readonly string[] AvailableRoles = [AdminRoleName, ViewOnlyRoleName];
 
     private readonly ApplicationDbContext _db;
     private readonly ILogger<AllowedUserService> _logger;
@@ -40,11 +44,13 @@ public class AllowedUserService
                     .Select(c => c.ClaimValue)
                     .FirstOrDefault(),
                 LoginProviders = u.AspNetUserLogins.Select(l => l.LoginProvider).ToList(),
-                IsAdmin = u.Roles.Any(r => r.NormalizedName == AdminRoleNormalized)
+                RoleName = u.Roles.Any(r => r.NormalizedName == AdminRoleNormalized)
+                    ? AdminRoleName
+                    : ViewOnlyRoleName
             })
             .ToListAsync(ct);
 
-        return users.Select(x => MapListItem(x.User, x.DisplayName, x.LoginProviders, x.IsAdmin)).ToList();
+        return users.Select(x => MapListItem(x.User, x.DisplayName, x.LoginProviders, x.RoleName)).ToList();
     }
 
     public Task<int> CountAsync(string? search, CancellationToken ct = default)
@@ -109,9 +115,14 @@ public class AllowedUserService
             });
         }
 
-        if (request.IsAdmin)
+        if (request.RoleName == AdminRoleName)
         {
             var role = await EnsureAdminRoleAsync(ct);
+            user.Roles.Add(role);
+        }
+        else
+        {
+            var role = await EnsureViewOnlyRoleAsync(ct);
             user.Roles.Add(role);
         }
 
@@ -172,16 +183,22 @@ public class AllowedUserService
             displayClaim.ClaimValue = request.DisplayName;
         }
 
-        // Admin role
+        // Role assignment (mutually exclusive)
         var hadAdmin = user.Roles.Any(r => r.NormalizedName == AdminRoleNormalized);
-        if (hadAdmin && !request.IsAdmin)
+        var wantsAdmin = request.RoleName == AdminRoleName;
+        if (hadAdmin && !wantsAdmin)
         {
             await GuardLastAdminAsync(userId, ct);
             var existing = user.Roles.First(r => r.NormalizedName == AdminRoleNormalized);
             user.Roles.Remove(existing);
+            var viewOnlyRole = await EnsureViewOnlyRoleAsync(ct);
+            if (!user.Roles.Any(r => r.NormalizedName == ViewOnlyRoleNormalized))
+                user.Roles.Add(viewOnlyRole);
         }
-        else if (!hadAdmin && request.IsAdmin)
+        else if (!hadAdmin && wantsAdmin)
         {
+            var viewOnly = user.Roles.FirstOrDefault(r => r.NormalizedName == ViewOnlyRoleNormalized);
+            if (viewOnly != null) user.Roles.Remove(viewOnly);
             var role = await EnsureAdminRoleAsync(ct);
             user.Roles.Add(role);
         }
@@ -295,6 +312,54 @@ public class AllowedUserService
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Assigns a role to a user (mutually exclusive — assigning one role removes the other).
+    /// </summary>
+    public async Task SetRoleAsync(string userId, string roleName, CancellationToken ct = default)
+    {
+        if (!AvailableRoles.Contains(roleName, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Invalid role name: '{roleName}'. Must be one of: {string.Join(", ", AvailableRoles)}");
+
+        var user = await _db.AspNetUsers
+            .Include(u => u.Roles)
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new InvalidOperationException("User not found.");
+
+        var hadAdmin = user.Roles.Any(r => r.NormalizedName == AdminRoleNormalized);
+        var hadViewOnly = user.Roles.Any(r => r.NormalizedName == ViewOnlyRoleNormalized);
+
+        if (roleName == AdminRoleName && hadAdmin) return;
+        if (roleName == ViewOnlyRoleName && hadViewOnly && !hadAdmin) return;
+
+        if (hadAdmin && roleName != AdminRoleName)
+        {
+            await GuardLastAdminAsync(userId, ct);
+        }
+
+        // Remove all existing roles and assign the new one
+        user.Roles.Clear();
+
+        if (roleName == AdminRoleName)
+        {
+            var role = await EnsureAdminRoleAsync(ct);
+            user.Roles.Add(role);
+        }
+        else
+        {
+            var role = await EnsureViewOnlyRoleAsync(ct);
+            user.Roles.Add(role);
+        }
+
+        user.SecurityStamp = Guid.NewGuid().ToString();
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Set role '{Role}' for user {UserId}", roleName, userId);
+    }
+
+    /// <summary>
+    /// Returns the list of assignable role names.
+    /// </summary>
+    public IReadOnlyList<string> GetAvailableRoles() => AvailableRoles;
+
     public async Task UnlinkProviderAsync(string userId, string provider, string providerKey, CancellationToken ct = default)
     {
         var login = await _db.AspNetUserLogins.FirstOrDefaultAsync(
@@ -315,6 +380,7 @@ public class AllowedUserService
     public async Task BootstrapAdminRoleAsync(CancellationToken ct = default)
     {
         var role = await EnsureAdminRoleAsync(ct);
+        await EnsureViewOnlyRoleAsync(ct);
 
         var hasAnyAdmin = await _db.AspNetUsers
             .AnyAsync(u => u.EmailConfirmed && u.Roles.Any(r => r.NormalizedName == AdminRoleNormalized), ct);
@@ -380,6 +446,24 @@ public class AllowedUserService
         return role;
     }
 
+    private async Task<AspNetRole> EnsureViewOnlyRoleAsync(CancellationToken ct)
+    {
+        var role = await _db.AspNetRoles
+            .FirstOrDefaultAsync(r => r.NormalizedName == ViewOnlyRoleNormalized, ct);
+
+        if (role != null) return role;
+
+        role = new AspNetRole
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = ViewOnlyRoleName,
+            NormalizedName = ViewOnlyRoleNormalized,
+            ConcurrencyStamp = Guid.NewGuid().ToString()
+        };
+        _db.AspNetRoles.Add(role);
+        return role;
+    }
+
     private async Task GuardLastAdminAsync(string userId, CancellationToken ct, bool includeDisable = false)
     {
         var adminCount = await _db.AspNetUsers
@@ -418,14 +502,14 @@ public class AllowedUserService
                 "Password must contain upper, lower, digit, and symbol characters.");
     }
 
-    private static AllowedUserListItem MapListItem(AspNetUser u, string? displayName, List<string> providers, bool isAdmin)
+    private static AllowedUserListItem MapListItem(AspNetUser u, string? displayName, List<string> providers, string roleName)
         => new()
         {
             Id = u.Id,
             Email = u.Email,
             UserName = u.UserName,
             DisplayName = displayName,
-            IsAdmin = isAdmin,
+            RoleName = roleName,
             IsEnabled = u.EmailConfirmed,
             IsLocked = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
             LockoutEnd = u.LockoutEnd,
@@ -438,16 +522,18 @@ public class AllowedUserService
         var displayName = u.AspNetUserClaims
             .FirstOrDefault(c => c.ClaimType == DisplayNameClaimType)?.ClaimValue;
         var providers = u.AspNetUserLogins.Select(l => l.LoginProvider).ToList();
-        var isAdmin = u.Roles.Any(r => r.NormalizedName == AdminRoleNormalized);
+        var roleName = u.Roles.Any(r => r.NormalizedName == AdminRoleNormalized)
+            ? AdminRoleName
+            : ViewOnlyRoleName;
 
-        var listItem = MapListItem(u, displayName, providers, isAdmin);
+        var listItem = MapListItem(u, displayName, providers, roleName);
         return new AllowedUserDetail
         {
             Id = listItem.Id,
             Email = listItem.Email,
             UserName = listItem.UserName,
             DisplayName = listItem.DisplayName,
-            IsAdmin = listItem.IsAdmin,
+            RoleName = listItem.RoleName,
             IsEnabled = listItem.IsEnabled,
             IsLocked = listItem.IsLocked,
             LockoutEnd = listItem.LockoutEnd,

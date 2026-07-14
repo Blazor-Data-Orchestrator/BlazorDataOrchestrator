@@ -33,6 +33,13 @@
             </RadzenStack>
         </RadzenStack>
 
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Role" Component="role" Style="font-weight: 500;" />
+            <RadzenDropDown TValue="string" @bind-Value="_model.RoleName" Data="@_availableRoles" Name="role"
+                            Style="width: 100%;"
+                            Disabled="@_isRoleDisabled" />
+        </RadzenStack>
+
         @if (!IsEditMode)
         {
             <RadzenStack Gap="0.25rem">
@@ -92,11 +99,14 @@
     [Parameter] public AllowedUserDetail? ExistingUser { get; set; }
     [Parameter] public bool IsLastAdmin { get; set; }
 
-    private FormModel _model = new() { IsAdmin = true };
+    private FormModel _model = new() { RoleName = "Admin" };
     private EditContext _editContext = default!;
     private string _initialPassword = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isSaving;
+    private readonly IReadOnlyList<string> _availableRoles = new[] { "Admin", "ViewOnly" };
+
+    private bool _isRoleDisabled => IsEditMode && IsLastAdmin && _model.RoleName == "Admin";
 
     public bool IsEditMode => ExistingUser != null;
 
@@ -109,7 +119,7 @@
                 Email = ExistingUser.Email ?? "",
                 UserName = ExistingUser.UserName ?? "",
                 DisplayName = ExistingUser.DisplayName,
-                IsAdmin = ExistingUser.IsAdmin,
+                RoleName = ExistingUser.RoleName,
                 IsEnabled = ExistingUser.IsEnabled
             };
         }
@@ -129,7 +139,7 @@
                     Email = _model.Email,
                     UserName = _model.UserName,
                     DisplayName = _model.DisplayName,
-                    IsAdmin = _model.IsAdmin,
+                    RoleName = _model.RoleName,
                     IsEnabled = _model.IsEnabled
                 });
                 Notify.Notify(NotificationSeverity.Success, "User updated");
@@ -141,7 +151,7 @@
                     Email = _model.Email,
                     UserName = _model.UserName,
                     DisplayName = _model.DisplayName,
-                    IsAdmin = _model.IsAdmin,
+                    RoleName = _model.RoleName,
                     IsEnabled = _model.IsEnabled,
                     InitialPassword = string.IsNullOrWhiteSpace(_initialPassword) ? null : _initialPassword
                 });
@@ -190,7 +200,7 @@
         [StringLength(100)]
         public string? DisplayName { get; set; }
 
-        public bool IsAdmin { get; set; }
+        public string RoleName { get; set; } = "Admin";
         public bool IsEnabled { get; set; } = true;
     }
 }

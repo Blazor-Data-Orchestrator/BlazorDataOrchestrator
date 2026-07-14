@@ -7,13 +7,13 @@ namespace BlazorDataOrchestrator.Core;
 /// baseline version seeded on a fresh install.
 ///
 /// Use the zero-padded <c>"NN.NN.NN"</c> format so it matches the SQL migration
-/// script filenames in the <c>!SQL</c> folder (e.g. <c>01.10.00.sql</c>).
+/// script filenames in the <c>!SQL</c> folder (e.g. <c>01.20.00.sql</c>).
 /// Bump this value whenever a new migration script is added.
 /// </summary>
 public static class ApplicationVersion
 {
     /// <summary>
-    /// The current application/code version, e.g. <c>"01.10.00"</c>.
+    /// The current application/code version, e.g. <c>"01.20.00"</c>.
     /// </summary>
-    public const string Current = "01.10.00";
+    public const string Current = "01.20.00";
 }

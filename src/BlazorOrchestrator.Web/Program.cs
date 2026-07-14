@@ -63,6 +63,9 @@ builder.Services.AddAuthorization(options =>
     // which blocks unauthenticated users from establishing the circuit — breaking
     // interactivity on [AllowAnonymous] pages (e.g., install wizard, login).
     // Component-level auth is handled by AuthorizeRouteView in Routes.razor.
+
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("Authenticated", policy => policy.RequireRole("Admin", "ViewOnly"));
 });
 builder.Services.AddCascadingAuthenticationState();
 
@@ -280,6 +283,12 @@ app.Use(async (context, next) =>
     {
         var systemStatus = context.RequestServices.GetRequiredService<ISystemStatusService>();
         if (!await systemStatus.IsConfiguredAsync())
+        {
+            context.Response.Redirect("/setup");
+            return;
+        }
+
+        if (await systemStatus.NeedsUpgradeAsync())
         {
             context.Response.Redirect("/setup");
             return;
