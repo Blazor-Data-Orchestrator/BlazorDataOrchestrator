@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-BlazorOrchestrator.Agent-3967212d-d535-42b6-8b2a-59f10b9d06c7</UserSecretsId>
+    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
