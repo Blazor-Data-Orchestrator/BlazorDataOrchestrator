@@ -1006,7 +1006,7 @@ else
 
                 if (!result.Success)
                 {
-                    NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage);
+                    NotificationService.Notify(NotificationSeverity.Error, "Error", result.ErrorMessage ?? "Unknown error");
                     return;
                 }
 
