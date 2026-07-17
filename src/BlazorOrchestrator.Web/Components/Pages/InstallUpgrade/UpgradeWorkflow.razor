@@ -1,11 +1,16 @@
 @using BlazorOrchestrator.Web.Data
+@using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
 @using BlazorDataOrchestrator.Core.Services
 @using Microsoft.Data.SqlClient
+@using Microsoft.EntityFrameworkCore
 @using Dapper
 @inject WizardStateService WizardState
 @inject IConfiguration Configuration
 @inject SettingsService SettingsService
+@inject AuthService AuthService
+@inject ApplicationDbContext DbContext
+@inject AuthenticationSettings AuthSettings
 
 @code {
     [Parameter]
@@ -26,6 +31,12 @@
     protected override void OnInitialized()
     {
         WizardState.SetUpgrading(true);
+
+        // If already authenticated via external provider callback
+        if (WizardState.IsAdminAuthenticated)
+        {
+            Stage = "check";
+        }
     }
 
     private int ConvertVersionToInteger(string version)
@@ -100,8 +111,26 @@
             return;
         }
 
-        // TODO: Implement actual admin authentication
-        // For now, proceed to check stage
+        var user = await AuthService.ValidateCredentialsAsync(Username, Password);
+        if (user == null)
+        {
+            ErrorMessage = "Invalid username or password.";
+            return;
+        }
+
+        // Check Admin role
+        var isAdmin = await DbContext.AspNetUsers
+            .Where(u => u.Id == user.Id)
+            .SelectMany(u => u.Roles)
+            .AnyAsync(r => r.NormalizedName == "ADMIN");
+
+        if (!isAdmin)
+        {
+            ErrorMessage = "Only administrators can perform upgrades.";
+            return;
+        }
+
+        WizardState.SetAdminAuthenticated(user.UserName ?? Username);
         Stage = "check";
     }
 
@@ -241,14 +270,38 @@
                 </RadzenAlert>
             }
 
-            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-3">Super Admin Login</RadzenText>
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-3">Administrator Authentication</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500 rz-mb-3">
+                Only administrators can run database upgrades. Sign in with your admin account to continue.
+            </RadzenText>
             <div class="rz-mb-3">
-                <RadzenTextBox @bind-Value="Username" Placeholder="Username" Style="width: 100%;" />
+                <RadzenTextBox @bind-Value="Username" Placeholder="Username or Email" Style="width: 100%;" />
             </div>
             <div class="rz-mb-4">
                 <RadzenPassword @bind-Value="Password" Placeholder="Password" Style="width: 100%;" />
             </div>
             <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
+
+            @if (AuthSettings.IsMicrosoftConfigured || AuthSettings.IsGoogleConfigured)
+            {
+                <div class="rz-mt-4" style="border-top: 1px solid #e0e0e0; padding-top: 1rem;">
+                    <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500 rz-mb-3 text-center">Or sign in with an external provider</RadzenText>
+                    <div class="d-flex gap-2 justify-content-center">
+                        @if (AuthSettings.IsMicrosoftConfigured)
+                        {
+                            <a href="/account/upgrade-external-login?provider=Microsoft" class="rz-button rz-button-md rz-variant-outlined rz-light rz-shade-default" style="text-decoration: none;">
+                                <span class="rz-button-text">Microsoft</span>
+                            </a>
+                        }
+                        @if (AuthSettings.IsGoogleConfigured)
+                        {
+                            <a href="/account/upgrade-external-login?provider=Google" class="rz-button rz-button-md rz-variant-outlined rz-danger rz-shade-default" style="text-decoration: none;">
+                                <span class="rz-button-text">Google</span>
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
         </RadzenCard>
     </div>
 }

@@ -112,6 +112,7 @@ else
 
 // Register authentication service
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<WizardTokenService>();
 
 // Register external authentication services
 // NOTE: AuthenticationSettings is created as an instance so its flags can be

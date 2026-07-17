@@ -15,6 +15,7 @@
 @inject WizardStateService WizardState
 @inject NavigationManager NavigationManager
 @inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
+@inject WizardTokenService WizardTokenService
 
 <PageTitle>Setup Wizard</PageTitle>
 
@@ -82,6 +83,31 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // Handle external auth callback token or error from query string
+        var uri = new Uri(NavigationManager.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+
+        var wizardToken = query["wizardToken"];
+        var authError = query["authError"];
+
+        if (!string.IsNullOrEmpty(authError))
+        {
+            ErrorMessage = Uri.UnescapeDataString(authError);
+            // Clear query string to prevent showing stale errors on refresh
+            NavigationManager.NavigateTo("/setup", replace: true);
+        }
+
+        if (!string.IsNullOrEmpty(wizardToken))
+        {
+            var (isValid, _, userName) = WizardTokenService.ValidateToken(wizardToken);
+            if (isValid)
+            {
+                WizardState.SetAdminAuthenticated(userName);
+            }
+            // Clear query string to prevent token reuse
+            NavigationManager.NavigateTo("/setup", replace: true);
+        }
+
         await CheckSystemStatus();
     }
 

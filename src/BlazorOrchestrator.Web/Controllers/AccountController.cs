@@ -3,6 +3,7 @@ using BlazorOrchestrator.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -21,17 +22,20 @@ public class AccountController : Controller
     private readonly ExternalLoginService _externalLoginService;
     private readonly ApplicationDbContext _dbContext;
     private readonly AuthenticationSettings _authSettings;
+    private readonly WizardTokenService _wizardTokenService;
 
     public AccountController(
         AuthService authService,
         ExternalLoginService externalLoginService,
         ApplicationDbContext dbContext,
-        AuthenticationSettings authSettings)
+        AuthenticationSettings authSettings,
+        WizardTokenService wizardTokenService)
     {
         _authService = authService;
         _externalLoginService = externalLoginService;
         _dbContext = dbContext;
         _authSettings = authSettings;
+        _wizardTokenService = wizardTokenService;
     }
 
     /// <summary>
@@ -189,6 +193,93 @@ public class AccountController : Controller
             returnUrl = "/";
 
         return LocalRedirect(returnUrl);
+    }
+
+    /// <summary>
+    /// Initiates an external login challenge specifically for the upgrade wizard.
+    /// Does NOT issue a persistent app cookie — only redirects back to /setup with a token.
+    /// </summary>
+    [HttpGet("/account/upgrade-external-login")]
+    public IActionResult UpgradeExternalLogin(string provider)
+    {
+        if (!string.Equals(provider, "Microsoft", StringComparison.Ordinal)
+            && !string.Equals(provider, "Google", StringComparison.Ordinal))
+        {
+            return Redirect("/setup?authError=Unsupported+provider");
+        }
+
+        var isConfigured = provider switch
+        {
+            "Microsoft" => _authSettings.IsMicrosoftConfigured,
+            "Google" => _authSettings.IsGoogleConfigured,
+            _ => false
+        };
+
+        if (!isConfigured)
+        {
+            return Redirect($"/setup?authError={Uri.EscapeDataString($"{provider} is not configured")}");
+        }
+
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = Url.Action("UpgradeExternalLoginCallback"),
+            Items = { { "provider", provider } }
+        };
+        return Challenge(properties, provider);
+    }
+
+    /// <summary>
+    /// Handles the OAuth callback for upgrade wizard authentication.
+    /// Validates the user is an admin, then redirects to /setup with success indicator.
+    /// No app-level cookie is issued.
+    /// </summary>
+    [HttpGet("/account/upgrade-external-callback")]
+    public async Task<IActionResult> UpgradeExternalLoginCallback()
+    {
+        var result = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        if (!result.Succeeded || result.Principal == null)
+        {
+            return Redirect("/setup?authError=External+authentication+failed");
+        }
+
+        var externalClaims = result.Principal.Claims.ToList();
+        var providerKey = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+        var email = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value
+                    ?? externalClaims.FirstOrDefault(c => c.Type == "preferred_username")?.Value;
+        var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
+        var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : null;
+
+        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email) || string.IsNullOrEmpty(provider))
+        {
+            return Redirect("/setup?authError=Could+not+retrieve+identity");
+        }
+
+        // Find the linked local user
+        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, email, name);
+        if (user == null)
+        {
+            return Redirect("/setup?authError=No+local+account+found+for+this+email");
+        }
+
+        // Verify Admin role
+        var isAdmin = await _dbContext.AspNetUsers
+            .Where(u => u.Id == user.Id)
+            .SelectMany(u => u.Roles)
+            .AnyAsync(r => r.NormalizedName == "ADMIN");
+
+        if (!isAdmin)
+        {
+            // Sign out the external cookie before redirecting
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Redirect("/setup?authError=Only+administrators+can+perform+upgrades");
+        }
+
+        // Sign out the external cookie immediately (wizard-scoped only)
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        // Pass admin identity back via a short-lived encrypted token
+        var token = _wizardTokenService.GenerateToken(user.Id, user.UserName ?? name);
+        return Redirect($"/setup?wizardToken={Uri.EscapeDataString(token)}");
     }
 
     /// <summary>

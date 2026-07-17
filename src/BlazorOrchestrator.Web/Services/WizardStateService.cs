@@ -5,6 +5,8 @@ public class WizardStateService
     public int CurrentStep { get; private set; } = 1;
     public bool IsInstalling { get; set; } = false;
     public bool IsUpgrading { get; set; } = false;
+    public bool IsAdminAuthenticated { get; private set; }
+    public string AuthenticatedAdminName { get; private set; } = string.Empty;
 
     public event Action? OnChange;
 
@@ -23,6 +25,20 @@ public class WizardStateService
     public void SetUpgrading(bool upgrading)
     {
         IsUpgrading = upgrading;
+        NotifyStateChanged();
+    }
+
+    public void SetAdminAuthenticated(string adminName)
+    {
+        IsAdminAuthenticated = true;
+        AuthenticatedAdminName = adminName;
+        NotifyStateChanged();
+    }
+
+    public void ClearAdminAuthenticated()
+    {
+        IsAdminAuthenticated = false;
+        AuthenticatedAdminName = string.Empty;
         NotifyStateChanged();
     }
 
