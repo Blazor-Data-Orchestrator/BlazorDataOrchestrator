@@ -273,6 +273,10 @@ app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 
+// External providers return to callback paths such as /signin-google. Authentication
+// must process those requests before the setup gate redirects application traffic.
+app.UseAuthentication();
+
 // Redirect to /setup if system is not configured (no DB, no users)
 app.Use(async (context, next) =>
 {
@@ -298,7 +302,6 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseAntiforgery();
