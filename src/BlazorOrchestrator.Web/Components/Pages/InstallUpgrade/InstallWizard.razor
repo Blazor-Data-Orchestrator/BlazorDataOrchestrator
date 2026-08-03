@@ -311,9 +311,26 @@
                     };
                     newUser.PasswordHash = passwordHasher.HashPassword(newUser, Model.AdminPassword ?? "Admin@123");
 
+                    // Ensure Admin role exists and assign it to the new user
+                    var adminRole = await context.AspNetRoles
+                        .FirstOrDefaultAsync(r => r.NormalizedName == "ADMIN");
+                    
+                    if (adminRole == null)
+                    {
+                        adminRole = new AspNetRole
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Name = "Admin",
+                            NormalizedName = "ADMIN",
+                            ConcurrencyStamp = Guid.NewGuid().ToString()
+                        };
+                        context.AspNetRoles.Add(adminRole);
+                    }
+
+                    newUser.Roles.Add(adminRole);
                     context.AspNetUsers.Add(newUser);
                     await context.SaveChangesAsync();
-                    AddLog($"✅ Admin user '{Model.AdminUser}' created successfully!");
+                    AddLog($"✅ Admin user '{Model.AdminUser}' created with Admin role!");
                 }
                 else
                 {
