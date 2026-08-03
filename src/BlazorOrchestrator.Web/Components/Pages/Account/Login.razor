@@ -5,6 +5,7 @@
 @attribute [AllowAnonymous]
 @layout LoginLayout
 @inject AuthenticationSettings AuthSettings
+@inject Radzen.NotificationService NotificationService
 
 <PageTitle>Sign In - Blazor Data Orchestrator</PageTitle>
 
@@ -91,4 +92,18 @@
 
     [SupplyParameterFromQuery(Name = "error")]
     public string? ErrorMessage { get; set; }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrEmpty(ErrorMessage))
+        {
+            NotificationService.Notify(new Radzen.NotificationMessage
+            {
+                Severity = Radzen.NotificationSeverity.Error,
+                Summary = "Authentication Failed",
+                Detail = ErrorMessage,
+                Duration = 8000
+            });
+        }
+    }
 }

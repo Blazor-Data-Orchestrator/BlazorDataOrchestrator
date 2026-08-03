@@ -5,7 +5,6 @@
 @inject BlazorDataOrchestrator.Core.Services.IAIChatService ChatService
 @inject AISettingsService SettingsService
 @inject NotificationService NotificationService
-@inject DialogService DialogService
 @inject BlazorOrchestrator.Web.Services.TimeDisplayService TimeDisplayService
 
 <div class="ai-chat-dialog-overlay" @onclick="OnOverlayClick">
@@ -29,6 +28,19 @@
             </RadzenStack>
         </RadzenStack>
 
+        @if (showSettings)
+        {
+            @* Inline AI Settings Panel *@
+            <div class="chat-content" style="overflow-y: auto; padding: 16px;">
+                <ConfigureAIDialog OnSettingsSaved="@OnSettingsSaved" />
+                <div style="padding: 0 8px 8px;">
+                    <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" 
+                                  Click="@CloseSettings" Style="width: 100%;" />
+                </div>
+            </div>
+        }
+        else
+        {
         @* Chat Content - Custom Chat UI *@
         <div class="chat-content">
             <div class="chat-messages" @ref="messagesContainer">
@@ -86,6 +98,8 @@
                               title="Send message" />
             </div>
         </div>
+
+        } @* end else !showSettings *@
 
         @* Footer with Apply Code Button *@
         @if (HasPendingCodeUpdate)
@@ -664,25 +678,22 @@
         NotificationService.Notify(NotificationSeverity.Info, "Cleared", "Conversation history cleared.");
     }
 
-    private async Task OpenSettingsDialog()
+    private bool showSettings = false;
+
+    private void OpenSettingsDialog()
     {
-        await DialogService.OpenAsync<ConfigureAIDialog>("Configure AI Service",
-            new Dictionary<string, object?>
-            {
-                { "OnSettingsSaved", EventCallback.Factory.Create(this, OnSettingsSaved) }
-            },
-            new DialogOptions 
-            { 
-                Width = "500px", 
-                Height = "auto",
-                CloseDialogOnEsc = true 
-            });
+        showSettings = true;
+    }
+
+    private void CloseSettings()
+    {
+        showSettings = false;
     }
 
     private void OnSettingsSaved()
     {
         ChatService.RefreshClient();
-        DialogService.Close();
+        showSettings = false;
         NotificationService.Notify(NotificationSeverity.Success, "Success", "AI settings updated.");
     }
 

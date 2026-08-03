@@ -83,3 +83,5 @@ Thumbs.db
 /src/BlazorOrchestrator.Agent/Properties/PublishProfiles/LACOEAzureContainerProd.pubxml
 /src/BlazorOrchestrator.Scheduler/Properties/PublishProfiles/LACOEAzureContainerProd.pubxml
 /src/BlazorOrchestrator.Web/Properties/PublishProfiles
+docs/ProductionARMDeploymentPlan.md
+docs/ProductionEnvironmentVariables.txt
