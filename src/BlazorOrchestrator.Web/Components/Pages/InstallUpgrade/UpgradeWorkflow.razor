@@ -22,18 +22,20 @@
     [Parameter]
     public string DatabaseVersion { get; set; } = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
 
+    [Parameter]
+    public bool IsAdminAuthenticated { get; set; }
+
     public string Stage { get; set; } = "login";
     public List<string> Logs = new();
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
 
-    protected override void OnInitialized()
+    protected override void OnParametersSet()
     {
         WizardState.SetUpgrading(true);
 
-        // If already authenticated via external provider callback
-        if (WizardState.IsAdminAuthenticated)
+        if (Stage == "login" && (IsAdminAuthenticated || WizardState.IsAdminAuthenticated))
         {
             Stage = "check";
         }

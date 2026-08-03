@@ -14,6 +14,7 @@
 @inject IServiceProvider ServiceProvider
 @inject WizardStateService WizardState
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 @inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
 @inject WizardTokenService WizardTokenService
 
@@ -57,7 +58,10 @@ else
     }
     else if (WizardMode == "UPGRADE")
     {
-        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" DatabaseVersion="@DatabaseVersion" OnUpgradeComplete="OnUpgradeComplete" />
+        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion"
+                         DatabaseVersion="@DatabaseVersion"
+                         IsAdminAuthenticated="@IsUpgradeAuthorized"
+                         OnUpgradeComplete="OnUpgradeComplete" />
     }
     else
     {
@@ -78,6 +82,8 @@ else
     private string WizardMode { get; set; } = "";
     private string ErrorMessage { get; set; } = "";
     private string DatabaseVersion { get; set; } = "";
+    private bool ClearCallbackQuery { get; set; }
+    private bool IsUpgradeAuthorized { get; set; }
 
     private static readonly TimeSpan DbCheckTimeout = TimeSpan.FromSeconds(15);
 
@@ -89,12 +95,12 @@ else
 
         var wizardToken = query["wizardToken"];
         var authError = query["authError"];
+        var callbackError = string.Empty;
 
         if (!string.IsNullOrEmpty(authError))
         {
-            ErrorMessage = Uri.UnescapeDataString(authError);
-            // Clear query string to prevent showing stale errors on refresh
-            NavigationManager.NavigateTo("/setup", replace: true);
+            callbackError = Uri.UnescapeDataString(authError);
+            ClearCallbackQuery = true;
         }
 
         if (!string.IsNullOrEmpty(wizardToken))
@@ -103,12 +109,31 @@ else
             if (isValid)
             {
                 WizardState.SetAdminAuthenticated(userName);
+                IsUpgradeAuthorized = true;
             }
-            // Clear query string to prevent token reuse
-            NavigationManager.NavigateTo("/setup", replace: true);
+            else
+            {
+                callbackError = "Upgrade authorization expired or is invalid. Please sign in again.";
+            }
+
+            ClearCallbackQuery = true;
         }
 
         await CheckSystemStatus();
+
+        if (!string.IsNullOrEmpty(callbackError))
+        {
+            ErrorMessage = callbackError;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && ClearCallbackQuery)
+        {
+            // Remove the short-lived token without navigating and replacing the scoped wizard state.
+            await JSRuntime.InvokeVoidAsync("history.replaceState", null, "", "/setup");
+        }
     }
 
     private async Task CheckSystemStatus()
