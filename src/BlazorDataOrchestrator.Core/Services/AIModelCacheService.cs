@@ -170,18 +170,30 @@ public class AIModelCacheService
         if (string.IsNullOrWhiteSpace(endpoint))
             return GetDefaultModels("Azure OpenAI");
 
-        var version = string.IsNullOrWhiteSpace(apiVersion) ? "2024-06-01" : apiVersion;
-        var url = $"{endpoint.TrimEnd('/')}/openai/models?api-version={version}";
+        // AI Foundry endpoints use /v1 path versioning; don't append ?api-version=
+        string url;
+        if (ChatClientFactory.IsAIFoundryEndpoint(endpoint!))
+        {
+            url = $"{endpoint!.TrimEnd('/')}/models";
+        }
+        else
+        {
+            var version = string.IsNullOrWhiteSpace(apiVersion) ? "2024-06-01" : apiVersion;
+            url = $"{endpoint!.TrimEnd('/')}/openai/models?api-version={version}";
+        }
 
         using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
+        if (ChatClientFactory.IsAIFoundryEndpoint(endpoint!))
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        else
+            httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
 
         var response = await httpClient.GetAsync(url);
 
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("Azure OpenAI models API returned {StatusCode}. Trying deployments endpoint.", response.StatusCode);
-            return await FetchAzureOpenAIDeploymentsAsync(apiKey, endpoint, version);
+            return await FetchAzureOpenAIDeploymentsAsync(apiKey, endpoint!, apiVersion ?? "2024-06-01");
         }
 
         var json = await response.Content.ReadAsStringAsync();
@@ -204,10 +216,17 @@ public class AIModelCacheService
 
     private async Task<List<string>> FetchAzureOpenAIDeploymentsAsync(string apiKey, string endpoint, string apiVersion)
     {
-        var url = $"{endpoint.TrimEnd('/')}/openai/deployments?api-version={apiVersion}";
+        string url;
+        if (ChatClientFactory.IsAIFoundryEndpoint(endpoint))
+            url = $"{endpoint.TrimEnd('/')}/deployments";
+        else
+            url = $"{endpoint.TrimEnd('/')}/openai/deployments?api-version={apiVersion}";
 
         using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
+        if (ChatClientFactory.IsAIFoundryEndpoint(endpoint))
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        else
+            httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
 
         var response = await httpClient.GetAsync(url);
         if (!response.IsSuccessStatusCode)

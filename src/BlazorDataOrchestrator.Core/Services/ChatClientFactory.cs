@@ -35,14 +35,21 @@ public static class ChatClientFactory
 
     private static IChatClient CreateAzureOpenAI(AISettings settings)
     {
-        // Apply the configured API version when supplied and recognizable.
-        var options = BuildAzureOptions(settings);
+        // AI Foundry endpoints use OpenAI-compatible /v1 path and don't need api-version.
+        if (IsAIFoundryEndpoint(settings.Endpoint))
+        {
+            var endpoint = ResolveAzureEndpoint(settings);
+            var openAIOptions = new OpenAIClientOptions { Endpoint = endpoint };
+            var client = new OpenAIClient(new ApiKeyCredential(settings.ApiKey), openAIOptions);
+            return client.GetChatClient(settings.AIModel).AsIChatClient();
+        }
 
-        // Resolve the base endpoint, optionally combining a custom deployment path.
-        var endpoint = ResolveAzureEndpoint(settings);
+        // Traditional Azure OpenAI: apply the configured API version when supplied.
+        var options = BuildAzureOptions(settings);
+        var azureEndpoint = ResolveAzureEndpoint(settings);
 
         var azureClient = new AzureOpenAIClient(
-            endpoint,
+            azureEndpoint,
             new ApiKeyCredential(settings.ApiKey),
             options);
 
@@ -94,6 +101,15 @@ public static class ChatClientFactory
         // Enum.TryParse with ignoreCase matches the "_Preview" suffix casing.
         var normalized = "V" + apiVersion.Trim().Replace("-", "_");
         return Enum.TryParse(normalized, ignoreCase: true, out version);
+    }
+
+    /// <summary>
+    /// Detects Azure AI Foundry endpoints that use path-based versioning (/v1) instead of ?api-version=.
+    /// </summary>
+    public static bool IsAIFoundryEndpoint(string endpoint)
+    {
+        return !string.IsNullOrWhiteSpace(endpoint)
+            && endpoint.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IChatClient CreateOpenAI(AISettings settings)
