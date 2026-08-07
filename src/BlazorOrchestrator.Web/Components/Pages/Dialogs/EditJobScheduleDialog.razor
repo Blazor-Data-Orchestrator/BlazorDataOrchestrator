@@ -12,16 +12,10 @@
                 <RadzenTextBox @bind-Value="@Schedule.ScheduleName" Name="ScheduleName" Style="width: 100%;" />
             </RadzenStack>
         </RadzenColumn>
-        <RadzenColumn Size="3">
+        <RadzenColumn Size="6">
             <RadzenStack Gap="0.25rem">
                 <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
                 <RadzenCheckBox @bind-Value="@Schedule.Enabled" Name="Enabled" />
-            </RadzenStack>
-        </RadzenColumn>
-        <RadzenColumn Size="3">
-            <RadzenStack Gap="0.25rem">
-                <RadzenLabel Text="Halt Error" Component="HadError" Style="font-weight: 500;" />
-                <RadzenCheckBox @bind-Value="@Schedule.HadError" Name="HadError" />
             </RadzenStack>
         </RadzenColumn>
     </RadzenRow>
