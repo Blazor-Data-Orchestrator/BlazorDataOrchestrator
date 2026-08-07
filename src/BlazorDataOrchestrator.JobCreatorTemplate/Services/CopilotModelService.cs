@@ -4,7 +4,7 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services;
 
 /// <summary>
 /// Discovers and caches the list of Copilot models available to the current user.
-/// Falls back to a hardcoded baseline when the API is unreachable.
+/// Fetches models exclusively from the GitHub Copilot SDK API.
 /// </summary>
 public class CopilotModelService
 {
@@ -12,22 +12,8 @@ public class CopilotModelService
     private readonly ILogger<CopilotModelService> _logger;
 
     private List<string>? _cachedModels;
-    private DateTime? _lastRefreshed;
-
-    /// <summary>
-    /// Hardcoded fallback models used when the API cannot be reached.
-    /// </summary>
-    private static readonly List<string> FallbackModels = new()
-    {
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-5",
-        "gpt-5.2",
-        "claude-sonnet-4.5",
-        "o1",
-        "o1-mini",
-        "o3-mini"
-    };
+    private DateTime _cacheExpiry = DateTime.MinValue;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
     public CopilotModelService(CopilotClient client, ILogger<CopilotModelService> logger)
     {
@@ -38,51 +24,60 @@ public class CopilotModelService
     /// <summary>
     /// Timestamp of the last successful model refresh, if any.
     /// </summary>
-    public DateTime? LastRefreshed => _lastRefreshed;
+    public DateTime? LastRefreshed { get; private set; }
 
     /// <summary>
-    /// Returns the list of available models. Tries the SDK first, then falls back.
+    /// Checks if the Copilot API is currently available.
+    /// </summary>
+    public async Task<bool> IsApiAvailableAsync()
+    {
+        try
+        {
+            await _client.GetStatusAsync();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns the list of available models from the Copilot API.
+    /// Throws an exception if the API is unavailable or returns no models.
     /// </summary>
     public async Task<List<string>> GetAvailableModelsAsync(bool forceRefresh = false)
     {
-        if (!forceRefresh && _cachedModels != null)
+        // Return cached if valid and not forcing refresh
+        if (!forceRefresh && _cachedModels != null && DateTime.UtcNow < _cacheExpiry)
         {
             return _cachedModels;
         }
 
-        try
+        // Verify connectivity
+        if (!await IsApiAvailableAsync())
         {
-            bool connected;
-            try { await _client.GetStatusAsync(); connected = true; }
-            catch { connected = false; }
-
-            if (connected)
-            {
-                var models = await FetchModelsFromSdkAsync();
-                if (models != null && models.Count > 0)
-                {
-                    // Merge with fallback to ensure baseline models are always available
-                    var merged = new HashSet<string>(models, StringComparer.OrdinalIgnoreCase);
-                    foreach (var fallback in FallbackModels)
-                    {
-                        merged.Add(fallback);
-                    }
-
-                    _cachedModels = merged.OrderBy(m => m).ToList();
-                    _lastRefreshed = DateTime.UtcNow;
-                    _logger.LogInformation("Fetched {Count} models from Copilot API", models.Count);
-                    return _cachedModels;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to fetch models from Copilot API, using fallback list");
+            _logger.LogWarning("Copilot API not available");
+            throw new InvalidOperationException(
+                "Cannot fetch models: Copilot CLI is not connected. " +
+                "Please ensure the CLI is installed and authenticated.");
         }
 
-        // Fallback
-        _cachedModels = new List<string>(FallbackModels);
-        _lastRefreshed = null;
+        // Fetch from API
+        var models = await FetchModelsFromSdkAsync();
+
+        if (models == null || models.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "No models returned from the Copilot API. " +
+                "This may indicate a subscription or permissions issue.");
+        }
+
+        _cachedModels = models.OrderBy(m => m).ToList();
+        _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
+        LastRefreshed = DateTime.UtcNow;
+
+        _logger.LogInformation("Fetched {Count} models from Copilot API", models.Count);
         return _cachedModels;
     }
 

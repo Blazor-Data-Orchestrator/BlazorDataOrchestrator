@@ -5,13 +5,21 @@
 @inject NotificationService NotificationService
 @inject CopilotHealthService CopilotHealth
 @inject CopilotModelService ModelService
+@inject CopilotCookieService CookieService
 
 <RadzenStack Gap="16" Style="padding: 8px;">
     @if (!CopilotHealth.IsReady)
     {
         <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" AllowClose="false">
             <strong>@CopilotHealth.StatusMessage</strong>
-            <p style="font-size: 0.85em; margin: 4px 0 0 0;">Copilot CLI is not connected. Model discovery may be limited.</p>
+            <p style="font-size: 0.85em; margin: 4px 0 0 0;">Copilot CLI is not connected. Model selection is unavailable.</p>
+        </RadzenAlert>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" AllowClose="true" Close="@(() => errorMessage = null)">
+            @errorMessage
         </RadzenAlert>
     }
 
@@ -24,10 +32,12 @@
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
             <RadzenDropDown Data="@availableModels" @bind-Value="@selectedModel"
                             Style="width: 100%;" AllowClear="false"
-                            Disabled="@isLoadingModels" />
+                            Disabled="@(isLoadingModels || !hasModels)"
+                            Placeholder="@dropdownPlaceholder" />
             <RadzenButton Icon="refresh" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
-                          title="Refresh available models" Click="@OnRefreshModels"
+                          title="Refresh available models from API" Click="@OnRefreshModels"
                           IsBusy="@isLoadingModels"
+                          Disabled="@(!CopilotHealth.IsReady)"
                           Style="padding: 4px 8px; min-width: auto;" />
         </RadzenStack>
     </RadzenFormField>
@@ -45,22 +55,36 @@
     </RadzenText>
 
     <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary"
-                  Click="@OnSave" Style="width: 100%;" />
+                  Click="@OnSave" Style="width: 100%;"
+                  Disabled="@(!hasModels || string.IsNullOrEmpty(selectedModel))" />
 </RadzenStack>
 
 @code {
     [Parameter] public EventCallback OnSettingsSaved { get; set; }
 
-    private string selectedModel = "gpt-4.1";
+    private string selectedModel = "";
     private List<string> availableModels = new();
     private bool isLoadingModels = false;
+    private bool hasModels = false;
+    private string? errorMessage = null;
+    private string dropdownPlaceholder => isLoadingModels 
+        ? "Loading models..." 
+        : (hasModels ? "Select a model" : "No models available");
 
     protected override async Task OnInitializedAsync()
     {
-        var configuredModel = Configuration.GetValue<string>("Copilot:Model");
-        if (!string.IsNullOrWhiteSpace(configuredModel))
+        // Priority 1: Try to load from cookie (persisted last selection)
+        var cookieModel = await CookieService.GetLastUsedModelAsync();
+
+        // Priority 2: Fall back to appsettings.json default
+        if (string.IsNullOrWhiteSpace(cookieModel))
         {
-            selectedModel = configuredModel;
+            cookieModel = Configuration.GetValue<string>("Copilot:Model");
+        }
+
+        if (!string.IsNullOrWhiteSpace(cookieModel))
+        {
+            selectedModel = cookieModel;
         }
 
         await LoadModelsAsync();
@@ -69,21 +93,30 @@
     private async Task LoadModelsAsync()
     {
         isLoadingModels = true;
+        errorMessage = null;
         StateHasChanged();
 
         try
         {
             availableModels = await ModelService.GetAvailableModelsAsync();
+            hasModels = availableModels.Count > 0;
 
-            // Ensure the currently configured model is in the list
+            // Validate that selected model is in the list
             if (!string.IsNullOrWhiteSpace(selectedModel) && !availableModels.Contains(selectedModel))
             {
-                availableModels.Insert(0, selectedModel);
+                // Model no longer available, select first available
+                selectedModel = availableModels.FirstOrDefault() ?? "";
+            }
+            else if (string.IsNullOrWhiteSpace(selectedModel) && hasModels)
+            {
+                selectedModel = availableModels.First();
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Keep whatever we have
+            errorMessage = ex.Message;
+            hasModels = false;
+            availableModels.Clear();
         }
         finally
         {
@@ -95,15 +128,17 @@
     private async Task OnRefreshModels()
     {
         isLoadingModels = true;
+        errorMessage = null;
         StateHasChanged();
 
         try
         {
             availableModels = await ModelService.GetAvailableModelsAsync(forceRefresh: true);
+            hasModels = availableModels.Count > 0;
 
-            if (!string.IsNullOrWhiteSpace(selectedModel) && !availableModels.Contains(selectedModel))
+            if (!availableModels.Contains(selectedModel) && hasModels)
             {
-                availableModels.Insert(0, selectedModel);
+                selectedModel = availableModels.First();
             }
 
             NotificationService.Notify(new NotificationMessage
@@ -116,6 +151,7 @@
         }
         catch (Exception ex)
         {
+            errorMessage = ex.Message;
             NotificationService.Notify(new NotificationMessage
             {
                 Severity = NotificationSeverity.Warning,
@@ -135,7 +171,10 @@
     {
         try
         {
-            // Update the in-memory configuration
+            // Persist to browser cookie for next session
+            await CookieService.SetLastUsedModelAsync(selectedModel);
+
+            // Update in-memory configuration for current session
             Configuration["Copilot:Model"] = selectedModel;
 
             NotificationService.Notify(new NotificationMessage

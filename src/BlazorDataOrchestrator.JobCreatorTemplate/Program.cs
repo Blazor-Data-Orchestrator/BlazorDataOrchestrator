@@ -61,6 +61,9 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             builder.Services.AddSingleton<CopilotHealthService>();
             builder.Services.AddSingleton<CopilotModelService>();
             
+            // Register Copilot Cookie Service for persisting user preferences
+            builder.Services.AddScoped<CopilotCookieService>();
+            
             // Register EmbeddedInstructionsProvider for AI instruction fallback
             builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
             
