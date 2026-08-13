@@ -179,25 +179,79 @@ public class ProjectCreatorService
             return result;
         }
 
-        // 2. Inject code files into the Code/ subdirectory
-        if (codeFiles != null && codeFiles.Count > 0)
-        {
-            var codeDirectory = Path.Combine(result.OutputPath, projectName, "Code");
-
-            if (!Directory.Exists(codeDirectory))
-            {
-                Directory.CreateDirectory(codeDirectory);
-            }
-
-            foreach (var (fileName, fileContent) in codeFiles)
-            {
-                var filePath = Path.Combine(codeDirectory, fileName);
-                await File.WriteAllTextAsync(filePath, fileContent);
-                _logger.LogInformation("Injected code file: {FilePath}", filePath);
-            }
-        }
+        // 2. Inject code files into the project's Code/ subdirectory
+        InjectCodeFiles(result.OutputPath, projectName, codeFiles);
 
         return result;
+    }
+
+    /// <summary>
+    /// Writes the job's code files into the extracted project's Code/ folder, routing each file
+    /// into the language subfolder (CodeCSharp / CodePython) the template expects.
+    /// </summary>
+    private void InjectCodeFiles(string outputDirectory, string projectName, Dictionary<string, string>? codeFiles)
+    {
+        if (codeFiles == null || codeFiles.Count == 0)
+        {
+            return;
+        }
+
+        var projectDirectory = ResolveProjectDirectory(outputDirectory, projectName);
+
+        foreach (var (fileName, fileContent) in codeFiles)
+        {
+            // Guard against path traversal from package entry names
+            var safeFileName = Path.GetFileName(fileName);
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                continue;
+            }
+
+            var targetDirectory = Path.Combine(projectDirectory, "Code", GetLanguageSubFolder(safeFileName));
+            Directory.CreateDirectory(targetDirectory);
+
+            var filePath = Path.Combine(targetDirectory, safeFileName);
+            File.WriteAllText(filePath, fileContent);
+            _logger.LogInformation("Injected code file: {FilePath}", filePath);
+        }
+    }
+
+    private string ResolveProjectDirectory(string outputDirectory, string projectName)
+    {
+        // The template zip nests the project under "BlazorDataOrchestrator.{projectName}" after renaming,
+        // so locate it by its .csproj rather than assuming the folder name.
+        var projectDirectory = Directory
+            .EnumerateDirectories(outputDirectory)
+            .FirstOrDefault(d => Directory.EnumerateFiles(d, "*.csproj").Any());
+
+        if (projectDirectory == null)
+        {
+            projectDirectory = Path.Combine(outputDirectory, $"BlazorDataOrchestrator.{projectName}");
+            _logger.LogWarning("Could not locate the extracted project folder under {OutputDirectory}; falling back to {ProjectDirectory}", outputDirectory, projectDirectory);
+        }
+
+        return projectDirectory;
+    }
+
+    private static string GetLanguageSubFolder(string fileName)
+    {
+        if (fileName.Equals("dependencies.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "CodeCSharp";
+        }
+
+        if (fileName.Equals("requirements.txt", StringComparison.OrdinalIgnoreCase))
+        {
+            return "CodePython";
+        }
+
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".cs" => "CodeCSharp",
+            ".nuspec" => "CodeCSharp",
+            ".py" => "CodePython",
+            _ => string.Empty // e.g. configuration.json lives at the Code/ root
+        };
     }
 
     public async Task<byte[]> CreateProjectZipAsync(
@@ -222,21 +276,7 @@ public class ProjectCreatorService
             ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
             await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
 
-            // Inject code files
-            if (codeFiles != null && codeFiles.Count > 0)
-            {
-                var codeDirectory = Path.Combine(outputDirectory, projectName, "Code");
-                if (!Directory.Exists(codeDirectory))
-                {
-                    Directory.CreateDirectory(codeDirectory);
-                }
-
-                foreach (var (fileName, fileContent) in codeFiles)
-                {
-                    var filePath = Path.Combine(codeDirectory, fileName);
-                    await File.WriteAllTextAsync(filePath, fileContent);
-                }
-            }
+            InjectCodeFiles(outputDirectory, projectName, codeFiles);
 
             var zipFilePath = Path.Combine(tempParent, $"{projectName}.zip");
             ZipFile.CreateFromDirectory(outputDirectory, zipFilePath, CompressionLevel.Optimal, includeBaseDirectory: true);
