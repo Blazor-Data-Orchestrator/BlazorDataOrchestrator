@@ -18,14 +18,20 @@ public sealed class ConfigurationReservedConnectionStringProvider : IReservedCon
 
     public ReservedConnectionStrings Get()
     {
+        // IConfiguration is canonical: Aspire and the env-var provider already feed it.
+        // The raw env scan is only a fallback for non-standard keys such as the JDBC-style one.
         var fromEnvironment = AzureAppSettingsBuilder.ResolveConnectionStrings()
                               ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         string Resolve(string key)
         {
-            if (fromEnvironment.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
-                return value;
-            return _configuration.GetConnectionString(key) ?? string.Empty;
+            var fromConfig = _configuration.GetConnectionString(key);
+            if (!string.IsNullOrWhiteSpace(fromConfig))
+                return fromConfig;
+
+            return fromEnvironment.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+                ? value
+                : string.Empty;
         }
 
         return new ReservedConnectionStrings(

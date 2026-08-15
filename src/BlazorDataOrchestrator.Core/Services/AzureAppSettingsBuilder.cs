@@ -40,13 +40,14 @@ public static class AzureAppSettingsBuilder
             if (string.IsNullOrEmpty(value))
                 continue;
 
+            var isJdbc = envVar.Contains("JDBC", StringComparison.OrdinalIgnoreCase);
+
+            // A JDBC-style variable is a fallback only; never let it clobber a standard ADO.NET value.
+            if (isJdbc && connectionStrings.ContainsKey(key))
+                continue;
+
             foundAny = true;
-
-            // Convert JDBC to ADO.NET if necessary
-            if (envVar.Contains("JDBC", StringComparison.OrdinalIgnoreCase))
-                value = ConvertJdbcToAdoNet(value);
-
-            connectionStrings[key] = value;
+            connectionStrings[key] = isJdbc ? ConvertJdbcToAdoNet(value) : value;
         }
 
         // Also scan for any ConnectionStrings__* env vars we didn't explicitly map
