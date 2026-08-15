@@ -31,7 +31,7 @@ try {
     # deeply nested node packages whose paths exceed Windows MAX_PATH, which makes a
     # naive recursive copy fail with DirectoryNotFoundException.
     New-Item -ItemType Directory -Path $templateDir -Force | Out-Null
-    $dirsToRemove = @('bin', 'obj', 'Properties')
+    $dirsToRemove = @('bin', 'obj', 'Properties', '.vs')
     robocopy $SourceDir $templateDir /E /XD $dirsToRemove /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed copying template (exit code $LASTEXITCODE)"
@@ -47,6 +47,7 @@ try {
     # Remove user-specific and transient files
     $filesToRemove = @(
         '*.csproj.user',
+        '*.suo',
         'execution_errors.log'
     )
     foreach ($pattern in $filesToRemove) {
@@ -55,6 +56,16 @@ try {
                 Remove-Item $_.FullName -Force
                 Write-Host "  Removed $($_.Name)"
             }
+    }
+
+    # Fail fast if any transient/user-specific files or folders survived staging;
+    # these are the files most likely to confuse Visual Studio's project system on load.
+    $forbiddenPatterns = @('.vs', '*.csproj.user', '*.suo', 'bin', 'obj')
+    foreach ($pattern in $forbiddenPatterns) {
+        $found = Get-ChildItem -Path $templateDir -Filter $pattern -Recurse -Force -ErrorAction SilentlyContinue
+        if ($found) {
+            throw "Staged template contains forbidden file/folder matching '$pattern': $($found[0].FullName)"
+        }
     }
 
     # Patch the ProjectReference in the staged .csproj so it resolves correctly
@@ -90,6 +101,18 @@ try {
         }
         Write-Host "  Included $required"
     }
+
+    # Fail the build if any appsettings file is not valid JSON (e.g. smart/curly quotes
+    # pasted in by mistake), catching config bugs before they ship in the zip.
+    Get-ChildItem -Path $templateDir -Filter 'appsettings*.json' -Recurse -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try {
+                Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
+            }
+            catch {
+                throw "$($_.Name) is not valid JSON: $($_.Exception.Message)"
+            }
+        }
 
     Get-ChildItem -Path $templateDir -Filter 'appsettings*.json' -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne 'appsettings.Development.json' } |
