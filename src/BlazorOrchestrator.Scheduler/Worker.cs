@@ -322,7 +322,7 @@ public class Worker : BackgroundService
             jobInstance.Id, job.JobName, schedule.Id);
 
         // Enqueue to Azure Queue
-        var success = await queueService.EnqueueJobAsync(jobInstance.Id, job.Id, queueName);
+        var success = await queueService.EnqueueJobAsync(jobInstance.Id, job.Id, queueName, job.JobEnvironment);
 
         if (success)
         {

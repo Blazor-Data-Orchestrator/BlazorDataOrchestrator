@@ -220,6 +220,32 @@ public class BlazorDataOrchestratorJob
 4. **Clean up resources** in a `finally` block
 5. **Use async/await** throughout for optimal performance
 
+## 5. AppSettings Files
+
+When you emit configuration files for a job, always emit these four, using the dotted naming convention:
+
+- `appsettings.json` — shared base
+- `appsettings.Development.json`
+- `appsettings.Staging.json`
+- `appsettings.Production.json`
+
+Never emit `appsettingsProduction.json` or `appsettingsStaging.json`; those names are no longer recognised.
+
+Leave the following four reserved connection strings **blank** — the executing host always overwrites them:
+
+```json
+{
+  "ConnectionStrings": {
+    "blobs": "",
+    "queues": "",
+    "tables": "",
+    "blazororchestratordb": ""
+  }
+}
+```
+
+All other settings (API keys, feature flags, custom connection strings) are used exactly as packaged.
+
 ---
 
 # Blazor Data Orchestrator Python Instructions

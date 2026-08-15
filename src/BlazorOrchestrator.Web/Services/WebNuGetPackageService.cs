@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using System.Text;
 using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Configuration;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -12,15 +14,21 @@ public class WebNuGetPackageService
     private readonly ILogger<WebNuGetPackageService> _logger;
     private readonly JobManager _jobManager;
     private readonly EditorFileStorageService _fileStorage;
+    private readonly IReservedConnectionStringProvider _reservedProvider;
+    private readonly JobCodeEditorService _editorService;
 
     public WebNuGetPackageService(
         ILogger<WebNuGetPackageService> logger,
         JobManager jobManager,
-        EditorFileStorageService fileStorage)
+        EditorFileStorageService fileStorage,
+        IReservedConnectionStringProvider reservedProvider,
+        JobCodeEditorService editorService)
     {
         _logger = logger;
         _jobManager = jobManager;
         _fileStorage = fileStorage;
+        _reservedProvider = reservedProvider;
+        _editorService = editorService;
     }
 
     /// <summary>
@@ -83,15 +91,27 @@ public class WebNuGetPackageService
             var configJson = $"{{\"SelectedLanguage\": \"{codeModel.Language}\", \"LastJobId\": {jobId}, \"LastJobInstanceId\": 0}}";
             await AddEntryAsync(archive, $"{contentBasePath}/configuration.json", configJson);
 
-            // Add appsettings files
-            if (!string.IsNullOrEmpty(codeModel.AppSettings))
-            {
-                await AddEntryAsync(archive, $"{contentBasePath}/{codeFolder}/appsettings.json", codeModel.AppSettings);
-            }
+            // Add appsettings files: shared base plus one dotted overlay per environment.
+            // Reserved connection strings are stamped in so the editor shows effective values.
+            var reserved = _reservedProvider.Get();
 
-            if (!string.IsNullOrEmpty(codeModel.AppSettingsProduction))
+            var baseAppSettings = string.IsNullOrWhiteSpace(codeModel.AppSettings)
+                ? _editorService.GetDefaultAppSettings()
+                : codeModel.AppSettings;
+
+            await AddEntryAsync(archive,
+                $"{contentBasePath}/{codeFolder}/{JobEnvironments.BaseFileName}",
+                AppSettingsResolver.ApplyReserved(baseAppSettings, reserved));
+
+            foreach (var env in JobEnvironments.All)
             {
-                await AddEntryAsync(archive, $"{contentBasePath}/{codeFolder}/appsettingsProduction.json", codeModel.AppSettingsProduction);
+                var content = codeModel.EnvironmentAppSettings.TryGetValue(env, out var c) && !string.IsNullOrWhiteSpace(c)
+                    ? c
+                    : _editorService.GetDefaultAppSettings(env);
+
+                await AddEntryAsync(archive,
+                    $"{contentBasePath}/{codeFolder}/{JobEnvironments.GetFileName(env)}",
+                    AppSettingsResolver.ApplyReserved(content, reserved));
             }
 
             // Add [Content_Types].xml (required for NuGet)

@@ -14,5 +14,5 @@ public interface IJobQueueService
     /// <param name="jobId">The ID of the job.</param>
     /// <param name="queueName">The resolved queue name.</param>
     /// <returns>True if the message was successfully enqueued, false otherwise.</returns>
-    Task<bool> EnqueueJobAsync(int jobInstanceId, int jobId, string queueName);
+    Task<bool> EnqueueJobAsync(int jobInstanceId, int jobId, string queueName, string? jobEnvironment = null);
 }

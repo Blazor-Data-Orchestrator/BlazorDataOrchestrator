@@ -1,3 +1,5 @@
+using BlazorDataOrchestrator.Core.Configuration;
+
 namespace BlazorOrchestrator.Web.Services;
 
 /// <summary>
@@ -233,8 +235,14 @@ public class EditorFileStorageService
                 }
             }
 
-            SetFile(jobId, "appsettings.json", codeModel.AppSettings);
-            SetFile(jobId, "appsettings.Production.json", codeModel.AppSettingsProduction);
+            SetFile(jobId, JobEnvironments.BaseFileName, codeModel.AppSettings);
+            foreach (var env in JobEnvironments.All)
+            {
+                if (codeModel.EnvironmentAppSettings.TryGetValue(env, out var envContent))
+                {
+                    SetFile(jobId, JobEnvironments.GetFileName(env), envContent);
+                }
+            }
 
             // Add any additional code files
             foreach (var kvp in codeModel.AdditionalCodeFiles)
@@ -286,9 +294,17 @@ public class EditorFileStorageService
             var model = new JobCodeModel
             {
                 Language = language,
-                AppSettings = GetFile(jobId, "appsettings.json") ?? "{}",
-                AppSettingsProduction = GetFile(jobId, "appsettings.Production.json") ?? "{}"
+                AppSettings = GetFile(jobId, JobEnvironments.BaseFileName) ?? "{}"
             };
+
+            foreach (var env in JobEnvironments.All)
+            {
+                var envContent = GetFile(jobId, JobEnvironments.GetFileName(env));
+                if (!string.IsNullOrEmpty(envContent))
+                {
+                    model.EnvironmentAppSettings[env] = envContent;
+                }
+            }
 
             // Get all files for this job
             var allFiles = GetAllFiles(jobId);
@@ -312,8 +328,7 @@ public class EditorFileStorageService
                 
                 // Skip main file, config files, and requirements.txt
                 if (lowerFileName == mainFileName.ToLower() ||
-                    lowerFileName == "appsettings.json" ||
-                    lowerFileName == "appsettings.production.json" ||
+                    JobEnvironments.AllFileNames.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase) ||
                     lowerFileName == "requirements.txt")
                 {
                     continue;
@@ -328,9 +343,11 @@ public class EditorFileStorageService
 
             // Build discovered files list in proper order
             model.DiscoveredFiles.Add(mainFileName);
-            model.DiscoveredFiles.Add("appsettings.json");
-            model.DiscoveredFiles.Add("appsettings.Production.json");
-            
+            foreach (var fileName in JobEnvironments.AllFileNames)
+            {
+                model.DiscoveredFiles.Add(fileName);
+            }
+
             if (language.ToLower() == "python" && !string.IsNullOrEmpty(model.RequirementsTxt))
             {
                 model.DiscoveredFiles.Add("requirements.txt");

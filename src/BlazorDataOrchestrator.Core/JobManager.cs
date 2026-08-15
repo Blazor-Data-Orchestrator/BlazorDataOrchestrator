@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
+using BlazorDataOrchestrator.Core.Configuration;
 using BlazorDataOrchestrator.Core.Data;
 using BlazorDataOrchestrator.Core.Models;
 using BlazorDataOrchestrator.Core.Services;
@@ -37,6 +38,7 @@ namespace BlazorDataOrchestrator.Core
         private readonly string _blobConnectionString;
         private readonly string _queueConnectionString;
         private readonly string _tableConnectionString;
+        private readonly ReservedConnectionStrings _reserved;
         private readonly TableClient _logTableClient;
         private readonly QueueClient _jobQueueClient;
         private readonly BlobContainerClient _packageContainerClient;
@@ -54,6 +56,7 @@ namespace BlazorDataOrchestrator.Core
             _blobConnectionString = blobConnectionString;
             _queueConnectionString = queueConnectionString;
             _tableConnectionString = tableConnectionString;
+            _reserved = new ReservedConnectionStrings(blobConnectionString, queueConnectionString, tableConnectionString, sqlConnectionString);
 
             // Initialize clients from connection strings
             var tableServiceClient = new TableServiceClient(_tableConnectionString);
@@ -76,12 +79,17 @@ namespace BlazorDataOrchestrator.Core
         /// Creates a JobManager using pre-configured Azure SDK clients from DI.
         /// Suitable for Azure deployment where Aspire injects managed-identity-backed clients.
         /// </summary>
-        public JobManager(string sqlConnectionString, BlobServiceClient blobServiceClient, QueueServiceClient queueServiceClient, TableServiceClient tableServiceClient)
+        public JobManager(string sqlConnectionString, BlobServiceClient blobServiceClient, QueueServiceClient queueServiceClient, TableServiceClient tableServiceClient, ReservedConnectionStrings? reserved = null)
         {
             _sqlConnectionString = sqlConnectionString;
-            _blobConnectionString = string.Empty;
-            _queueConnectionString = string.Empty;
-            _tableConnectionString = string.Empty;
+            _reserved = reserved ?? new ReservedConnectionStrings(
+                Blobs: string.Empty,
+                Queues: string.Empty,
+                Tables: string.Empty,
+                BlazorOrchestratorDb: sqlConnectionString);
+            _blobConnectionString = _reserved.Blobs;
+            _queueConnectionString = _reserved.Queues;
+            _tableConnectionString = _reserved.Tables;
 
             _tableServiceClient = tableServiceClient;
             _logTableClient = tableServiceClient.GetTableClient("JobLogs");
@@ -864,17 +872,38 @@ namespace BlazorDataOrchestrator.Core
 
             // Upload to blob
             var blobClient = _packageContainerClient.GetBlobClient(uniqueName);
-            
+
             // Reset stream position if possible
             if (fileStream.CanSeek)
             {
                 fileStream.Position = 0;
             }
 
-            await blobClient.UploadAsync(fileStream, new Azure.Storage.Blobs.Models.BlobHttpHeaders
+            // Rewrite the four reserved connection strings so the stored package reflects host values
+            var (stampedStream, stampResult) = await PackageAppSettingsStamper.StampAsync(fileStream, _reserved);
+
+            await using (stampedStream)
             {
-                ContentType = "application/octet-stream"
-            });
+                foreach (var warning in stampResult.Warnings)
+                {
+                    await LogAsync("UploadJobPackage", warning, "Warning", jobId: jobId);
+                }
+
+                if (stampResult.StampedFiles.Count > 0)
+                {
+                    await LogAsync("UploadJobPackage", $"Stamped reserved connection strings into: {string.Join(", ", stampResult.StampedFiles)}", jobId: jobId);
+                }
+
+                if (stampResult.CreatedFiles.Count > 0)
+                {
+                    await LogAsync("UploadJobPackage", $"Created missing appsettings files: {string.Join(", ", stampResult.CreatedFiles)}", jobId: jobId);
+                }
+
+                await blobClient.UploadAsync(stampedStream, new Azure.Storage.Blobs.Models.BlobHttpHeaders
+                {
+                    ContentType = "application/octet-stream"
+                });
+            }
 
             // Update job record
             job.JobCodeFile = uniqueName;
@@ -1157,7 +1186,12 @@ namespace BlazorDataOrchestrator.Core
 
             var jobId = job.Id;
             // Use the environment from queue message, or fall back to job configuration
-            var effectiveEnvironment = jobEnvironment ?? job.JobEnvironment ?? "Development";
+            var effectiveEnvironment = JobEnvironments.Normalize(jobEnvironment ?? job.JobEnvironment);
+            var rawEnvironment = jobEnvironment ?? job.JobEnvironment;
+            if (!JobEnvironments.IsRecognized(rawEnvironment))
+            {
+                await LogAsync("ProcessJobInstance", $"Unrecognized job environment '{rawEnvironment}'. Defaulting to '{JobEnvironments.Default}'.", "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
+            }
             await LogAsync("ProcessJobInstance", $"Processing Job {job.JobName} (ID: {jobId}) with Environment: {effectiveEnvironment}", jobId: jobId, jobInstanceId: jobInstanceId);
 
             // Mark as in process
@@ -1203,11 +1237,8 @@ namespace BlazorDataOrchestrator.Core
                 var config = await packageProcessor.GetConfigurationAsync(tempDir);
                 await LogAsync("ProcessJobInstance", $"Selected language: {config.SelectedLanguage}", jobId: jobId, jobInstanceId: jobInstanceId);
 
-                // Read appsettings from the package based on environment
+                // Read appsettings from the package: base + environment overlay, host-owned reserved keys applied last
                 var appSettingsJson = await ReadPackagedAppSettingsAsync(tempDir, effectiveEnvironment, jobId, jobInstanceId);
-
-                // Merge/override connection strings with agent-configured values
-                appSettingsJson = MergeConnectionStrings(appSettingsJson, _sqlConnectionString, _tableConnectionString);
 
                 // Log webhook parameters if present
                 if (!string.IsNullOrEmpty(webhookParameters))
@@ -1320,130 +1351,33 @@ namespace BlazorDataOrchestrator.Core
 
         // #13 Read Packaged AppSettings
         /// <summary>
-        /// Reads the appropriate appsettings file from the extracted NuGet package based on environment.
-        /// Uses naming convention: appsettings{Environment}.json (e.g., appsettingsProduction.json)
-        /// Falls back to appsettings.json if environment-specific file is not found.
+        /// Resolves the effective appsettings for the job: appsettings.json deep-merged with
+        /// appsettings.{Environment}.json, with the four reserved connection strings taken from the host.
         /// </summary>
-        /// <param name="tempDir">The temporary directory where the package was extracted</param>
-        /// <param name="environment">The target environment (Production, Staging, Development)</param>
-        /// <param name="jobId">The job ID for logging</param>
-        /// <param name="jobInstanceId">The job instance ID for logging</param>
-        /// <returns>The appsettings JSON content, or "{}" if no file is found</returns>
+        /// <remarks>Only file names and key names are logged; resolved values are never written to the log.</remarks>
         private async Task<string> ReadPackagedAppSettingsAsync(string tempDir, string environment, int jobId, int jobInstanceId)
         {
-            // Determine the environment-specific file name
-            var environmentFileName = environment?.ToLower() switch
-            {
-                "production" => "appsettingsProduction.json",
-                "staging" => "appsettingsStaging.json",
-                _ => "appsettings.json" // Development, Local, or any other
-            };
+            var resolution = AppSettingsResolver.Resolve(tempDir, environment, _reserved);
 
-            // Search for the environment-specific file in the package
-            var environmentFiles = Directory.GetFiles(tempDir, environmentFileName, SearchOption.AllDirectories);
-            
-            if (environmentFiles.Length > 0)
+            foreach (var warning in resolution.Warnings)
             {
-                var filePath = environmentFiles[0];
-                await LogAsync("ProcessJobInstance", $"Found environment-specific appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
-                return await File.ReadAllTextAsync(filePath);
+                await LogAsync("ProcessJobInstance", warning, "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
             }
 
-            // Fall back to appsettings.json if environment-specific file not found
-            if (environmentFileName != "appsettings.json")
+            if (resolution.IsFatal)
             {
-                await LogAsync("ProcessJobInstance", $"Environment-specific file '{environmentFileName}' not found, falling back to appsettings.json", "Warning", jobId: jobId, jobInstanceId: jobInstanceId);
+                await LogAsync("ProcessJobInstance", resolution.FatalReason ?? "AppSettings resolution failed.", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
+                throw new InvalidOperationException(resolution.FatalReason ?? "AppSettings resolution failed.");
             }
 
-            var fallbackFiles = Directory.GetFiles(tempDir, "appsettings.json", SearchOption.AllDirectories);
-            
-            if (fallbackFiles.Length > 0)
-            {
-                var filePath = fallbackFiles[0];
-                await LogAsync("ProcessJobInstance", $"Using fallback appsettings: {Path.GetFileName(filePath)}", jobId: jobId, jobInstanceId: jobInstanceId);
-                return await File.ReadAllTextAsync(filePath);
-            }
+            await LogAsync(
+                "ProcessJobInstance",
+                $"AppSettings resolved for '{JobEnvironments.Normalize(environment)}' using base '{resolution.BaseFileUsed ?? "(none)"}' and overlay '{resolution.OverlayFileUsed ?? "(none)"}'",
+                jobId: jobId,
+                jobInstanceId: jobInstanceId);
 
-            // No appsettings file found - this is an error condition
-            await LogAsync("ProcessJobInstance", "No appsettings.json file found in the package. Job execution will proceed with default configuration.", "Error", jobId: jobId, jobInstanceId: jobInstanceId);
-            
-            // Return empty JSON object with just connection strings placeholder
-            return "{}";
-        }
-
-        // #14 Merge Connection Strings
-        /// <summary>
-        /// Merges the agent-configured connection strings into the packaged appsettings JSON.
-        /// Agent connection strings override any values from the package.
-        /// </summary>
-        /// <param name="appSettingsJson">The original appsettings JSON from the package</param>
-        /// <param name="sqlConnectionString">The agent's SQL connection string</param>
-        /// <param name="tableConnectionString">The agent's Table Storage connection string</param>
-        /// <returns>The merged appsettings JSON with updated connection strings</returns>
-        private string MergeConnectionStrings(string appSettingsJson, string sqlConnectionString, string tableConnectionString)
-        {
-            try
-            {
-                // Parse the existing JSON
-                var jsonDoc = JsonDocument.Parse(appSettingsJson);
-                var root = jsonDoc.RootElement;
-
-                // Create a dictionary to hold the merged configuration
-                var config = new Dictionary<string, object>();
-
-                // Copy existing properties
-                foreach (var property in root.EnumerateObject())
-                {
-                    if (property.Name == "ConnectionStrings")
-                    {
-                        // Get existing connection strings and merge with agent values
-                        var connectionStrings = new Dictionary<string, string>();
-                        
-                        if (property.Value.ValueKind == JsonValueKind.Object)
-                        {
-                            foreach (var cs in property.Value.EnumerateObject())
-                            {
-                                connectionStrings[cs.Name] = cs.Value.GetString() ?? "";
-                            }
-                        }
-
-                        // Override with agent connection strings
-                        connectionStrings["blazororchestratordb"] = sqlConnectionString;
-                        connectionStrings["tables"] = tableConnectionString;
-                        
-                        config["ConnectionStrings"] = connectionStrings;
-                    }
-                    else
-                    {
-                        // Copy other properties as raw JSON
-                        config[property.Name] = JsonSerializer.Deserialize<object>(property.Value.GetRawText())!;
-                    }
-                }
-
-                // Ensure ConnectionStrings section exists even if not in original
-                if (!config.ContainsKey("ConnectionStrings"))
-                {
-                    config["ConnectionStrings"] = new Dictionary<string, string>
-                    {
-                        { "blazororchestratordb", sqlConnectionString },
-                        { "tables", tableConnectionString }
-                    };
-                }
-
-                return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = false });
-            }
-            catch (JsonException)
-            {
-                // If JSON parsing fails, return a basic config with connection strings
-                return JsonSerializer.Serialize(new
-                {
-                    ConnectionStrings = new Dictionary<string, string>
-                    {
-                        { "blazororchestratordb", sqlConnectionString },
-                        { "tables", tableConnectionString }
-                    }
-                });
-            }
+            return resolution.Json;
         }
     }
 }
+

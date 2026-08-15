@@ -8,6 +8,7 @@
 @using System.Text.Json
 @using System.Text.RegularExpressions
 @using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.Core.Configuration
 @using BlazorDataOrchestrator.Core.Services
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
@@ -18,6 +19,7 @@
 @using Microsoft.JSInterop
 @inject IWebHostEnvironment Environment
 @inject IConfiguration Configuration
+@inject IReservedConnectionStringProvider ReservedProvider
 @inject DialogService DialogService
 @inject CopilotChatService ChatService
 @inject NuGetPackageService PackageService
@@ -66,6 +68,7 @@
                                                            IsBusy="@isExecuting">
                                             <ChildContent>
                                                 <RadzenSplitButtonItem Text="Run Code [Development]" Value="Development" Icon="play_arrow" />
+                                                <RadzenSplitButtonItem Text="Run Code [Staging]" Value="Staging" Icon="science" />
                                                 <RadzenSplitButtonItem Text="Run Code [Production]" Value="Production" Icon="rocket_launch" />
                                             </ChildContent>
                                         </RadzenSplitButton>
@@ -587,53 +590,25 @@
                 // Continue with execution even if package creation fails
             }
 
-            // 2. Get AppSettings
-            string appSettingsFileName = environment == "Production" ? "appsettingsProduction.json" : "appsettings.json";
-            string appSettingsContent = "{}";
-            string appSettingsFile = Path.Combine(Environment.ContentRootPath, appSettingsFileName);
-            
-            if (File.Exists(appSettingsFile))
+            // 2. Resolve AppSettings the same way the Agent does: base + overlay, host-owned reserved keys
+            var reserved = ReservedProvider.Get();
+            var resolution = AppSettingsResolver.Resolve(Environment.ContentRootPath, environment, reserved);
+
+            foreach (var warning in resolution.Warnings)
             {
-                appSettingsContent = await File.ReadAllTextAsync(appSettingsFile);
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Loaded {appSettingsFileName}\n";
-            }
-            else
-            {
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {appSettingsFileName} not found. Using defaults.\n";
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {warning}\n";
             }
 
-            // Patch connection strings from Configuration (Aspire environment variables)
-            try
+            if (resolution.IsFatal)
             {
-                var jsonNode = System.Text.Json.Nodes.JsonNode.Parse(appSettingsContent) ?? new System.Text.Json.Nodes.JsonObject();
-                
-                var connString = Configuration.GetConnectionString("blazororchestratordb");
-                if (!string.IsNullOrEmpty(connString))
-                {
-                    if (jsonNode["ConnectionStrings"] == null)
-                    {
-                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
-                    }
-                    jsonNode["ConnectionStrings"]!["blazororchestratordb"] = connString;
-                }
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Error: {resolution.FatalReason}\n";
+                isExecuting = false;
+                StateHasChanged();
+                return;
+            }
 
-                var tableConnString = Configuration.GetConnectionString("tables");
-                if (!string.IsNullOrEmpty(tableConnString))
-                {
-                    if (jsonNode["ConnectionStrings"] == null)
-                    {
-                        jsonNode["ConnectionStrings"] = new System.Text.Json.Nodes.JsonObject();
-                    }
-                    jsonNode["ConnectionStrings"]!["tables"] = tableConnString;
-                }
-                
-                appSettingsContent = jsonNode.ToJsonString();
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Patched connection strings from environment\n";
-            }
-            catch (Exception ex)
-            {
-                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: Failed to patch connection strings: {ex.Message}\n";
-            }
+            string appSettingsContent = resolution.Json;
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] AppSettings resolved for '{JobEnvironments.Normalize(environment)}' using base '{resolution.BaseFileUsed ?? "(none)"}' and overlay '{resolution.OverlayFileUsed ?? "(none)"}'\n";
 
             // 3. Create Job Instance
             int jobInstanceId = 0;
@@ -741,6 +716,10 @@ except Exception as e:
                     var pythonCodePath = GetCodeFolderPath("python");
                     var runnerPath = Path.Combine(pythonCodePath, "runner.py");
                     await File.WriteAllTextAsync(runnerPath, runnerScript);
+
+                    // The runner takes a file path, so persist the resolved settings alongside it
+                    var appSettingsFile = Path.Combine(pythonCodePath, "resolved.appsettings.json");
+                    await File.WriteAllTextAsync(appSettingsFile, appSettingsContent);
 
                     try
                     {

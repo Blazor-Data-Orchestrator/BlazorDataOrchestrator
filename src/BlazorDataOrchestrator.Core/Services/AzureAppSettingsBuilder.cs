@@ -26,16 +26,12 @@ public static class AzureAppSettingsBuilder
     };
 
     /// <summary>
-    /// Resolves connection strings from environment variables.
+    /// Resolves connection strings from environment variables on any host, not just Azure Container Apps.
     /// Returns null if no known environment variables are found.
-    /// Shared by both C# and Python config builders.
     /// </summary>
-    private static Dictionary<string, string>? ResolveConnectionStrings()
+    public static Dictionary<string, string>? ResolveConnectionStrings()
     {
-        if (!AzureEnvironmentDetector.IsAzureContainerApp)
-            return null;
-
-        var connectionStrings = new Dictionary<string, string>();
+        var connectionStrings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         bool foundAny = false;
 
         foreach (var (envVar, key) in KnownEnvVarMappings)

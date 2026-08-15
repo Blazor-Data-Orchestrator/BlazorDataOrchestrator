@@ -27,13 +27,14 @@ public class JobQueueService : IJobQueueService
     }
 
     /// <inheritdoc />
-    public async Task<bool> EnqueueJobAsync(int jobInstanceId, int jobId, string queueName)
+    public async Task<bool> EnqueueJobAsync(int jobInstanceId, int jobId, string queueName, string? jobEnvironment = null)
     {
         var message = new JobQueueMessage
         {
             JobInstanceId = jobInstanceId,
             JobId = jobId,
             QueueName = queueName,
+            JobEnvironment = jobEnvironment,
             ScheduledAtUtc = DateTime.UtcNow
         };
 

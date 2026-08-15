@@ -76,6 +76,30 @@ try {
     Copy-Item -Path $slnxTemplate -Destination $slnxDest
     Write-Host "  Included JobCreatorTemplate.slnx"
 
+    # Verify all four dotted appsettings files are staged, and that only the Development
+    # overlay is allowed to carry local placeholder connection strings.
+    $requiredAppSettings = @(
+        'appsettings.json',
+        'appsettings.Development.json',
+        'appsettings.Staging.json',
+        'appsettings.Production.json'
+    )
+    foreach ($required in $requiredAppSettings) {
+        if (-not (Test-Path (Join-Path $templateDir $required))) {
+            throw "Missing required template file: $required"
+        }
+        Write-Host "  Included $required"
+    }
+
+    Get-ChildItem -Path $templateDir -Filter 'appsettings*.json' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'appsettings.Development.json' } |
+        ForEach-Object {
+            $content = Get-Content $_.FullName -Raw
+            if ($content -match 'UseDevelopmentStorage=true' -or $content -match '127\.0\.0\.1,14330') {
+                throw "$($_.Name) contains local placeholder connection strings. Only appsettings.Development.json may."
+            }
+        }
+
     # Ensure the output directory exists
     $outputDir = Split-Path $OutputZip -Parent
     if (-not (Test-Path $outputDir)) {

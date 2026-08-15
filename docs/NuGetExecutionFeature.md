@@ -40,6 +40,10 @@ This plan implements three major features:
 - Update `JobCodeFile` field with the unique blob name after upload
 - Add `UpdateJobPackageAsync(int jobId, Stream fileStream, string fileName)` for package updates
 - Update container name from `job-packages` to `jobs`
+- Stamp the package before storing it: `UploadJobPackageAsync` runs `PackageAppSettingsStamper.StampAsync`, which
+  rewrites the four reserved connection strings (`blobs`, `queues`, `tables`, `blazororchestratordb`) inside every
+  `appsettings*.json` entry and creates any of the four dotted appsettings files that are missing. All other package
+  content is preserved. This applies to both editor-published and manually uploaded `.nupkg` files.
 
 ### 1.3 Update JobDetails.razor
 - [x] **File:** `src/BlazorOrchestrator.Web/Components/Pages/JobDetails.razor`

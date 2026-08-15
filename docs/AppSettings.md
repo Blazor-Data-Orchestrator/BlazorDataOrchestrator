@@ -1,6 +1,6 @@
 # Environment-Specific AppSettings and Container-Based Queueing for Job Execution
 
-Enable jobs to use environment-specific appsettings files (e.g., appsettingsProduction.json) and route job execution to specific Azure Queues based on "Container Size" configurations defined in Job Administration.
+Enable jobs to use environment-specific appsettings files (`appsettings.{Environment}.json`) and route job execution to specific Azure Queues based on "Container Size" configurations defined in Job Administration.
 
 ## Flow Diagram
 
@@ -41,22 +41,18 @@ flowchart TD
 
     subgraph "AppSettings Resolution (JobManager)"
         O --> P{Determine file name<br/>based on JobEnvironment}
-        P -->|Production| Q["appsettingsProduction.json"]
-        P -->|Staging| R["appsettingsStaging.json"]
-        P -->|Development/Local| S["appsettings.json"]
+        P -->|Production| Q["appsettings.Production.json"]
+        P -->|Staging| R["appsettings.Staging.json"]
+        P -->|Development| S["appsettings.Development.json"]
         
-        Q --> T{File exists?}
+        Q --> T{Base or overlay present?}
         R --> T
         S --> T
         
-        T -->|Yes| U[Read file contents]
-        T -->|No| V{appsettings.json exists?}
+        T -->|Yes| U[Deep merge base and overlay]
+        T -->|No| X[Log Error & Abort Job]
         
-        V -->|Yes| W[Use appsettings.json<br/>as fallback]
-        V -->|No| X[Log Error & Abort Job]
-        
-        U --> Y[Merge/Override<br/>ConnectionStrings with<br/>Agent configured values]
-        W --> Y
+        U --> Y[Apply the four reserved<br/>ConnectionStrings from the host]
     end
 
     subgraph "Job Execution"
@@ -85,10 +81,35 @@ Update BlazorDataOrchestrator.Core\JobManager.cs to accept the QueueName paramet
 
 ### Environment Naming Convention
 
-Continue using the `appsettings{Environment}.json` convention:
-- **Production** → `appsettingsProduction.json`
-- **Staging** → `appsettingsStaging.json`
-- **Development/Local** → `appsettings.json`
+> **Superseded by [JobEnvironmentAppSettingsPlan.md](JobEnvironmentAppSettingsPlan.md).** The dotted convention below is
+> now used everywhere: the template project, the editor, the `.nupkg` entries and the Agent runtime lookup.
+
+| Environment | File |
+| --- | --- |
+| *(shared base, always loaded)* | `appsettings.json` |
+| Development | `appsettings.Development.json` |
+| Staging | `appsettings.Staging.json` |
+| Production | `appsettings.Production.json` |
+
+The Agent deep-merges `appsettings.json` with `appsettings.{Environment}.json`. The non-dotted forms
+(`appsettingsProduction.json`, `appsettingsStaging.json`) are no longer recognised.
+
+### Reserved Connection Strings
+
+The following four keys under `ConnectionStrings` are **always** supplied by the executing host and
+overwrite whatever the package contains:
+
+- `blobs`
+- `queues`
+- `tables`
+- `blazororchestratordb`
+
+Everything else in the package — API keys, feature flags, custom connection strings, `TimezoneId` —
+is honoured exactly as packaged. If the host cannot supply all four reserved values, the job instance
+fails with a descriptive error rather than running with blank connection strings.
+
+Reserved values are also stamped into the package at upload/publish time so the developer can see the
+effective values in the editor; the runtime application remains authoritative.
 
 ### 1. Update Job Table & Edit Screen
 
@@ -116,15 +137,19 @@ Update the Azure Queue client to send the message to the dynamically determined 
 
 ### 5. Modify JobManager to read packaged appsettings
 
-In `src/BlazorDataOrchestrator.Core/JobManager.cs` `ExecuteJobAsync`, after extracting the NuGet package, locate the appropriate appsettings file based on `JobEnvironment` (e.g., `appsettingsProduction.json`).
+In `src/BlazorDataOrchestrator.Core/JobManager.cs`, after extracting the NuGet package, resolve the effective
+settings through `AppSettingsResolver`: load `appsettings.json`, deep-merge `appsettings.{Environment}.json`
+over it, then apply the four reserved connection strings from the host.
 
-### 6. Merge packaged appsettings with runtime connection strings
+### 6. Reserved connection strings win
 
-Update `JobManager.cs` to load the JSON from the packaged file first, then merge/override the `ConnectionStrings` section with the Agent's configured values.
+Only `blobs`, `queues`, `tables` and `blazororchestratordb` are replaced with host values. All other packaged
+keys — including custom connection strings — are passed through untouched.
 
 ### 7. Add error handling for missing appsettings
 
-If `appsettings.json` is missing entirely, log an error and abort job execution with a descriptive error in `JobInstance.JobInstanceError`.
+If neither `appsettings.json` nor the environment overlay is present, or the host cannot supply all four reserved
+values, log an error and abort job execution with a descriptive error in `JobInstance.JobInstanceError`.
 
 ### 8. Update JobExecutionContext (Optional)
 

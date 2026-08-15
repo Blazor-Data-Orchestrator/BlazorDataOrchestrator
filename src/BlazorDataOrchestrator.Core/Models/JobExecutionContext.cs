@@ -1,5 +1,4 @@
 namespace BlazorDataOrchestrator.Core.Models;
-
 /// <summary>
 /// Context information passed to job execution methods.
 /// </summary>
@@ -54,6 +53,6 @@ public class JobExecutionContext
     /// The environment the job is running under (e.g., Production, Staging, Development).
     /// Used to determine which appsettings file was loaded from the NuGet package.
     /// </summary>
-    public string Environment { get; set; } = "Development";
+    public string Environment { get; set; } = Configuration.JobEnvironments.Default;
 }
 

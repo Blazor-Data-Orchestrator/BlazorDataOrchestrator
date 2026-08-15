@@ -37,9 +37,10 @@ BlazorDataOrchestrator.Job.1.0.nupkg
             ├── configuration.json            # Language and settings
             ├── main.cs (or main.py)          # Primary code file
             ├── additional-file.cs            # Optional additional code files
-            ├── appsettings.json              # Default configuration
-            ├── appsettingsProduction.json    # Production overrides
-            └── appsettingsStaging.json       # Staging overrides (optional)
+            ├── appsettings.json              # Shared base configuration
+            ├── appsettings.Development.json  # Development overrides
+            ├── appsettings.Staging.json      # Staging overrides
+            └── appsettings.Production.json   # Production overrides
 ```
 
 ---
@@ -136,15 +137,27 @@ Python dependencies can be listed in a `requirements.txt` file within the packag
 
 ## Environment-Specific Configuration
 
-Jobs can include per-environment configuration files. The Agent loads the appropriate file based on the job's `JobEnvironment` setting:
+Jobs include per-environment configuration files. The Agent always loads `appsettings.json` as a shared base and
+deep-merges the overlay matching the job's `JobEnvironment` setting over it:
 
-| Environment | Config File |
+| Environment | Overlay File |
 |-------------|-------------|
-| Development (default) | `appsettings.json` |
-| Production | `appsettingsProduction.json` |
-| Staging | `appsettingsStaging.json` |
+| Development | `appsettings.Development.json` |
+| Staging | `appsettings.Staging.json` |
+| Production (default for new jobs) | `appsettings.Production.json` |
 
-The Agent also merges its own connection strings into the job's configuration at runtime, so jobs can access shared infrastructure (database, storage, etc.) without hardcoding credentials.
+### Reserved connection strings
+
+Do not bother filling in these four keys — the executing host always overwrites them:
+
+- `ConnectionStrings:blobs`
+- `ConnectionStrings:queues`
+- `ConnectionStrings:tables`
+- `ConnectionStrings:blazororchestratordb`
+
+Every other setting — API keys, feature flags, custom connection strings — is used exactly as packaged.
+If the host cannot supply all four reserved values, the job fails with a clear error instead of running
+with blank connection strings.
 
 ---
 

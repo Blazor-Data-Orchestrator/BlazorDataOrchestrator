@@ -185,8 +185,11 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
                 Version = version,
                 Description = description,
                 Authors = authors,
-                AppSettingsPath = Path.Combine(_environment.ContentRootPath, "appsettings.json"),
-                AppSettingsProductionPath = Path.Combine(_environment.ContentRootPath, "appsettingsProduction.json"),
+            AppSettingsPath = Path.Combine(_environment.ContentRootPath, BlazorDataOrchestrator.Core.Configuration.JobEnvironments.BaseFileName),
+            EnvironmentAppSettingsPaths = BlazorDataOrchestrator.Core.Configuration.JobEnvironments.All.ToDictionary(
+                env => env,
+                env => Path.Combine(_environment.ContentRootPath, BlazorDataOrchestrator.Core.Configuration.JobEnvironments.GetFileName(env)),
+                StringComparer.OrdinalIgnoreCase),
                 DependenciesFilePath = Path.Combine(csharpFolder, "dependencies.json")
             };
         }

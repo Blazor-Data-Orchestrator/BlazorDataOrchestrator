@@ -32,6 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="appsettings.json;appsettings.Development.json;appsettings.Staging.json;appsettings.Production.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Code\" />
   </ItemGroup>
 

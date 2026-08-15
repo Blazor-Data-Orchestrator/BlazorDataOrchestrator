@@ -2,6 +2,7 @@
 @using Radzen
 @using Radzen.Blazor
 @using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.Core.Configuration
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Data.Data
@@ -23,6 +24,8 @@
 @inject TimeDisplayService TimeDisplayService
 @inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
 @inject IJSRuntime JSRuntime
+@inject EditorFileStorageService FileStorage
+@inject JobCodeEditorService CodeEditorService
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -745,13 +748,13 @@ else
             {
                 { "JobName", newJobName },
                 { "AvailableJobGroups", JobGroups },
-                { "OnJobCreatedWithGroups", EventCallback.Factory.Create<(string JobName, IEnumerable<int> JobGroupIds)>(this, OnJobCreatedWithGroups) },
+                { "OnJobCreatedWithGroups", EventCallback.Factory.Create<(string JobName, IEnumerable<int> JobGroupIds, string Environment)>(this, OnJobCreatedWithGroups) },
                 { "OnCancel", EventCallback.Factory.Create(this, () => DialogService.Close()) }
             },
             new DialogOptions { Width = "500px", CloseDialogOnEsc = true });
     }
 
-    private async Task OnJobCreatedWithGroups((string JobName, IEnumerable<int> JobGroupIds) data)
+    private async Task OnJobCreatedWithGroups((string JobName, IEnumerable<int> JobGroupIds, string Environment) data)
     {
         try
         {
@@ -763,7 +766,14 @@ else
                 return;
             }
 
-            var job = await JobService.CreateJobAsync(data.JobName, org.Id);
+            var job = await JobService.CreateJobAsync(data.JobName, org.Id, data.Environment);
+
+            // Scaffold the four appsettings files so the editor opens with live host values
+            FileStorage.SetFile(job.Id, JobEnvironments.BaseFileName, CodeEditorService.GetDefaultAppSettings());
+            foreach (var env in JobEnvironments.All)
+            {
+                FileStorage.SetFile(job.Id, JobEnvironments.GetFileName(env), CodeEditorService.GetDefaultAppSettings(env));
+            }
 
             // Assign job to selected groups
             if (data.JobGroupIds.Any())

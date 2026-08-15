@@ -69,6 +69,10 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
+
+            // Host-owned reserved connection strings used when resolving job appsettings
+            builder.Services.AddSingleton<BlazorDataOrchestrator.Core.Configuration.IReservedConnectionStringProvider,
+                                          BlazorDataOrchestrator.Core.Configuration.ConfigurationReservedConnectionStringProvider>();
             
             // Register JobManager for package upload and job management
             builder.Services.AddScoped<JobManager>(sp =>

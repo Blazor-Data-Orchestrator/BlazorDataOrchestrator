@@ -1,6 +1,7 @@
 using BlazorOrchestrator.Agent;
 using BlazorOrchestrator.Agent.Data;
 using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Configuration;
 using BlazorDataOrchestrator.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Azure.Data.Tables;
@@ -40,15 +41,16 @@ builder.Services.AddSingleton<CodeExecutorService>(sp =>
     return new CodeExecutorService(packageProcessor);
 });
 
+builder.Services.AddSingleton<IReservedConnectionStringProvider, ConfigurationReservedConnectionStringProvider>();
+
 builder.Services.AddSingleton<JobManager>(sp =>
 {
-    var config = sp.GetRequiredService<IConfiguration>();
-    var sqlConnectionString = config.GetConnectionString("blazororchestratordb") ?? "";
+    var reserved = sp.GetRequiredService<IReservedConnectionStringProvider>().Get();
     var blobServiceClient = sp.GetRequiredService<BlobServiceClient>();
     var queueServiceClient = sp.GetRequiredService<QueueServiceClient>();
     var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
-    
-    return new JobManager(sqlConnectionString, blobServiceClient, queueServiceClient, tableServiceClient);
+
+    return new JobManager(reserved.BlazorOrchestratorDb, blobServiceClient, queueServiceClient, tableServiceClient, reserved);
 });
 
 builder.Services.AddHostedService<Worker>();

@@ -47,9 +47,9 @@ public class NuGetPackageBuilderService
         public string? AppSettingsPath { get; set; }
 
         /// <summary>
-        /// Optional path to appsettingsProduction.json to include in the package.
+        /// Optional paths to the per-environment appsettings overlays, keyed by canonical environment name.
         /// </summary>
-        public string? AppSettingsProductionPath { get; set; }
+        public Dictionary<string, string> EnvironmentAppSettingsPaths { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Path to dependencies.json file (optional).
@@ -160,18 +160,23 @@ public class NuGetPackageBuilderService
             // Copy appsettings files if provided
             if (!string.IsNullOrEmpty(config.AppSettingsPath) && File.Exists(config.AppSettingsPath))
             {
-                var destPath = Path.Combine(rootContentFolder, "appsettings.json");
+                var destPath = Path.Combine(rootContentFolder, Configuration.JobEnvironments.BaseFileName);
                 await CopyFileAsync(config.AppSettingsPath, destPath);
-                result.IncludedFiles.Add("appsettings.json");
-                result.Logs.Add("Added appsettings.json");
+                result.IncludedFiles.Add(Configuration.JobEnvironments.BaseFileName);
+                result.Logs.Add($"Added {Configuration.JobEnvironments.BaseFileName}");
             }
 
-            if (!string.IsNullOrEmpty(config.AppSettingsProductionPath) && File.Exists(config.AppSettingsProductionPath))
+            foreach (var environment in Configuration.JobEnvironments.All)
             {
-                var destPath = Path.Combine(rootContentFolder, "appsettingsProduction.json");
-                await CopyFileAsync(config.AppSettingsProductionPath, destPath);
-                result.IncludedFiles.Add("appsettingsProduction.json");
-                result.Logs.Add("Added appsettingsProduction.json");
+                if (!config.EnvironmentAppSettingsPaths.TryGetValue(environment, out var sourcePath) || !File.Exists(sourcePath))
+                {
+                    continue;
+                }
+
+                var fileName = Configuration.JobEnvironments.GetFileName(environment);
+                await CopyFileAsync(sourcePath, Path.Combine(rootContentFolder, fileName));
+                result.IncludedFiles.Add(fileName);
+                result.Logs.Add($"Added {fileName}");
             }
 
             // Copy C# files

@@ -24,6 +24,11 @@ public class JobQueueMessage
     public string QueueName { get; set; } = string.Empty;
 
     /// <summary>
+    /// The environment the job should run in. Determines which appsettings overlay the Agent loads.
+    /// </summary>
+    public string? JobEnvironment { get; set; }
+
+    /// <summary>
     /// The UTC timestamp when the job was scheduled.
     /// </summary>
     public DateTime ScheduledAtUtc { get; set; }

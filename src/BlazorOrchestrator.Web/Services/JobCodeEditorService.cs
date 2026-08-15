@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using BlazorDataOrchestrator.Core;
+using BlazorDataOrchestrator.Core.Configuration;
 using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
@@ -16,6 +17,7 @@ public class JobCodeEditorService
     private readonly JobManager _jobManager;
     private readonly IConfiguration _configuration;
     private readonly ILogger<JobCodeEditorService> _logger;
+    private readonly IReservedConnectionStringProvider _reservedProvider;
 
     // Default .nuspec template for C# jobs
     private const string DefaultNuspecTemplate = @"<?xml version=""1.0"" encoding=""utf-8""?>
@@ -624,12 +626,19 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
   ""AllowedHosts"": ""*""
 }";
 
-    public JobCodeEditorService(JobManager jobManager, IConfiguration configuration, ILogger<JobCodeEditorService> logger)
+    public JobCodeEditorService(JobManager jobManager, IConfiguration configuration, ILogger<JobCodeEditorService> logger, IReservedConnectionStringProvider reservedProvider)
     {
         _jobManager = jobManager;
         _configuration = configuration;
         _logger = logger;
+        _reservedProvider = reservedProvider;
     }
+
+    /// <summary>
+    /// True when the host supplied all four reserved connection strings.
+    /// When false the editor shows placeholder values and should warn the user.
+    /// </summary>
+    public bool ReservedConnectionStringsResolved => _reservedProvider.Get().TryValidate(out _);
 
     /// <summary>
     /// Gets the default template for the specified language.
@@ -647,23 +656,51 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     }
 
     /// <summary>
-    /// Gets the default appsettings content.
-    /// When running in Azure Container Apps, derives settings from environment variables.
+    /// Gets the default appsettings content for the given environment.
+    /// Reserved connection strings come from the host; the log level differs per environment.
     /// </summary>
-    /// <returns>Default appsettings JSON.</returns>
-    public string GetDefaultAppSettings()
+    /// <param name="environment">The environment name, or null for the shared base file.</param>
+    public string GetDefaultAppSettings(string? environment = null)
     {
-        // When running in Azure, derive settings from environment variables
-        var azureSettings = AzureAppSettingsBuilder.BuildFromEnvironment();
-        if (azureSettings != null)
+        var logLevel = environment == null
+            ? "Information"
+            : JobEnvironments.Normalize(environment) switch
+            {
+                JobEnvironments.Development => "Debug",
+                JobEnvironments.Staging => "Information",
+                _ => "Warning"
+            };
+
+        var reserved = _reservedProvider.Get();
+        if (!reserved.TryValidate(out var missing))
         {
-            _logger.LogInformation(
-                "Generated appsettings from Azure environment variables.");
-            return azureSettings;
+            _logger.LogWarning(
+                "Reserved connection strings could not be resolved from the host ({Missing}); using placeholder values.",
+                string.Join(", ", missing));
+            return AppSettingsResolver.ApplyReserved(BuildDefaultAppSettings(logLevel), PlaceholderReserved);
         }
 
-        return DefaultAppSettings;
+        return AppSettingsResolver.ApplyReserved(BuildDefaultAppSettings(logLevel), reserved);
     }
+
+    private static string BuildDefaultAppSettings(string logLevel) => $$"""
+        {
+          "ConnectionStrings": {},
+          "Logging": {
+            "LogLevel": {
+              "Default": "{{logLevel}}",
+              "Microsoft.AspNetCore": "Warning"
+            }
+          },
+          "AllowedHosts": "*"
+        }
+        """;
+
+    private static readonly ReservedConnectionStrings PlaceholderReserved = new(
+        Blobs: "UseDevelopmentStorage=true",
+        Queues: "UseDevelopmentStorage=true",
+        Tables: "UseDevelopmentStorage=true",
+        BlazorOrchestratorDb: "Server=127.0.0.1,14330;Database=blazororchestratordb;User ID=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true");
 
     /// <summary>
     /// Gets the default Python config.json content.
@@ -749,15 +786,16 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 model.MainCode = await reader.ReadToEndAsync();
                 model.Language = "python";
             }
-            else if (entryPath.EndsWith("appsettings.json") && !entryPath.Contains("production"))
+            else if (Path.GetFileName(entryPath) == "appsettings.json")
             {
                 using var reader = new StreamReader(entry.Open());
                 model.AppSettings = await reader.ReadToEndAsync();
             }
-            else if (entryPath.EndsWith("appsettingsproduction.json") || entryPath.Contains("appsettings.production.json"))
+            else if (JobEnvironments.All.Any(e => Path.GetFileName(entryPath) == JobEnvironments.GetFileName(e).ToLowerInvariant()))
             {
+                var env = JobEnvironments.All.First(e => Path.GetFileName(entryPath) == JobEnvironments.GetFileName(e).ToLowerInvariant());
                 using var reader = new StreamReader(entry.Open());
-                model.AppSettingsProduction = await reader.ReadToEndAsync();
+                model.EnvironmentAppSettings[env] = await reader.ReadToEndAsync();
             }
             else if (entryPath.EndsWith("configuration.json"))
             {
@@ -794,9 +832,12 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             model.AppSettings = effectiveDefaults;
         }
-        if (string.IsNullOrEmpty(model.AppSettingsProduction))
+        foreach (var env in JobEnvironments.All)
         {
-            model.AppSettingsProduction = effectiveDefaults;
+            if (!model.EnvironmentAppSettings.TryGetValue(env, out var content) || string.IsNullOrEmpty(content))
+            {
+                model.EnvironmentAppSettings[env] = GetDefaultAppSettings(env);
+            }
         }
 
         return model;
@@ -927,13 +968,13 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                     model.DiscoveredFiles.Add("appsettings.json");
                 }
             }
-            else if (lowerFileName == "appsettings.production.json" ||
-                     lowerFileName == "appsettingsproduction.json")
+            else if (JobEnvironments.All.Any(e => lowerFileName == JobEnvironments.GetFileName(e).ToLowerInvariant()))
             {
-                model.AppSettingsProduction = content;
-                if (!model.DiscoveredFiles.Contains("appsettings.Production.json"))
+                var env = JobEnvironments.All.First(e => lowerFileName == JobEnvironments.GetFileName(e).ToLowerInvariant());
+                model.EnvironmentAppSettings[env] = content;
+                if (!model.DiscoveredFiles.Contains(JobEnvironments.GetFileName(env)))
                 {
-                    model.DiscoveredFiles.Add("appsettings.Production.json");
+                    model.DiscoveredFiles.Add(JobEnvironments.GetFileName(env));
                 }
             }
             // Check for additional code files
@@ -975,9 +1016,13 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             orderedFiles.Add("appsettings.json");
         }
-        if (model.DiscoveredFiles.Contains("appsettings.Production.json"))
+        foreach (var env in JobEnvironments.All)
         {
-            orderedFiles.Add("appsettings.Production.json");
+            var envFileName = JobEnvironments.GetFileName(env);
+            if (model.DiscoveredFiles.Contains(envFileName))
+            {
+                orderedFiles.Add(envFileName);
+            }
         }
 
         // Add requirements.txt for Python
@@ -1016,12 +1061,16 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
                 model.DiscoveredFiles.Add("appsettings.json");
             }
         }
-        if (string.IsNullOrEmpty(model.AppSettingsProduction))
+        foreach (var env in JobEnvironments.All)
         {
-            model.AppSettingsProduction = effectiveDefaults;
-            if (!model.DiscoveredFiles.Contains("appsettings.Production.json"))
+            var envFileName = JobEnvironments.GetFileName(env);
+            if (!model.EnvironmentAppSettings.TryGetValue(env, out var envContent) || string.IsNullOrEmpty(envContent))
             {
-                model.DiscoveredFiles.Add("appsettings.Production.json");
+                model.EnvironmentAppSettings[env] = GetDefaultAppSettings(env);
+            }
+            if (!model.DiscoveredFiles.Contains(envFileName))
+            {
+                model.DiscoveredFiles.Add(envFileName);
             }
         }
 
@@ -1228,9 +1277,14 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             return model.AppSettings;
         }
-        if (lowerFileName == "appsettings.production.json")
+        foreach (var env in JobEnvironments.All)
         {
-            return model.AppSettingsProduction;
+            if (lowerFileName == JobEnvironments.GetFileName(env).ToLowerInvariant())
+            {
+                return model.EnvironmentAppSettings.TryGetValue(env, out var envContent)
+                    ? envContent
+                    : GetDefaultAppSettings(env);
+            }
         }
 
         // Check requirements.txt
@@ -1284,9 +1338,10 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         {
             model.AppSettings = content;
         }
-        else if (lowerFileName == "appsettings.production.json")
+        else if (JobEnvironments.All.Any(e => lowerFileName == JobEnvironments.GetFileName(e).ToLowerInvariant()))
         {
-            model.AppSettingsProduction = content;
+            var env = JobEnvironments.All.First(e => lowerFileName == JobEnvironments.GetFileName(e).ToLowerInvariant());
+            model.EnvironmentAppSettings[env] = content;
         }
         else if (lowerFileName == "requirements.txt")
         {
@@ -1371,9 +1426,10 @@ public class JobCodeModel
     public string AppSettings { get; set; } = "{}";
 
     /// <summary>
-    /// The appsettings.Production.json content.
+    /// Per-environment appsettings overlays, keyed by canonical environment name
+    /// ("Development", "Staging", "Production").
     /// </summary>
-    public string AppSettingsProduction { get; set; } = "{}";
+    public Dictionary<string, string> EnvironmentAppSettings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The .nuspec file content (for C# packages).

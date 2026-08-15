@@ -2,6 +2,7 @@
 @using BlazorOrchestrator.Web.Services
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorDataOrchestrator.Core
+@using BlazorDataOrchestrator.Core.Configuration
 @using System.Text.RegularExpressions
 @using System.IO.Compression
 @using Radzen
@@ -514,7 +515,25 @@ Content-Type: application/json
     private string codeLanguage = "csharp";
     private CodeEditMode codeEditMode = CodeEditMode.Upload; // Start in Upload mode by default
     private string? selectedCodeFile;
-    private List<string> codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" };
+    private List<string> codeFileList = BuildCodeFileList("csharp", includeNuspec: true);
+
+    private static List<string> BuildCodeFileList(string language, bool includeNuspec)
+    {
+        var isPython = language.ToLower() == "python";
+        var files = new List<string> { isPython ? "main.py" : "main.cs" };
+        files.AddRange(JobEnvironments.AllFileNames);
+
+        if (isPython)
+        {
+            files.Add("requirements.txt");
+        }
+        else if (includeNuspec)
+        {
+            files.Add("BlazorDataOrchestrator.Job.nuspec");
+        }
+
+        return files;
+    }
     private bool isCompilingCode = false;
     private bool isRunningJobWithCode = false;
     private bool codeEditorInitialized = false;
@@ -1293,7 +1312,7 @@ Content-Type: application/json
         // Set default file list based on new language
         if (codeLanguage == "csharp")
         {
-            codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" };
+            codeFileList = BuildCodeFileList("csharp", includeNuspec: true);
         }
         else if (codeLanguage == "python")
         {
@@ -1313,8 +1332,11 @@ Content-Type: application/json
         }
         
         // Initialize other default files
-        FileStorage.SetFile(JobId, "appsettings.json", CodeEditorService.GetDefaultAppSettings());
-        FileStorage.SetFile(JobId, "appsettings.Production.json", CodeEditorService.GetDefaultAppSettings());
+        FileStorage.SetFile(JobId, JobEnvironments.BaseFileName, CodeEditorService.GetDefaultAppSettings());
+        foreach (var env in JobEnvironments.All)
+        {
+            FileStorage.SetFile(JobId, JobEnvironments.GetFileName(env), CodeEditorService.GetDefaultAppSettings(env));
+        }
         if (codeLanguage == "python")
         {
             FileStorage.SetFile(JobId, "requirements.txt", "");
@@ -1427,7 +1449,9 @@ Content-Type: application/json
         }
         if (lowerFileName.EndsWith(".json"))
         {
-            return CodeEditorService.GetDefaultAppSettings();
+            var environment = JobEnvironments.All.FirstOrDefault(
+                e => lowerFileName == JobEnvironments.GetFileName(e).ToLowerInvariant());
+            return CodeEditorService.GetDefaultAppSettings(environment);
         }
         if (lowerFileName.EndsWith(".cs") || lowerFileName.EndsWith(".py"))
         {
@@ -1604,7 +1628,7 @@ Content-Type: application/json
         var mainFile = codeLanguage == "python" ? "main.py" : "main.cs";
         if (codeLanguage == "csharp")
         {
-            var files = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+            var files = BuildCodeFileList("csharp", includeNuspec: false);
             // Add .nuspec file if it was loaded from the package
             if (loadedCodeModel != null && !string.IsNullOrEmpty(loadedCodeModel.NuspecFileName))
             {
@@ -1614,7 +1638,7 @@ Content-Type: application/json
         }
         else
         {
-            codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json", "requirements.txt" };
+            codeFileList = BuildCodeFileList("python", includeNuspec: false);
         }
     }
 
@@ -1635,11 +1659,11 @@ Content-Type: application/json
             // Set default file list based on language
             if (codeLanguage == "csharp")
             {
-                codeFileList = new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json" };
+                codeFileList = BuildCodeFileList("csharp", includeNuspec: false);
             }
             else
             {
-                codeFileList = new List<string> { "main.py", "appsettings.json", "appsettings.Production.json" };
+                codeFileList = BuildCodeFileList("python", includeNuspec: false);
             }
             
             selectedCodeFile = codeFileList.FirstOrDefault();
@@ -1648,8 +1672,11 @@ Content-Type: application/json
             if (!string.IsNullOrEmpty(selectedCodeFile))
             {
                 FileStorage.SetFile(JobId, selectedCodeFile, currentJobCode);
-                FileStorage.SetFile(JobId, "appsettings.json", CodeEditorService.GetDefaultAppSettings());
-                FileStorage.SetFile(JobId, "appsettings.Production.json", CodeEditorService.GetDefaultAppSettings());
+                FileStorage.SetFile(JobId, JobEnvironments.BaseFileName, CodeEditorService.GetDefaultAppSettings());
+                foreach (var env in JobEnvironments.All)
+                {
+                    FileStorage.SetFile(JobId, JobEnvironments.GetFileName(env), CodeEditorService.GetDefaultAppSettings(env));
+                }
             }
             
             codeEditorInitialized = true;
@@ -1775,8 +1802,11 @@ Content-Type: application/json
                             NuspecContent = updatedNuspec,
                             NuspecFileName = nuspecFileName,
                             Dependencies = parsedDeps,
-                            AppSettings = FileStorage.GetFile(JobId, "appsettings.json") ?? CodeEditorService.GetDefaultAppSettings(),
-                            AppSettingsProduction = FileStorage.GetFile(JobId, "appsettings.Production.json") ?? CodeEditorService.GetDefaultAppSettings()
+                            AppSettings = FileStorage.GetFile(JobId, JobEnvironments.BaseFileName) ?? CodeEditorService.GetDefaultAppSettings(),
+                            EnvironmentAppSettings = JobEnvironments.All.ToDictionary(
+                                env => env,
+                                env => FileStorage.GetFile(JobId, JobEnvironments.GetFileName(env)) ?? CodeEditorService.GetDefaultAppSettings(env),
+                                StringComparer.OrdinalIgnoreCase)
                         };
                     }
 

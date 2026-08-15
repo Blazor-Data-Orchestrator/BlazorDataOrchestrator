@@ -1,3 +1,4 @@
+using BlazorDataOrchestrator.Core.Configuration;
 using BlazorOrchestrator.Web.Data.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -49,7 +50,7 @@ public class JobService
         {
             JobName = jobName,
             JobOrganizationId = organizationId,
-            JobEnvironment = environment ?? "Development",
+            JobEnvironment = JobEnvironments.Normalize(environment),
             JobEnabled = true,
             JobQueued = false,
             JobInProcess = false,
@@ -213,7 +214,7 @@ public class JobService
     // Environment options
     public List<string> GetEnvironments()
     {
-        return new List<string> { "Development", "Staging", "Production" };
+        return JobEnvironments.All.ToList();
     }
 
     // Job Instances (Logs)
