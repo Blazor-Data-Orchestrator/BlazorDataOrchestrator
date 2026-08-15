@@ -53,21 +53,15 @@ public class CopilotCookieService
     /// <param name="modelName">The model name to persist.</param>
     public async Task SetLastUsedModelAsync(string modelName)
     {
-        try
+        var wasSaved = await _jsRuntime.InvokeAsync<bool>(
+            "copilotCookies.set",
+            LastUsedModelCookieName,
+            modelName,
+            CookieExpiryDays);
+
+        if (!wasSaved)
         {
-            await _jsRuntime.InvokeVoidAsync(
-                "copilotCookies.set",
-                LastUsedModelCookieName,
-                modelName,
-                CookieExpiryDays);
-        }
-        catch (JSException)
-        {
-            // JS interop failed - cookie won't be saved but app can continue
-        }
-        catch (InvalidOperationException)
-        {
-            // JS interop not available
+            throw new InvalidOperationException("The browser rejected the Copilot model cookie.");
         }
     }
 

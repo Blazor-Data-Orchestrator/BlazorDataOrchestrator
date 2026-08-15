@@ -27,7 +27,11 @@ window.copilotCookies = {
         const expires = new Date();
         expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
         const secure = location.protocol === 'https:' ? ';Secure' : '';
-        document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Strict${secure}`;
+        const encodedValue = encodeURIComponent(value);
+        const maxAge = Math.floor(days * 24 * 60 * 60);
+        document.cookie = `${name}=${encodedValue};Max-Age=${maxAge};Expires=${expires.toUTCString()};Path=/;SameSite=Strict${secure}`;
+
+        return window.copilotCookies.get(name) === encodedValue;
     },
 
     /**

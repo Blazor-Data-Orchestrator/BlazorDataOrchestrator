@@ -1086,6 +1086,11 @@ except Exception as e:
                 {
                     // Ignore if the JS function is not yet available
                 }
+
+                await DialogService.Alert(
+                    "Save the project first, then stop and restart it for the code changes to work.",
+                    "Save and Restart Required",
+                    new AlertOptions { OkButtonText = "OK" });
                 
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Code updated from AI response.\n";
                 if (!_disposed) await InvokeAsync(StateHasChanged);
