@@ -28,11 +28,10 @@ RUN dotnet restore "BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj"
 COPY BlazorOrchestrator.Agent/ BlazorOrchestrator.Agent/
 COPY BlazorDataOrchestrator.Core/ BlazorDataOrchestrator.Core/
 COPY BlazorOrchestrator.ServiceDefaults/ BlazorOrchestrator.ServiceDefaults/
-RUN dotnet build "BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" -c Release -o /app/build
 
 # ---- Publish stage ----
 FROM build AS publish
-RUN dotnet publish "BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" -c Release -o /app/publish /p:UseAppHost=false --no-restore
 
 # ---- Final stage ----
 FROM base AS final

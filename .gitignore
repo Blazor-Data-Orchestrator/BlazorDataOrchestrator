@@ -85,3 +85,6 @@ Thumbs.db
 /src/BlazorOrchestrator.Web/Properties/PublishProfiles
 docs/ProductionARMDeploymentPlan.md
 docs/ProductionEnvironmentVariables.txt
+
+# Customer-specific project, intentionally not tracked
+/src/RegroupMassNotification/
