@@ -1,7 +1,9 @@
 ﻿@using Radzen
 @using Radzen.Blazor
 @using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Services.Community
 @inject WizardStateService WizardState
+@inject ICommunitySettingsService CommunitySettings
 @implements IDisposable
 
 <div class="top-row ps-3 navbar navbar-light">
@@ -49,6 +51,15 @@
                 </NavLink>
             </div>
 
+            @if (communityBrowseEnabled)
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="community" style="white-space: nowrap;" title="Community Jobs Library">
+                        <span class="bi bi-globe2-nav-menu" aria-hidden="true"></span> Community Jobs
+                    </NavLink>
+                </div>
+            }
+
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="logs">
                     <span class="bi bi-journal-text-nav-menu" aria-hidden="true"></span> Logs
@@ -75,6 +86,8 @@
 </div>
 
 @code {
+    private bool communityBrowseEnabled;
+
     private class WizardStep { public int Id { get; set; } public string Label { get; set; } = string.Empty; public string Icon { get; set; } = string.Empty; }
 
     private List<WizardStep> WizardSteps = new()
@@ -88,6 +101,19 @@
     protected override void OnInitialized()
     {
         WizardState.OnChange += StateHasChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            communityBrowseEnabled = (await CommunitySettings.GetOptionsAsync()).EnableCommunityBrowse;
+        }
+        catch (Exception)
+        {
+            // Settings storage is unavailable before setup completes; hide the entry rather than fail the menu.
+            communityBrowseEnabled = false;
+        }
     }
 
     private string GetStepClass(int stepId)
