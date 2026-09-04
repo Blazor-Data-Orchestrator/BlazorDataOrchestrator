@@ -6,6 +6,8 @@ using BlazorDataOrchestrator.Core.Models;
 
 namespace BlazorDataOrchestrator.Core.Services;
 
+using ServiceKind = BlazorDataOrchestrator.Core.Models.AIServiceType;
+
 /// <summary>
 /// Builds an <see cref="IChatClient"/> for a given <see cref="AISettings"/> configuration.
 /// Modeled on the SimpleChat ChatClientFactory pattern, this isolates per-provider
@@ -17,23 +19,29 @@ public static class ChatClientFactory
     /// Creates an <see cref="IChatClient"/> for the configured provider, or
     /// <c>null</c> when the settings are not configured.
     /// </summary>
-    public static IChatClient? Create(AISettings settings)
+    public static IChatClient? Create(AISettings settings) => Create(settings.Active);
+
+    /// <summary>
+    /// Creates an <see cref="IChatClient"/> for a single provider's settings, or
+    /// <c>null</c> when the settings are not configured.
+    /// </summary>
+    public static IChatClient? Create(AIProviderSettings settings)
     {
         if (!settings.IsConfigured)
         {
             return null;
         }
 
-        return settings.AIServiceType switch
+        return settings.ServiceType switch
         {
-            "Azure OpenAI" => CreateAzureOpenAI(settings),
-            "Anthropic" => new AnthropicChatClientAdapter(settings.ApiKey, settings.AIModel),
-            "Google AI" => new GoogleAIChatClientAdapter(settings.ApiKey, settings.AIModel),
+            ServiceKind.AzureOpenAI => CreateAzureOpenAI(settings),
+            ServiceKind.Anthropic => new AnthropicChatClientAdapter(settings.ApiKey, settings.AIModel),
+            ServiceKind.GoogleAI => new GoogleAIChatClientAdapter(settings.ApiKey, settings.AIModel),
             _ => CreateOpenAI(settings),
         };
     }
 
-    private static IChatClient CreateAzureOpenAI(AISettings settings)
+    private static IChatClient CreateAzureOpenAI(AIProviderSettings settings)
     {
         // AI Foundry endpoints use OpenAI-compatible /v1 path and don't need api-version.
         if (IsAIFoundryEndpoint(settings.Endpoint))
@@ -59,7 +67,7 @@ public static class ChatClientFactory
     /// <summary>
     /// Resolves the Azure OpenAI endpoint, combining a custom deployment path when present.
     /// </summary>
-    public static Uri ResolveAzureEndpoint(AISettings settings)
+    public static Uri ResolveAzureEndpoint(AIProviderSettings settings)
     {
         var baseEndpoint = settings.Endpoint.TrimEnd('/');
 
@@ -80,7 +88,7 @@ public static class ChatClientFactory
     /// Builds <see cref="AzureOpenAIClientOptions"/>, applying the configured API version
     /// when it maps to a known <see cref="AzureOpenAIClientOptions.ServiceVersion"/>.
     /// </summary>
-    private static AzureOpenAIClientOptions BuildAzureOptions(AISettings settings)
+    private static AzureOpenAIClientOptions BuildAzureOptions(AIProviderSettings settings)
     {
         if (!string.IsNullOrWhiteSpace(settings.ApiVersion)
             && TryParseServiceVersion(settings.ApiVersion, out var version))
@@ -112,7 +120,7 @@ public static class ChatClientFactory
             && endpoint.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static IChatClient CreateOpenAI(AISettings settings)
+    private static IChatClient CreateOpenAI(AIProviderSettings settings)
     {
         var openAIClient = new OpenAIClient(new ApiKeyCredential(settings.ApiKey));
         return openAIClient.GetChatClient(settings.AIModel).AsIChatClient();

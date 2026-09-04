@@ -98,13 +98,13 @@ Keep responses concise and focused on the code task at hand.
         var settings = await _settingsService.GetSettingsAsync();
         
         // Check if settings changed
-        if (_cachedSettings != null && 
-            _cachedSettings.AIServiceType == settings.AIServiceType &&
-            _cachedSettings.ApiKey == settings.ApiKey &&
-            _cachedSettings.AIModel == settings.AIModel &&
-            _cachedSettings.Endpoint == settings.Endpoint &&
-            _cachedSettings.ApiVersion == settings.ApiVersion &&
-            _cachedSettings.DeploymentPath == settings.DeploymentPath)
+        if (_cachedSettings != null &&
+            _cachedSettings.ActiveServiceType == settings.ActiveServiceType &&
+            _cachedSettings.Active.ApiKey == settings.Active.ApiKey &&
+            _cachedSettings.Active.AIModel == settings.Active.AIModel &&
+            _cachedSettings.Active.Endpoint == settings.Active.Endpoint &&
+            _cachedSettings.Active.ApiVersion == settings.Active.ApiVersion &&
+            _cachedSettings.Active.DeploymentPath == settings.Active.DeploymentPath)
         {
             return _chatClient;
         }
@@ -217,8 +217,7 @@ Keep responses concise and focused on the code task at hand.
             }
 
             // Some models only support temperature=1 or don't support temperature at all
-            var modelName = _cachedSettings?.AIModel?.ToLowerInvariant() ?? "";
-            var serviceType = _cachedSettings?.AIServiceType ?? "OpenAI";
+            var modelName = _cachedSettings?.Active.AIModel?.ToLowerInvariant() ?? "";
             var isRestrictedModel = modelName.Contains("gpt-5") || 
                                     modelName.Contains("gpt5") || 
                                     modelName.StartsWith("o1") ||

@@ -1,0 +1,461 @@
+@using BlazorDataOrchestrator.Core.Models
+@using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Services.ModelCatalog
+@using ServiceKind = BlazorDataOrchestrator.Core.Models.AIServiceType
+@implements IDisposable
+@inject AISettingsService SettingsService
+@inject AIModelCacheService ModelCacheService
+@inject NotificationService NotificationService
+@inject IJSRuntime JSRuntime
+
+<RadzenStack Gap="@(Compact ? "1rem" : "1.5rem")">
+
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="AI Service Type" Component="AIServiceType" Style="font-weight: 600;" />
+        <RadzenDropDown Data="@ServiceTypeOptions" TextProperty="Text" ValueProperty="Value"
+                        TValue="ServiceKind" Value="@SelectedServiceType"
+                        ValueChanged="@OnServiceTypeChangedAsync"
+                        Name="AIServiceType" Style="@FieldStyle" />
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+            Select the AI service provider to use for code assistance. Each provider keeps its own API key.
+        </RadzenText>
+    </RadzenStack>
+
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="@ApiKeyLabel" Component="ApiKey" Style="font-weight: 600;" />
+        <RadzenTextBox Value="@ApiKeyDisplay" Name="ApiKey" Style="@FieldStyle"
+                       Placeholder="@ApiKeyPlaceholder" @oninput="@OnApiKeyInputAsync" />
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+            @ApiKeyHelpText
+        </RadzenText>
+    </RadzenStack>
+
+    @if (SelectedServiceType == ServiceKind.AzureOpenAI)
+    {
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="Azure OpenAI Endpoint" Component="Endpoint" Style="font-weight: 600;" />
+            <RadzenTextBox Value="@Current.Endpoint" ValueChanged="@(async v => { Current.Endpoint = v; await ScheduleModelLoadAsync(); })"
+                           Name="Endpoint" Style="@FieldStyle"
+                           Placeholder="https://your-resource.openai.azure.com/" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                Your Azure OpenAI resource endpoint URL.
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="API Version" Component="ApiVersion" Style="font-weight: 600;" />
+            <RadzenTextBox Value="@Current.ApiVersion" ValueChanged="@(async v => { Current.ApiVersion = v; await ScheduleModelLoadAsync(); })"
+                           Name="ApiVersion" Style="@FieldStyle"
+                           Placeholder="2024-02-15-preview" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                The Azure OpenAI API version to use. Not required for AI Foundry (/v1) endpoints.
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="Deployment Path" Component="DeploymentPath" Style="font-weight: 600;" />
+            <RadzenTextBox @bind-Value="@Current.DeploymentPath" Name="DeploymentPath" Style="@FieldStyle"
+                           Placeholder="openai/deployments/my-gpt4o" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                Optional explicit deployment path. Leave blank to use the SDK default convention.
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="Embedding Model Deployment Name" Component="EmbeddingModel" Style="font-weight: 600;" />
+            <RadzenTextBox @bind-Value="@Current.EmbeddingModel" Name="EmbeddingModel" Style="@FieldStyle"
+                           Placeholder="text-embedding-ada-002" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                The deployment name of your Azure OpenAI embedding model (optional).
+            </RadzenText>
+        </RadzenStack>
+    }
+
+    <RadzenStack Gap="0.5rem">
+        <RadzenLabel Text="@ModelLabel" Component="AIModel" Style="font-weight: 600;" />
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenDropDown Data="@AvailableModels" @bind-Value="@Current.AIModel"
+                            Name="AIModel" Style="@FieldStyle"
+                            AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                            AllowClear="true" Disabled="@(!CanSelectModel)"
+                            Placeholder="@ModelPlaceholder" />
+            <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Click="@(() => LoadModelsAsync(forceRefresh: true))"
+                          Disabled="@(!Current.IsConfigured)" IsBusy="@IsLoadingModels"
+                          title="Refresh models from the provider" Style="flex-shrink: 0;" />
+        </RadzenStack>
+        @if (IsLoadingModels)
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">Loading models...</RadzenText>
+        }
+    </RadzenStack>
+
+    @if (!string.IsNullOrEmpty(ModelLoadError))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" Style="margin: 0;">
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@ModelLoadError</RadzenText>
+        </RadzenAlert>
+    }
+
+    @if (!Current.IsConfigured)
+    {
+        <RadzenButton Text="@ApiKeyLinkText" Icon="open_in_new"
+                      ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                      Click="@OpenApiKeyPage" Style="@FieldStyle" />
+    }
+
+    @if (ShowStatusCard)
+    {
+        @if (Current.IsConfigured)
+        {
+            <RadzenCard Style="background: #f0fdf4; padding: 1rem; border: 1px solid #86efac;">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenIcon Icon="check_circle" Style="color: #16a34a;" />
+                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #166534; margin: 0;">
+                        @ServiceDisplayName is configured and ready to use.
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        }
+        else
+        {
+            <RadzenCard Style="background: #fef3c7; padding: 1rem; border: 1px solid #fcd34d;">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenIcon Icon="warning" Style="color: #d97706;" />
+                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #92400e; margin: 0;">
+                        @ServiceDisplayName is not configured. Enter an API key to enable AI features.
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        }
+    }
+
+    @if (ShowSaveButton)
+    {
+        <RadzenButton Text="Save AI Settings" Icon="save" ButtonStyle="ButtonStyle.Success"
+                      Click="@(() => SaveAsync())" IsBusy="@IsSaving" Style="@FieldStyle" />
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>Working copy of the settings. The component mutates this instance in place.</summary>
+    [Parameter] public AISettings? Settings { get; set; }
+    [Parameter] public EventCallback<AISettings> SettingsChanged { get; set; }
+    [Parameter] public bool ShowSaveButton { get; set; }
+    [Parameter] public bool ShowStatusCard { get; set; } = true;
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public EventCallback<bool> OnValidationStateChanged { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private AISettings Working { get; set; } = new();
+    private AIProviderSettings Current => Working.GetOrCreate(SelectedServiceType);
+    private ServiceKind SelectedServiceType { get; set; } = ServiceKind.OpenAI;
+
+    private List<string> AvailableModels { get; set; } = new();
+    private string? ModelLoadError { get; set; }
+    private bool IsLoadingModels { get; set; }
+    private bool IsSaving { get; set; }
+    private bool CanSelectModel => AvailableModels.Count > 0;
+
+    private string ApiKeyDisplay { get; set; } = "";
+    private bool ApiKeyMasked { get; set; }
+
+    private CancellationTokenSource? _loadCts;
+    private Timer? _debounceTimer;
+    private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
+
+    private string FieldStyle => Compact ? "width: 100%;" : "width: 100%; max-width: 400px;";
+
+    private List<ServiceTypeOption> ServiceTypeOptions { get; } = AIServiceTypes.All
+        .Select(t => new ServiceTypeOption(AIServiceTypes.ToDisplayName(t), t))
+        .ToList();
+
+    private record ServiceTypeOption(string Text, ServiceKind Value);
+
+    private string ServiceDisplayName => AIServiceTypes.ToDisplayName(SelectedServiceType);
+    private string ApiKeyLabel => $"{ServiceDisplayName} API Key";
+
+    private string ApiKeyPlaceholder => SelectedServiceType switch
+    {
+        ServiceKind.OpenAI => "sk-...",
+        ServiceKind.AzureOpenAI => "Your Azure OpenAI key",
+        ServiceKind.Anthropic => "sk-ant-...",
+        _ => "Your Google AI key"
+    };
+
+    private string ApiKeyHelpText => SelectedServiceType switch
+    {
+        ServiceKind.OpenAI => "Your OpenAI API key. Must start with 'sk-'.",
+        ServiceKind.AzureOpenAI => "The access key for your Azure OpenAI resource.",
+        ServiceKind.Anthropic => "Your Anthropic API key from the Anthropic console.",
+        _ => "Your Google AI Studio API key."
+    };
+
+    private string ApiKeyLinkText => SelectedServiceType switch
+    {
+        ServiceKind.OpenAI => "Get an OpenAI API Key",
+        ServiceKind.AzureOpenAI => "Learn how to create an Azure OpenAI resource",
+        ServiceKind.Anthropic => "Get an Anthropic API Key",
+        _ => "Get a Google AI API Key"
+    };
+
+    private string ApiKeyUrl => SelectedServiceType switch
+    {
+        ServiceKind.OpenAI => "https://platform.openai.com/account/api-keys",
+        ServiceKind.AzureOpenAI => "https://learn.microsoft.com/azure/ai-services/openai/how-to/create-resource?pivots=web-portal",
+        ServiceKind.Anthropic => "https://console.anthropic.com/settings/keys",
+        _ => "https://aistudio.google.com/app/apikey"
+    };
+
+    private string ModelLabel => SelectedServiceType == ServiceKind.AzureOpenAI
+        ? "Model Deployment Name"
+        : $"{ServiceDisplayName} Model";
+
+    private string ModelPlaceholder
+    {
+        get
+        {
+            if (!Current.IsConfigured) return "Enter an API key to load models";
+            if (IsLoadingModels) return "Loading models...";
+            if (AvailableModels.Count == 0) return "No models available";
+            return SelectedServiceType == ServiceKind.AzureOpenAI ? "Select a deployment..." : "Select a model...";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Working = Settings ?? await SettingsService.GetSettingsAsync();
+        SelectedServiceType = Working.ActiveServiceType;
+
+        // Make sure every provider row is available for switching without a round trip.
+        if (Settings is null)
+        {
+            await NotifyChangedAsync();
+        }
+
+        SetApiKeyDisplayFromCurrent();
+        await LoadModelsAsync(forceRefresh: false);
+    }
+
+    /// <summary>Reloads settings from storage, discarding unsaved edits.</summary>
+    public async Task ReloadAsync()
+    {
+        Working = await SettingsService.GetSettingsAsync();
+        SelectedServiceType = Working.ActiveServiceType;
+        SetApiKeyDisplayFromCurrent();
+        await NotifyChangedAsync();
+        await LoadModelsAsync(forceRefresh: false);
+    }
+
+    private void SetApiKeyDisplayFromCurrent()
+    {
+        var key = Current.ApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            ApiKeyDisplay = "";
+            ApiKeyMasked = false;
+            return;
+        }
+
+        var tail = key.Length > 4 ? key[^4..] : key;
+        ApiKeyDisplay = $"{(key.StartsWith("sk-") ? "sk-" : "")}••••••••{tail}";
+        ApiKeyMasked = true;
+    }
+
+    private async Task OnServiceTypeChangedAsync(ServiceKind serviceType)
+    {
+        // Edits to the previous provider stay in the working copy; only the view switches.
+        SelectedServiceType = serviceType;
+        Working.ActiveServiceType = serviceType;
+
+        if (!Working.Providers.ContainsKey(serviceType))
+        {
+            Working.Providers[serviceType] = await SettingsService.GetProviderSettingsAsync(serviceType);
+        }
+
+        SetApiKeyDisplayFromCurrent();
+        await NotifyChangedAsync();
+        await LoadModelsAsync(forceRefresh: false);
+    }
+
+    private async Task OnApiKeyInputAsync(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() ?? "";
+
+        // While the field still shows the mask the stored key is unchanged.
+        if (ApiKeyMasked && value == ApiKeyDisplay)
+        {
+            return;
+        }
+
+        ApiKeyMasked = false;
+        ApiKeyDisplay = value;
+        Current.ApiKey = value;
+
+        await NotifyChangedAsync();
+        await ScheduleModelLoadAsync();
+    }
+
+    private Task ScheduleModelLoadAsync()
+    {
+        _debounceTimer?.Dispose();
+        _debounceTimer = new Timer(_ =>
+        {
+            _ = InvokeAsync(() => LoadModelsAsync(forceRefresh: false));
+        }, null, DebounceDelay, Timeout.InfiniteTimeSpan);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadModelsAsync(bool forceRefresh)
+    {
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+
+        var provider = Current;
+
+        if (!provider.IsConfigured)
+        {
+            AvailableModels = new List<string>();
+            ModelLoadError = null;
+            IsLoadingModels = false;
+            await RaiseValidationAsync();
+            StateHasChanged();
+            return;
+        }
+
+        IsLoadingModels = true;
+        ModelLoadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ModelCacheService.GetModelsAsync(provider, forceRefresh, token);
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            AvailableModels = result.Models.ToList();
+            ModelLoadError = result.Status == ModelListStatus.Success ? null : result.ErrorMessage;
+
+            // Keep a previously saved model usable even when it is missing from the list.
+            if (!string.IsNullOrWhiteSpace(provider.AIModel) && !AvailableModels.Contains(provider.AIModel))
+            {
+                if (AvailableModels.Count > 0)
+                {
+                    AvailableModels.Insert(0, provider.AIModel);
+                }
+                else
+                {
+                    provider.AIModel = "";
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            AvailableModels = new List<string>();
+            ModelLoadError = $"Could not load models: {ex.Message}";
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                IsLoadingModels = false;
+                await RaiseValidationAsync();
+                StateHasChanged();
+            }
+        }
+    }
+
+    /// <summary>Saves the working copy. Returns false when validation or the save failed.</summary>
+    public async Task<bool> SaveAsync()
+    {
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            if (SelectedServiceType == ServiceKind.OpenAI
+                && Current.IsConfigured
+                && !Current.ApiKey.StartsWith("sk-"))
+            {
+                Notify(NotificationSeverity.Error, "Invalid API Key", "OpenAI API keys must start with 'sk-'.");
+                return false;
+            }
+
+            if (SelectedServiceType == ServiceKind.AzureOpenAI
+                && Current.IsConfigured
+                && string.IsNullOrWhiteSpace(Current.Endpoint))
+            {
+                Notify(NotificationSeverity.Error, "Endpoint Required", "Azure OpenAI Endpoint is required.");
+                return false;
+            }
+
+            await SettingsService.SaveSettingsAsync(Working);
+            SetApiKeyDisplayFromCurrent();
+
+            Notify(NotificationSeverity.Success, "Success", "AI settings saved successfully.");
+            await OnSaved.InvokeAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Error", $"Failed to save settings: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NotifyChangedAsync()
+    {
+        if (SettingsChanged.HasDelegate)
+        {
+            await SettingsChanged.InvokeAsync(Working);
+        }
+
+        await RaiseValidationAsync();
+    }
+
+    private async Task RaiseValidationAsync()
+    {
+        if (OnValidationStateChanged.HasDelegate)
+        {
+            await OnValidationStateChanged.InvokeAsync(Current.IsConfigured && !string.IsNullOrWhiteSpace(Current.AIModel));
+        }
+    }
+
+    private async Task OpenApiKeyPage()
+    {
+        await JSRuntime.InvokeVoidAsync("open", ApiKeyUrl);
+    }
+
+    private void Notify(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+
+    public void Dispose()
+    {
+        _debounceTimer?.Dispose();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+    }
+}

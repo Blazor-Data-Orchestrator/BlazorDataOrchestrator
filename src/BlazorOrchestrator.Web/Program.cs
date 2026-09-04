@@ -185,12 +185,21 @@ builder.Services.AddScoped<AISettingsService>(sp =>
     return new AISettingsService(tableServiceClient);
 });
 
+// Register AI model catalogs (live provider model listings)
+builder.Services.AddHttpClient(BlazorDataOrchestrator.Core.Services.ModelCatalog.HttpModelCatalogBase.HttpClientName);
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.OpenAIModelCatalog>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.AzureOpenAIModelCatalog>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.AnthropicModelCatalog>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.GoogleAIModelCatalog>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.AIProviderRegistry>();
+
 // Register AI Model Cache service (fetches and caches provider models in Azure Table Storage)
 builder.Services.AddScoped<AIModelCacheService>(sp =>
 {
     var tableServiceClient = sp.GetRequiredService<TableServiceClient>();
+    var registry = sp.GetRequiredService<BlazorDataOrchestrator.Core.Services.ModelCatalog.AIProviderRegistry>();
     var logger = sp.GetRequiredService<ILogger<AIModelCacheService>>();
-    return new AIModelCacheService(tableServiceClient, logger);
+    return new AIModelCacheService(tableServiceClient, registry, logger);
 });
 
 // Register AI Chat services
