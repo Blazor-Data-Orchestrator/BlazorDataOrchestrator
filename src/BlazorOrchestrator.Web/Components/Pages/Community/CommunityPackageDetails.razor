@@ -1,0 +1,322 @@
+@page "/community/package/{Identifier}"
+@using BlazorOrchestrator.Web.Services.Community
+@using BlazorOrchestrator.Web.Components.Community
+@using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@attribute [Authorize]
+@inject ICommunityClient CommunityClient
+@inject ICommunitySettingsService CommunitySettings
+@inject CommunitySignInCoordinator SignIn
+@inject DialogService DialogService
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+
+<PageTitle>@(package?.Title ?? "Community package")</PageTitle>
+
+<RadzenStack Gap="1rem" Style="padding:1.5rem;">
+    <RadzenButton Text="Back to gallery" Icon="arrow_back" ButtonStyle="ButtonStyle.Light" Variant="Variant.Text"
+                  Size="ButtonSize.Small" Click="@(() => Navigation.NavigateTo("/community"))" Style="align-self:flex-start;" />
+
+    @if (loading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" Style="padding:3rem;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+        </RadzenStack>
+    }
+    else if (package is null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false"
+                     Text="That community package could not be loaded." />
+    }
+    else
+    {
+        <RadzenCard Style="padding:1.25rem;border:1px solid #e5e7eb;">
+            <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start" Wrap="FlexWrap.Wrap" Gap="1rem">
+                <RadzenStack Gap="0.35rem">
+                    <RadzenText TextStyle="TextStyle.H4" Style="margin:0;">@package.Title</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                        @package.PackageIdentifier · v@package.CurrentVersion · by @package.AuthorDisplayName
+                    </RadzenText>
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.4rem" Wrap="FlexWrap.Wrap">
+                        @foreach (var category in package.Categories)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="@category" />
+                        }
+                        @foreach (var tag in package.Tags)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@tag" />
+                        }
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                    <RadzenButton Icon="@(isFavorite ? "star" : "star_border")" Text="@(isFavorite ? "Favorited" : "Favorite")"
+                                  ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@ToggleFavoriteAsync" />
+                    @if (allowImport)
+                    {
+                        <RadzenButton Text="Pull into my installation" Icon="download_for_offline"
+                                      ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@PullAsync" />
+                    }
+                </RadzenStack>
+            </RadzenStack>
+
+            @if (package.IsDeprecated)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false" Style="margin-top:1rem;"
+                             Text="@($"This package is deprecated. {package.DeprecationMessage}")" />
+            }
+        </RadzenCard>
+
+        <RadzenTabs @bind-SelectedIndex="@selectedTab">
+            <Tabs>
+                <RadzenTabsItem Text="Overview" Icon="info">
+                    <RadzenStack Gap="1rem" Style="padding-top:1rem;">
+                        <RadzenText TextStyle="TextStyle.Body1" Style="white-space:pre-wrap;">@package.Description</RadzenText>
+
+                        <RadzenRow Gap="1rem">
+                            <RadzenColumn Size="12" SizeMD="6">
+                                <RadzenCard Style="padding:1rem;">
+                                    <RadzenText TextStyle="TextStyle.H6">Metadata</RadzenText>
+                                    <RadzenStack Gap="0.35rem" Style="margin-top:0.5rem;">
+                                        <div><b>License:</b> @(package.License ?? "Not specified")</div>
+                                        <div><b>Language:</b> @(package.Language ?? "Unknown")</div>
+                                        <div><b>Frameworks:</b> @string.Join(", ", package.TargetFrameworks)</div>
+                                        <div><b>Downloads:</b> @package.DownloadCount</div>
+                                        <div><b>Updated:</b> @package.UpdatedAt.ToString("yyyy-MM-dd")</div>
+                                        @if (!string.IsNullOrEmpty(package.ProjectUrl))
+                                        {
+                                            <div><b>Project:</b> <a href="@package.ProjectUrl" target="_blank" rel="noopener noreferrer nofollow">@package.ProjectUrl</a></div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(package.RepositoryUrl))
+                                        {
+                                            <div><b>Repository:</b> <a href="@package.RepositoryUrl" target="_blank" rel="noopener noreferrer nofollow">@package.RepositoryUrl</a></div>
+                                        }
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </RadzenColumn>
+
+                            <RadzenColumn Size="12" SizeMD="6">
+                                <RadzenCard Style="padding:1rem;">
+                                    <RadzenText TextStyle="TextStyle.H6">Versions</RadzenText>
+                                    <RadzenStack Gap="0.35rem" Style="margin-top:0.5rem;">
+                                        @foreach (var version in package.Versions.Take(10))
+                                        {
+                                            <div>
+                                                <b>@version.Version</b>
+                                                <span style="color:#6b7280;"> · @version.PublishedAt.ToString("yyyy-MM-dd")</span>
+                                            </div>
+                                        }
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </RadzenColumn>
+                        </RadzenRow>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="Source code" Icon="code">
+                    <div style="padding-top:1rem;">
+                        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false" Style="margin-bottom:0.75rem;"
+                                     Text="Review this code before enabling an imported job. It runs with the permissions of your installation." />
+                        <CommunitySourceViewer Files="@sourceFiles" />
+                    </div>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="@($"Ratings ({package.RatingCount})")" Icon="star">
+                    <RadzenStack Gap="1rem" Style="padding-top:1rem;">
+                        <RadzenCard Style="padding:1rem;">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="2rem" AlignItems="AlignItems.Center">
+                                <RadzenStack Gap="0" AlignItems="AlignItems.Center">
+                                    <RadzenText TextStyle="TextStyle.H3" Style="margin:0;">
+                                        @(ratings?.AverageRating?.ToString("0.0") ?? "—")
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;">
+                                        @(ratings?.TotalRatings ?? 0) ratings
+                                    </RadzenText>
+                                </RadzenStack>
+
+                                <RadzenStack Gap="0.35rem" Style="flex:1;">
+                                    <RadzenLabel Text="Your rating" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                                        <RadzenRating @bind-Value="@myStars" Stars="5" />
+                                        <RadzenTextBox @bind-Value="@myReview" Placeholder="Optional review" Style="flex:1;" />
+                                        <RadzenButton Text="Submit" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                                                      Click="@SubmitRatingAsync" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        @foreach (var review in reviews)
+                        {
+                            <RadzenCard Style="padding:0.75rem 1rem;">
+                                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween">
+                                    <b>@review.AuthorDisplayName</b>
+                                    <span style="color:#f59e0b;">@(new string('★', review.Stars))</span>
+                                </RadzenStack>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0.35rem 0 0;">@review.Review</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#9ca3af;">
+                                    @review.CreatedAt.ToString("yyyy-MM-dd")
+                                </RadzenText>
+                            </RadzenCard>
+                        }
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="@($"Discussions ({package.DiscussionCount})")" Icon="forum">
+                    <RadzenStack Gap="1rem" Style="padding-top:1rem;">
+                        <RadzenCard Style="padding:1rem;">
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenTextBox @bind-Value="@newThreadTitle" Placeholder="Title" />
+                                <RadzenTextArea @bind-Value="@newThreadBody" Placeholder="Ask a question or share feedback" Rows="3" />
+                                <RadzenButton Text="Post discussion" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Style="align-self:flex-start;" Click="@PostDiscussionAsync" />
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        @foreach (var thread in discussions)
+                        {
+                            <RadzenCard Style="padding:0.75rem 1rem;">
+                                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween">
+                                    <b>@thread.Title</b>
+                                    <span style="color:#9ca3af;font-size:0.8rem;">@thread.ReplyCount replies</span>
+                                </RadzenStack>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0.35rem 0 0;">@thread.Body</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#9ca3af;">
+                                    @thread.AuthorDisplayName · @thread.CreatedAt.ToString("yyyy-MM-dd")
+                                </RadzenText>
+                            </RadzenCard>
+                        }
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public string Identifier { get; set; } = string.Empty;
+
+    private CommunityPackageDetail? package;
+    private IReadOnlyList<CommunitySourceFile> sourceFiles = [];
+    private CommunityRatingSummary? ratings;
+    private IReadOnlyList<CommunityRating> reviews = [];
+    private IReadOnlyList<CommunityDiscussion> discussions = [];
+
+    private bool loading = true;
+    private bool isFavorite;
+    private bool allowImport = true;
+    private int selectedTab;
+    private int myStars = 5;
+    private string? myReview;
+    private string? newThreadTitle;
+    private string? newThreadBody;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+
+        var options = await CommunitySettings.GetOptionsAsync();
+        allowImport = options.AllowImport;
+
+        package = await CommunityClient.GetPackageAsync(Identifier);
+        if (package is not null)
+        {
+            sourceFiles = await CommunityClient.GetSourceAsync(Identifier);
+            ratings = await CommunityClient.GetRatingsAsync(Identifier);
+            reviews = (await CommunityClient.GetReviewsAsync(Identifier, 1)).Items;
+            discussions = (await CommunityClient.GetDiscussionsAsync(Identifier, 1)).Items;
+
+            if (await SignIn.IsSignedInAsync())
+            {
+                isFavorite = await CommunityClient.IsFavoriteAsync(Identifier);
+            }
+        }
+
+        loading = false;
+    }
+
+    private async Task<bool> EnsureSignedInAsync()
+    {
+        var outcome = await SignIn.EnsureSignedInAsync();
+        if (!outcome.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Info, "Sign in required",
+                outcome.Message ?? "Sign in to the Community Jobs Library first.");
+        }
+
+        return outcome.Succeeded;
+    }
+
+    private async Task ToggleFavoriteAsync()
+    {
+        if (!await EnsureSignedInAsync())
+        {
+            return;
+        }
+
+        if (await CommunityClient.SetFavoriteAsync(Identifier, !isFavorite))
+        {
+            isFavorite = !isFavorite;
+        }
+    }
+
+    private async Task SubmitRatingAsync()
+    {
+        if (!await EnsureSignedInAsync())
+        {
+            return;
+        }
+
+        if (await CommunityClient.UpsertRatingAsync(Identifier, myStars, myReview))
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Thanks", "Your rating was saved.");
+            ratings = await CommunityClient.GetRatingsAsync(Identifier);
+            reviews = (await CommunityClient.GetReviewsAsync(Identifier, 1)).Items;
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Not saved", "Your rating could not be saved.");
+        }
+    }
+
+    private async Task PostDiscussionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newThreadTitle) || string.IsNullOrWhiteSpace(newThreadBody))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Incomplete", "Enter a title and a message.");
+            return;
+        }
+
+        if (!await EnsureSignedInAsync())
+        {
+            return;
+        }
+
+        if (await CommunityClient.PostDiscussionAsync(Identifier, newThreadTitle!, newThreadBody!))
+        {
+            newThreadTitle = null;
+            newThreadBody = null;
+            discussions = (await CommunityClient.GetDiscussionsAsync(Identifier, 1)).Items;
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Not posted", "The discussion could not be posted.");
+        }
+    }
+
+    private async Task PullAsync()
+    {
+        if (package is null || !await EnsureSignedInAsync())
+        {
+            return;
+        }
+
+        await DialogService.OpenAsync<PullJobDialog>($"Pull {package.Title}",
+            new Dictionary<string, object?>
+            {
+                { "PackageIdentifier", package.PackageIdentifier },
+                { "Version", package.CurrentVersion },
+                { "SuggestedJobName", package.Title }
+            },
+            new DialogOptions { Width = "620px", CloseDialogOnOverlayClick = false });
+    }
+}

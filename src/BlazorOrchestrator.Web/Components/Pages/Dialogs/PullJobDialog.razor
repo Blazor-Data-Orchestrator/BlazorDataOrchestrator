@@ -1,0 +1,119 @@
+@using BlazorOrchestrator.Web.Services
+@using BlazorOrchestrator.Web.Services.Community
+@inject ICommunityImportService ImportService
+@inject JobService JobService
+@inject DialogService DialogService
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem" Style="min-width:520px;">
+
+    @if (result is null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+            The imported job is created <b>disabled and unscheduled</b>. Review its source code before you enable it.
+        </RadzenAlert>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Job name" />
+            <RadzenTextBox @bind-Value="@jobName" Style="width:100%;" />
+        </RadzenStack>
+
+        <RadzenRow Gap="0.75rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Environment" />
+                <RadzenDropDown TValue="string" @bind-Value="@environment" Data="@environments" Style="width:100%;" />
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Version" />
+                <RadzenTextBox @bind-Value="@version" Style="width:100%;" ReadOnly="true" />
+            </RadzenColumn>
+        </RadzenRow>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false" Text="@errorMessage" />
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+            <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+            <RadzenButton Text="Pull job" Icon="download_for_offline" ButtonStyle="ButtonStyle.Primary"
+                          IsBusy="@importing" Click="@ImportAsync" />
+        </RadzenStack>
+    }
+    else
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Success" AllowClose="false">
+            <RadzenStack Gap="0.35rem">
+                <b>Imported as job #@result.JobId</b>
+                <span>The job is disabled. Review the code, then enable and schedule it when you are satisfied.</span>
+            </RadzenStack>
+        </RadzenAlert>
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+            <RadzenButton Text="Go to dashboard" Icon="dashboard" ButtonStyle="ButtonStyle.Primary"
+                          Click="@(() => { DialogService.Close(true); Navigation.NavigateTo("/", forceLoad: true); })" />
+            <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(true))" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public string PackageIdentifier { get; set; } = string.Empty;
+    [Parameter] public string Version { get; set; } = string.Empty;
+    [Parameter] public string SuggestedJobName { get; set; } = string.Empty;
+
+    private string jobName = string.Empty;
+    private string version = string.Empty;
+    private string environment = "Production";
+    private List<string> environments = [];
+    private bool importing;
+    private string? errorMessage;
+    private CommunityImportResult? result;
+
+    protected override void OnInitialized()
+    {
+        jobName = SuggestedJobName;
+        version = Version;
+        environments = JobService.GetEnvironments();
+        environment = environments.FirstOrDefault() ?? environment;
+    }
+
+    private async Task ImportAsync()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(jobName))
+        {
+            errorMessage = "Enter a job name.";
+            return;
+        }
+
+        importing = true;
+        try
+        {
+            var outcome = await ImportService.ImportAsync(new CommunityImportRequest
+            {
+                PackageIdentifier = PackageIdentifier,
+                Version = version,
+                JobName = jobName.Trim(),
+                JobEnvironment = environment
+            });
+
+            if (outcome.Succeeded)
+            {
+                result = outcome;
+                NotificationService.Notify(NotificationSeverity.Success, "Imported",
+                    $"{PackageIdentifier} was imported as a disabled job.");
+            }
+            else
+            {
+                errorMessage = outcome.ErrorMessage;
+            }
+        }
+        finally
+        {
+            importing = false;
+        }
+    }
+}

@@ -21,6 +21,7 @@ public class CodeAssistantChatService : IAIChatService
     private readonly ConcurrentDictionary<string, ConversationSession> _sessions = new();
     private readonly AISettingsService _settingsService;
     private readonly IInstructionsProvider _instructionsProvider;
+    private readonly IExternalToolProvider? _externalToolProvider;
     private AISettings? _cachedSettings;
     private IChatClient? _chatClient;
     private string _currentEditorCode = "";
@@ -47,10 +48,12 @@ Keep responses concise and focused on the code task at hand.
 
     public CodeAssistantChatService(
         AISettingsService settingsService, 
-        IInstructionsProvider instructionsProvider)
+        IInstructionsProvider instructionsProvider,
+        IExternalToolProvider? externalToolProvider = null)
     {
         _settingsService = settingsService;
         _instructionsProvider = instructionsProvider;
+        _externalToolProvider = externalToolProvider;
     }
     
     /// <summary>
@@ -116,7 +119,11 @@ Keep responses concise and focused on the code task at hand.
 
         try
         {
-            _chatClient = ChatClientFactory.Create(settings);
+            // Function invocation lets the model call MCP-backed tools without extra plumbing here.
+            var innerClient = ChatClientFactory.Create(settings);
+            _chatClient = innerClient is null
+                ? null
+                : innerClient.AsBuilder().UseFunctionInvocation().Build();
         }
         catch (Exception)
         {
@@ -226,6 +233,22 @@ Keep responses concise and focused on the code task at hand.
                 Temperature = isRestrictedModel ? null : (float?)temperature ?? 0.7f,
                 MaxOutputTokens = effectiveMaxTokens
             };
+
+            if (_externalToolProvider is not null)
+            {
+                try
+                {
+                    var tools = await _externalToolProvider.GetToolsAsync(includeWriteTools: false, cancellationToken);
+                    if (tools.Count > 0)
+                    {
+                        options.Tools = tools;
+                    }
+                }
+                catch (Exception)
+                {
+                    // A tool server outage must not break the chat.
+                }
+            }
 
             var responseBuilder = new System.Text.StringBuilder();
             

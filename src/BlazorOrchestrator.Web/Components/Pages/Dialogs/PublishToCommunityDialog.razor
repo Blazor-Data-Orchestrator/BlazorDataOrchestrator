@@ -1,0 +1,327 @@
+@using System.IO.Compression
+@using System.Xml
+@using System.Xml.Linq
+@using BlazorDataOrchestrator.Core
+@using BlazorOrchestrator.Web.Services.Community
+@inject ICommunityClient CommunityClient
+@inject ICommunitySettingsService CommunitySettings
+@inject CommunitySignInCoordinator SignIn
+@inject JobManager JobManager
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem" Style="min-width:640px;">
+
+    @if (step == Step.Loading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" Style="padding:2rem;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+            <RadzenText TextStyle="TextStyle.Body2">Reading the linked NuGet package…</RadzenText>
+        </RadzenStack>
+    }
+    else if (step == Step.Error)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false" Text="@errorMessage" />
+        <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+    }
+    else if (step == Step.Success)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Success" AllowClose="false">
+            <RadzenStack Gap="0.35rem">
+                <b>Published as @result!.PackageIdentifier</b>
+                <span>Status: @result.Status. A moderator reviews new packages before they appear in the gallery.</span>
+                <span>@result.SourceFilesExposed source files are publicly visible.</span>
+            </RadzenStack>
+        </RadzenAlert>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            <RadzenButton Text="Open in gallery" Icon="open_in_new" ButtonStyle="ButtonStyle.Primary"
+                          Click="@(() => Navigate(result!.PackageUrl))" />
+            <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(true))" />
+        </RadzenStack>
+    }
+    else
+    {
+        @if (isNewVersion)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false"
+                         Text="@($"You already own {packageName}. This will publish a new version.")" />
+        }
+
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+            <RadzenStack Gap="0.5rem">
+                <b>Source code from this package will be publicly visible to all users.</b>
+                <RadzenCheckBox @bind-Value="@sourceExposureAcknowledged" Name="ack" />
+                <RadzenLabel Text="I understand and want to publish this job publicly." Component="ack" />
+            </RadzenStack>
+        </RadzenAlert>
+
+        <RadzenRow Gap="0.75rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Package name" />
+                <RadzenTextBox @bind-Value="@packageName" Style="width:100%;" Disabled="@isNewVersion" />
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Version" />
+                <RadzenTextBox @bind-Value="@version" Style="width:100%;" />
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Title" />
+            <RadzenTextBox @bind-Value="@title" Style="width:100%;" />
+        </RadzenStack>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Description (Markdown)" />
+            <RadzenTextArea @bind-Value="@description" Rows="4" Style="width:100%;" />
+        </RadzenStack>
+
+        <RadzenRow Gap="0.75rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Categories (1 to 3)" />
+                <RadzenDropDown @bind-Value="@selectedCategories" Data="@categoryNames" Multiple="true"
+                                AllowClear="true" Chips="true" Style="width:100%;" TValue="IEnumerable<string>" />
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Language" />
+                <RadzenDropDown @bind-Value="@language" Data="@languages" Style="width:100%;" TValue="string" />
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenRow Gap="0.75rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Tags (comma separated)" />
+                <RadzenTextBox @bind-Value="@tags" Style="width:100%;" />
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="License (SPDX)" />
+                <RadzenTextBox @bind-Value="@license" Style="width:100%;" />
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenRow Gap="0.75rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Project URL" />
+                <RadzenTextBox @bind-Value="@projectUrl" Style="width:100%;" />
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenLabel Text="Repository URL" />
+                <RadzenTextBox @bind-Value="@repositoryUrl" Style="width:100%;" />
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenStack Gap="0.25rem">
+            <RadzenLabel Text="Release notes" />
+            <RadzenTextArea @bind-Value="@releaseNotes" Rows="2" Style="width:100%;" />
+        </RadzenStack>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false" Text="@errorMessage" />
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#6b7280;">
+                Package size: @($"{packageBytes.Length / 1024.0:0.#} KB")
+            </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+                <RadzenButton Text="@(isNewVersion ? "Publish new version" : "Publish")" Icon="cloud_upload"
+                              ButtonStyle="ButtonStyle.Primary" IsBusy="@publishing"
+                              Disabled="@(!sourceExposureAcknowledged)" Click="@PublishAsync" />
+            </RadzenStack>
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public int JobId { get; set; }
+    [Parameter] public string JobName { get; set; } = string.Empty;
+
+    private enum Step { Loading, Review, Success, Error }
+
+    private Step step = Step.Loading;
+    private byte[] packageBytes = [];
+    private string fileName = "package.nupkg";
+
+    private string packageName = string.Empty;
+    private string title = string.Empty;
+    private string description = string.Empty;
+    private string version = "1.0.0";
+    private string language = "C#";
+    private string? license;
+    private string? projectUrl;
+    private string? repositoryUrl;
+    private string? tags;
+    private string? releaseNotes;
+    private List<string> targetFrameworks = [];
+
+    private IEnumerable<string> selectedCategories = [];
+    private List<string> categoryNames = [];
+    private readonly List<string> languages = ["C#", "Python"];
+
+    private bool sourceExposureAcknowledged;
+    private bool publishing;
+    private bool isNewVersion;
+    private string? errorMessage;
+    private CommunityPublishResult? result;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var signIn = await SignIn.EnsureSignedInAsync();
+        if (!signIn.Succeeded)
+        {
+            step = Step.Error;
+            errorMessage = signIn.Message ?? "Sign in to the Community Jobs Library to publish.";
+            return;
+        }
+
+        try
+        {
+            await using var stream = await JobManager.DownloadJobPackageAsync(JobId)
+                ?? throw new InvalidOperationException("This job has no linked NuGet package.");
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            packageBytes = buffer.ToArray();
+
+            ReadNuspec();
+
+            title = string.IsNullOrWhiteSpace(title) ? JobName : title;
+            fileName = $"{packageName}.{version}.nupkg";
+
+            categoryNames = (await CommunityClient.GetCategoriesAsync()).Select(c => c.Name).ToList();
+
+            var existing = await CommunityClient.GetPackageAsync(packageName);
+            isNewVersion = existing is not null;
+
+            step = Step.Review;
+        }
+        catch (Exception ex)
+        {
+            step = Step.Error;
+            errorMessage = ex.Message;
+        }
+    }
+
+    /// <summary>Reads metadata from the .nuspec with DTD processing disabled.</summary>
+    private void ReadNuspec()
+    {
+        using var archive = new ZipArchive(new MemoryStream(packageBytes, writable: false), ZipArchiveMode.Read);
+        var entry = archive.Entries.FirstOrDefault(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            throw new InvalidOperationException("The linked package does not contain a .nuspec manifest.");
+        }
+
+        using var entryStream = entry.Open();
+        using var reader = XmlReader.Create(entryStream, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null
+        });
+
+        var document = XDocument.Load(reader);
+        var metadata = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "metadata");
+        if (metadata is null)
+        {
+            throw new InvalidOperationException("The .nuspec manifest is missing its metadata element.");
+        }
+
+        string? Value(string name) => metadata.Elements().FirstOrDefault(e => e.Name.LocalName == name)?.Value;
+
+        packageName = Value("id") ?? JobName;
+        title = Value("title") ?? packageName;
+        description = Value("description") ?? string.Empty;
+        version = Value("version") ?? "1.0.0";
+        license = Value("license") ?? Value("licenseUrl");
+        projectUrl = Value("projectUrl");
+        repositoryUrl = metadata.Elements().FirstOrDefault(e => e.Name.LocalName == "repository")?.Attribute("url")?.Value;
+        tags = Value("tags")?.Replace(' ', ',');
+
+        targetFrameworks = metadata.Descendants()
+            .Where(e => e.Name.LocalName == "group")
+            .Select(g => g.Attribute("targetFramework")?.Value)
+            .Where(v => !string.IsNullOrEmpty(v))
+            .Select(v => v!)
+            .Distinct()
+            .ToList();
+
+        language = packageBytes.Length > 0 && DetectPython(archive) ? "Python" : "C#";
+    }
+
+    private static bool DetectPython(ZipArchive archive) =>
+        archive.Entries.Count(e => e.FullName.EndsWith(".py", StringComparison.OrdinalIgnoreCase)) >
+        archive.Entries.Count(e => e.FullName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase));
+
+    private async Task PublishAsync()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            errorMessage = "A description is required.";
+            return;
+        }
+
+        if (!isNewVersion && !selectedCategories.Any())
+        {
+            errorMessage = "Select at least one category.";
+            return;
+        }
+
+        publishing = true;
+        try
+        {
+            var options = await CommunitySettings.GetOptionsAsync();
+
+            var request = new CommunityPublishRequest
+            {
+                PackageBytes = packageBytes,
+                FileName = fileName,
+                Title = title,
+                Description = description,
+                Version = version,
+                Language = language,
+                Categories = selectedCategories.Take(3).ToList(),
+                Tags = string.IsNullOrWhiteSpace(tags)
+                    ? []
+                    : tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(10).ToList(),
+                License = license,
+                ProjectUrl = projectUrl,
+                RepositoryUrl = repositoryUrl,
+                TargetFrameworks = targetFrameworks,
+                ReleaseNotes = releaseNotes,
+                SourceJobName = JobName,
+                InstallationId = options.InstallationId
+            };
+
+            result = isNewVersion
+                ? await CommunityClient.PublishVersionAsync(packageName, request)
+                : await CommunityClient.PublishAsync(request);
+
+            if (result.Succeeded)
+            {
+                step = Step.Success;
+                NotificationService.Notify(NotificationSeverity.Success, "Published",
+                    $"{result.PackageIdentifier} was submitted for review.");
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage;
+            }
+        }
+        finally
+        {
+            publishing = false;
+        }
+    }
+
+    private void Navigate(string url)
+    {
+        if (!string.IsNullOrEmpty(url))
+        {
+            DialogService.Close(true);
+        }
+    }
+}

@@ -1,0 +1,186 @@
+@page "/community/submissions"
+@using BlazorOrchestrator.Web.Services.Community
+@using BlazorOrchestrator.Web.Components.Community
+@attribute [Authorize]
+@inject ICommunityClient CommunityClient
+@inject CommunitySignInCoordinator SignIn
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+
+<PageTitle>My community submissions</PageTitle>
+
+<RadzenStack Gap="1rem" Style="padding:1.5rem;">
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+        <RadzenStack Gap="0.15rem">
+            <RadzenText TextStyle="TextStyle.H4" Style="margin:0;">My submissions</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                Packages you have published to the Community Jobs Library.
+            </RadzenText>
+        </RadzenStack>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="Browse gallery" Icon="travel_explore" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@(() => Navigation.NavigateTo("/community"))" />
+            <CommunityAccountChip StateChanged="@OnAuthStateChanged" />
+        </RadzenStack>
+    </RadzenStack>
+
+    @if (!signedIn)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false"
+                     Text="Sign in to the Community Jobs Library to see your submissions." />
+    }
+    else if (loading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" Style="padding:3rem;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+        </RadzenStack>
+    }
+    else if (submissions.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Light" Shade="Shade.Lighter" AllowClose="false"
+                     Text="You have not published any jobs yet. Open a job with a linked NuGet package and choose Publish To Community Site." />
+    }
+    else
+    {
+        <RadzenDataGrid Data="@submissions" TItem="CommunitySubmission" AllowSorting="true" AllowPaging="true" PageSize="10">
+            <Columns>
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="Title" Title="Title" />
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="PackageIdentifier" Title="Identifier" />
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="CurrentVersion" Title="Version" Width="100px" />
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="Status" Title="Status" Width="150px">
+                    <Template Context="item">
+                        <RadzenBadge BadgeStyle="@StatusStyle(item.Status)" Text="@item.Status" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="DownloadCount" Title="Downloads" Width="110px" />
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="InstallCount" Title="Installs" Width="100px" />
+                <RadzenDataGridColumn TItem="CommunitySubmission" Property="AverageRating" Title="Rating" Width="100px">
+                    <Template Context="item">
+                        @(item.AverageRating?.ToString("0.0") ?? "—") (@item.RatingCount)
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="CommunitySubmission" Title="Actions" Sortable="false" Width="230px">
+                    <Template Context="item">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.35rem">
+                            <RadzenButton Icon="open_in_new" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          title="View in gallery"
+                                          Click="@(() => Navigation.NavigateTo($"/community/package/{Uri.EscapeDataString(item.PackageIdentifier)}"))" />
+                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          title="Edit metadata" Click="@(() => BeginEdit(item))" />
+                            <RadzenButton Icon="@(item.IsListed ? "visibility" : "visibility_off")"
+                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          title="@(item.IsListed ? "Unlist" : "List")"
+                                          Click="@(() => ToggleListedAsync(item))" />
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+
+    @if (editing is not null)
+    {
+        <RadzenCard Style="padding:1rem;border:1px solid #e5e7eb;">
+            <RadzenText TextStyle="TextStyle.H6">Edit @editing.PackageIdentifier</RadzenText>
+            <RadzenStack Gap="0.5rem" Style="margin-top:0.75rem;">
+                <RadzenLabel Text="Title" />
+                <RadzenTextBox @bind-Value="@editTitle" />
+                <RadzenLabel Text="Description" />
+                <RadzenTextArea @bind-Value="@editDescription" Rows="4" />
+                <RadzenLabel Text="Tags (comma separated)" />
+                <RadzenTextBox @bind-Value="@editTags" />
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@SaveEditAsync" />
+                    <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@(() => editing = null)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    private List<CommunitySubmission> submissions = [];
+    private CommunitySubmission? editing;
+    private string? editTitle;
+    private string? editDescription;
+    private string? editTags;
+    private bool loading;
+    private bool signedIn;
+
+    private async Task OnAuthStateChanged(CommunityAuthState state)
+    {
+        signedIn = state.IsSignedIn;
+        if (signedIn)
+        {
+            await LoadAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            submissions = (await CommunityClient.GetSubmissionsAsync(1)).Items.ToList();
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void BeginEdit(CommunitySubmission item)
+    {
+        editing = item;
+        editTitle = item.Title;
+        editDescription = item.Description;
+        editTags = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        var patch = new CommunityPackagePatch
+        {
+            Title = editTitle,
+            Description = editDescription,
+            Tags = string.IsNullOrWhiteSpace(editTags)
+                ? null
+                : editTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        };
+
+        if (await CommunityClient.UpdatePackageAsync(editing.PackageIdentifier, patch))
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Saved", "The package metadata was updated.");
+            editing = null;
+            await LoadAsync();
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Not saved", "The package could not be updated.");
+        }
+    }
+
+    private async Task ToggleListedAsync(CommunitySubmission item)
+    {
+        if (await CommunityClient.UpdatePackageAsync(item.PackageIdentifier, new CommunityPackagePatch { IsListed = !item.IsListed }))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private static BadgeStyle StatusStyle(string status) => status switch
+    {
+        "Approved" => BadgeStyle.Success,
+        "PendingReview" => BadgeStyle.Info,
+        "AiFlagged" => BadgeStyle.Warning,
+        "Rejected" => BadgeStyle.Danger,
+        _ => BadgeStyle.Light
+    };
+}

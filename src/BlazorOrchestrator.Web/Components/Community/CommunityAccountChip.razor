@@ -1,0 +1,87 @@
+@using BlazorOrchestrator.Web.Services.Community
+@inject CommunitySignInCoordinator SignIn
+@inject NotificationService NotificationService
+
+<RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+    @if (State.IsSignedIn)
+    {
+        @if (!string.IsNullOrEmpty(State.AvatarUrl))
+        {
+            <img src="@State.AvatarUrl" alt="" style="width:28px;height:28px;border-radius:50%;" />
+        }
+        else
+        {
+            <RadzenIcon Icon="account_circle" Style="font-size:1.5rem;color:#6b7280;" />
+        }
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">@(State.DisplayName ?? State.Email)</RadzenText>
+        <RadzenButton Text="Sign out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Variant="Variant.Text" Click="@SignOutAsync" />
+    }
+    else
+    {
+        <RadzenButton Text="Sign in to Community" Icon="login" ButtonStyle="ButtonStyle.Primary"
+                      Size="ButtonSize.Small" IsBusy="@busy" Click="@SignInAsync" />
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public EventCallback<CommunityAuthState> StateChanged { get; set; }
+
+    private CommunityAuthState State { get; set; } = CommunityAuthState.SignedOut;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    public async Task RefreshAsync()
+    {
+        try
+        {
+            // Token storage is remote; a slow or missing backend must not block the host page.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            State = await SignIn.GetStateAsync(cts.Token);
+        }
+        catch (Exception)
+        {
+            State = CommunityAuthState.SignedOut;
+        }
+
+        await StateChanged.InvokeAsync(State);
+        StateHasChanged();
+    }
+
+    private async Task SignInAsync()
+    {
+        busy = true;
+        try
+        {
+            var outcome = await SignIn.SignInAsync();
+
+            if (!outcome.Succeeded && outcome.Message == "device-code")
+            {
+                NotificationService.Notify(NotificationSeverity.Info, "Device sign-in",
+                    "This installation is configured for the device code flow. Open Community Jobs Library, then Connect a device.");
+                return;
+            }
+
+            if (!outcome.Succeeded)
+            {
+                NotificationService.Notify(NotificationSeverity.Warning, "Not signed in", outcome.Message ?? "Sign-in failed.");
+                return;
+            }
+
+            await RefreshAsync();
+            NotificationService.Notify(NotificationSeverity.Success, "Signed in", "Connected to the Community Jobs Library.");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await SignIn.SignOutAsync();
+        await RefreshAsync();
+        NotificationService.Notify(NotificationSeverity.Info, "Signed out", "Disconnected from the Community Jobs Library.");
+    }
+}

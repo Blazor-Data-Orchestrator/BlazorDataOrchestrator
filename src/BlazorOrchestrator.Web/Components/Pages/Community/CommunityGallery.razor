@@ -1,0 +1,292 @@
+@page "/community"
+@using BlazorOrchestrator.Web.Services.Community
+@using BlazorOrchestrator.Web.Components.Community
+@using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@attribute [Authorize]
+@inject ICommunityClient CommunityClient
+@inject ICommunitySettingsService CommunitySettings
+@inject CommunitySignInCoordinator SignIn
+@inject NavigationManager Navigation
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<PageTitle>Community Jobs Library</PageTitle>
+
+<RadzenStack Gap="1rem" Style="padding:1.5rem;">
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+        <RadzenStack Gap="0.15rem">
+            <RadzenText TextStyle="TextStyle.H4" Style="margin:0;">Community Jobs Library</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                Browse jobs shared by the community, then pull the ones you want into this installation.
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="My submissions" Icon="cloud_upload" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@(() => Navigation.NavigateTo("/community/submissions"))" />
+            <RadzenButton Text="My favorites" Icon="star" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@(() => Navigation.NavigateTo("/community/favorites"))" />
+            <CommunityAccountChip @ref="accountChip" StateChanged="@OnAuthStateChanged" />
+        </RadzenStack>
+    </RadzenStack>
+
+    @if (unreachable)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+            <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                <span>The Community Jobs Library is currently unavailable.</span>
+                <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@LoadAsync" />
+            </RadzenStack>
+        </RadzenAlert>
+    }
+
+    <RadzenCard Style="padding:1rem;border:1px solid #e5e7eb;">
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.End">
+            <RadzenStack Gap="0.25rem" Style="min-width:260px;flex:1;">
+                <RadzenLabel Text="Search" />
+                <RadzenTextBox @bind-Value="@searchTerm" Placeholder="Search jobs, tags or descriptions"
+                               Style="width:100%;" @onkeyup="@OnSearchKeyUp" />
+            </RadzenStack>
+
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Category" />
+                <RadzenDropDown TValue="string" @bind-Value="@selectedCategory" Data="@categoryNames"
+                                AllowClear="true" Placeholder="All categories" Style="min-width:180px;"
+                                Change="@(_ => LoadAsync())" />
+            </RadzenStack>
+
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Language" />
+                <RadzenDropDown TValue="string" @bind-Value="@selectedLanguage" Data="@languages"
+                                AllowClear="true" Placeholder="Any" Style="min-width:140px;"
+                                Change="@(_ => LoadAsync())" />
+            </RadzenStack>
+
+            <RadzenStack Gap="0.25rem">
+                <RadzenLabel Text="Sort by" />
+                <RadzenDropDown TValue="CommunitySortOrder" @bind-Value="@sort" Data="@sortOptions"
+                                Style="min-width:150px;" Change="@(_ => LoadAsync())" />
+            </RadzenStack>
+
+            <RadzenButton Text="Search" Icon="search" ButtonStyle="ButtonStyle.Primary" Click="@LoadAsync" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (loading)
+    {
+        <RadzenStack AlignItems="AlignItems.Center" Style="padding:3rem;">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+        </RadzenStack>
+    }
+    else if (results.Items.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Light" Shade="Shade.Lighter" AllowClose="false"
+                     Text="No community jobs matched your search." />
+    }
+    else
+    {
+        <RadzenRow Gap="1rem">
+            @foreach (var package in results.Items)
+            {
+                <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
+                    <CommunityPackageCard Package="@package"
+                                          IsFavorite="@favorites.Contains(package.PackageIdentifier)"
+                                          ShowPull="@allowImport"
+                                          OnOpenDetails="@OpenDetails"
+                                          OnPull="@PullAsync"
+                                          OnToggleFavorite="@ToggleFavoriteAsync" />
+                </RadzenColumn>
+            }
+        </RadzenRow>
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="Previous" Icon="chevron_left" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@(page <= 1)" Click="@(() => GoToPageAsync(page - 1))" />
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">
+                Page @results.Page of @Math.Max(results.TotalPages, 1)
+            </RadzenText>
+            <RadzenButton Text="Next" Icon="chevron_right" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@(page >= results.TotalPages)" Click="@(() => GoToPageAsync(page + 1))" />
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    private CommunityAccountChip? accountChip;
+
+    private CommunityPagedResult<CommunityPackageSummary> results = new();
+    private readonly HashSet<string> favorites = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> categoryNames = [];
+    private readonly List<string> languages = ["C#", "Python"];
+    private readonly List<CommunitySortOrder> sortOptions =
+    [
+        CommunitySortOrder.Relevance, CommunitySortOrder.Downloads,
+        CommunitySortOrder.Rating, CommunitySortOrder.Newest, CommunitySortOrder.Updated
+    ];
+
+    private string? searchTerm;
+    private string? selectedCategory;
+    private string? selectedLanguage;
+    private CommunitySortOrder sort = CommunitySortOrder.Relevance;
+    private int page = 1;
+    private bool loading = true;
+    private bool unreachable;
+    private bool allowImport = true;
+    private bool signedIn;
+
+    // The community site is optional; never let a slow or missing server hang the page.
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(RequestTimeout);
+            var options = await CommunitySettings.GetOptionsAsync(cts.Token);
+            allowImport = options.AllowImport;
+
+            categoryNames = (await CommunityClient.GetCategoriesAsync(cts.Token)).Select(c => c.Name).ToList();
+        }
+        catch (Exception)
+        {
+            categoryNames = [];
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task OnAuthStateChanged(CommunityAuthState state)
+    {
+        signedIn = state.IsSignedIn;
+        if (signedIn)
+        {
+            await LoadFavoritesAsync();
+            StateHasChanged();
+        }
+    }
+
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            page = 1;
+            await LoadAsync();
+        }
+    }
+
+    private async Task GoToPageAsync(int newPage)
+    {
+        page = Math.Max(1, newPage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        unreachable = false;
+        StateHasChanged();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(RequestTimeout);
+            results = await CommunityClient.SearchAsync(new CommunitySearchQuery
+            {
+                Query = searchTerm,
+                Category = selectedCategory,
+                Language = selectedLanguage,
+                Sort = sort,
+                Page = page,
+                PageSize = 12
+            }, cts.Token);
+
+            unreachable = results.PageSize == 0;
+        }
+        catch (Exception)
+        {
+            unreachable = true;
+            results = new CommunityPagedResult<CommunityPackageSummary>();
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadFavoritesAsync()
+    {
+        favorites.Clear();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(RequestTimeout);
+            var page1 = await CommunityClient.GetFavoritesAsync(1, cts.Token);
+            foreach (var item in page1.Items)
+            {
+                favorites.Add(item.PackageIdentifier);
+            }
+        }
+        catch (Exception)
+        {
+            // Favorites are cosmetic; a failed lookup must not break the gallery.
+        }
+    }
+
+    private void OpenDetails(CommunityPackageSummary package) =>
+        Navigation.NavigateTo($"/community/package/{Uri.EscapeDataString(package.PackageIdentifier)}");
+
+    private async Task ToggleFavoriteAsync(CommunityPackageSummary package)
+    {
+        var outcome = await SignIn.EnsureSignedInAsync();
+        if (!outcome.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Info, "Sign in required",
+                outcome.Message ?? "Sign in to the Community Jobs Library to use favorites.");
+            return;
+        }
+
+        var isFavorite = !favorites.Contains(package.PackageIdentifier);
+        if (await CommunityClient.SetFavoriteAsync(package.PackageIdentifier, isFavorite))
+        {
+            if (isFavorite)
+            {
+                favorites.Add(package.PackageIdentifier);
+            }
+            else
+            {
+                favorites.Remove(package.PackageIdentifier);
+            }
+
+            if (accountChip is not null)
+            {
+                await accountChip.RefreshAsync();
+            }
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Not saved", "The favorite could not be updated.");
+        }
+    }
+
+    private async Task PullAsync(CommunityPackageSummary package)
+    {
+        var outcome = await SignIn.EnsureSignedInAsync();
+        if (!outcome.Succeeded)
+        {
+            NotificationService.Notify(NotificationSeverity.Info, "Sign in required",
+                outcome.Message ?? "Sign in to the Community Jobs Library to pull a job.");
+            return;
+        }
+
+        await DialogService.OpenAsync<PullJobDialog>($"Pull {package.Title}",
+            new Dictionary<string, object?>
+            {
+                { "PackageIdentifier", package.PackageIdentifier },
+                { "Version", package.CurrentVersion },
+                { "SuggestedJobName", package.Title }
+            },
+            new DialogOptions { Width = "620px", CloseDialogOnOverlayClick = false });
+    }
+}

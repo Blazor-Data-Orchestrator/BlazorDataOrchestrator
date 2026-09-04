@@ -1,0 +1,241 @@
+@using BlazorOrchestrator.Web.Services.Community
+@using BlazorOrchestrator.Web.Services.Mcp
+@inject ICommunitySettingsService CommunitySettings
+@inject ICommunityClient CommunityClient
+@inject IMcpClientRegistry McpRegistry
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+
+    <RadzenText TextStyle="TextStyle.H6">Community Jobs Library</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+        Controls whether users can publish jobs to, and pull jobs from, the shared community gallery.
+    </RadzenText>
+
+    @if (options is null)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+    }
+    else
+    {
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Community site URL" />
+                    <RadzenTextBox @bind-Value="@options.BaseUrl" Style="width:100%;" />
+                </RadzenStack>
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="OAuth client id" />
+                    <RadzenTextBox @bind-Value="@options.ClientId" Style="width:100%;" />
+                </RadzenStack>
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="OAuth redirect URI" />
+                    <RadzenTextBox @bind-Value="@options.RedirectUri" Style="width:100%;" />
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#6b7280;">
+                        Must exactly match a redirect URI registered on the community site.
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Installation display name" />
+                    <RadzenTextBox @bind-Value="@options.InstallationDisplayName" Style="width:100%;" />
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#6b7280;">
+                        Installation id: @options.InstallationId
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenStack Gap="0.5rem">
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenSwitch @bind-Value="@options.EnableCommunityPublish" Name="pub" />
+                <RadzenLabel Text="Show the Publish To Community Site button" Component="pub" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenSwitch @bind-Value="@options.EnableCommunityBrowse" Name="browse" />
+                <RadzenLabel Text="Show the Community Jobs Library menu item" Component="browse" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenSwitch @bind-Value="@options.AllowImport" Name="import" />
+                <RadzenLabel Text="Allow pulling community jobs into this installation" Component="import" />
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenSwitch @bind-Value="@options.PreferDeviceCodeFlow" Name="device" />
+                <RadzenLabel Text="Use the device code flow instead of a browser popup" Component="device" />
+            </RadzenStack>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Primary" IsBusy="@saving" Click="@SaveAsync" />
+            <RadzenButton Text="Test connection" Icon="wifi_tethering" ButtonStyle="ButtonStyle.Light"
+                          IsBusy="@testing" Click="@TestAsync" />
+            @if (!string.IsNullOrEmpty(testResult))
+            {
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">@testResult</RadzenText>
+            }
+        </RadzenStack>
+
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:0.5rem 0;" />
+
+        <RadzenText TextStyle="TextStyle.H6">MCP servers for the AI assistant</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+            The Community Jobs Library is always registered. Additional servers are disabled until you enable them,
+            and their tool output is treated as untrusted data.
+        </RadzenText>
+
+        <RadzenDataGrid Data="@servers" TItem="McpServerDescriptor" AllowSorting="false">
+            <Columns>
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Property="Name" Title="Name" Width="140px" />
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Property="Url" Title="Endpoint" />
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Property="AuthMode" Title="Auth" Width="110px" />
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Property="Enabled" Title="Enabled" Width="100px" />
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Title="Write tools" Width="110px">
+                    <Template Context="server">@(server.AllowWriteTools ? "Allowed" : "Blocked")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="McpServerDescriptor" Title="" Sortable="false" Width="110px">
+                    <Template Context="server">
+                        <RadzenButton Icon="wifi_tethering" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      title="Test" Click="@(() => TestServerAsync(server))" />
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+
+        <RadzenCard Style="padding:1rem;">
+            <RadzenText TextStyle="TextStyle.Subtitle2">Add a server</RadzenText>
+            <RadzenRow Gap="0.75rem" Style="margin-top:0.5rem;">
+                <RadzenColumn Size="12" SizeMD="3">
+                    <RadzenLabel Text="Name" />
+                    <RadzenTextBox @bind-Value="@newServerName" Style="width:100%;" />
+                </RadzenColumn>
+                <RadzenColumn Size="12" SizeMD="5">
+                    <RadzenLabel Text="Endpoint" />
+                    <RadzenTextBox @bind-Value="@newServerUrl" Style="width:100%;" Placeholder="https://host/mcp" />
+                </RadzenColumn>
+                <RadzenColumn Size="12" SizeMD="2">
+                    <RadzenLabel Text="Auth" />
+                    <RadzenDropDown TValue="McpAuthMode" @bind-Value="@newServerAuth" Data="@authModes" Style="width:100%;" />
+                </RadzenColumn>
+                <RadzenColumn Size="12" SizeMD="2">
+                    <RadzenLabel Text="API key" />
+                    <RadzenTextBox @bind-Value="@newServerApiKey" Style="width:100%;" />
+                </RadzenColumn>
+            </RadzenRow>
+            <RadzenButton Text="Add server" Icon="add" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Style="margin-top:0.75rem;" Click="@AddServerAsync" />
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    private CommunityOptions? options;
+    private List<McpServerDescriptor> servers = [];
+    private readonly List<McpAuthMode> authModes = [McpAuthMode.None, McpAuthMode.ApiKey, McpAuthMode.OAuth];
+
+    private string newServerName = string.Empty;
+    private string newServerUrl = string.Empty;
+    private McpAuthMode newServerAuth = McpAuthMode.None;
+    private string? newServerApiKey;
+
+    private bool saving;
+    private bool testing;
+    private string? testResult;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        options = await CommunitySettings.GetOptionsAsync();
+        servers = (await McpRegistry.GetServersAsync()).ToList();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (options is null)
+        {
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            await CommunitySettings.SaveOptionsAsync(options);
+            NotificationService.Notify(NotificationSeverity.Success, "Saved", "Community settings were updated.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Not saved", ex.Message);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task TestAsync()
+    {
+        testing = true;
+        testResult = null;
+        try
+        {
+            var start = DateTimeOffset.UtcNow;
+            var ok = await CommunityClient.TestConnectionAsync();
+            var elapsed = (DateTimeOffset.UtcNow - start).TotalMilliseconds;
+
+            testResult = ok
+                ? $"Connected in {elapsed:0} ms."
+                : "Could not reach the community site.";
+        }
+        finally
+        {
+            testing = false;
+        }
+    }
+
+    private async Task TestServerAsync(McpServerDescriptor server)
+    {
+        var identity = await McpRegistry.TestAsync(server);
+        if (identity is null)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, server.Name, "The server did not answer server/discover.");
+            return;
+        }
+
+        NotificationService.Notify(NotificationSeverity.Success, server.Name,
+            $"{identity.Name} {identity.Version} (protocol {string.Join(", ", identity.ProtocolVersions)})");
+    }
+
+    private async Task AddServerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newServerName) || !Uri.TryCreate(newServerUrl, UriKind.Absolute, out _))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Incomplete", "Enter a name and an absolute endpoint URL.");
+            return;
+        }
+
+        servers.Add(new McpServerDescriptor
+        {
+            Name = newServerName.Trim(),
+            Url = newServerUrl.Trim(),
+            AuthMode = newServerAuth,
+            ApiKey = newServerApiKey,
+            Enabled = false,
+            AllowWriteTools = false
+        });
+
+        await McpRegistry.SaveServersAsync(servers);
+        newServerName = string.Empty;
+        newServerUrl = string.Empty;
+        newServerApiKey = null;
+        await LoadAsync();
+    }
+}

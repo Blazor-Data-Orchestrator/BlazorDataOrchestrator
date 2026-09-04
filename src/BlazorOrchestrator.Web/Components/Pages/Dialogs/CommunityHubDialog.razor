@@ -1,0 +1,86 @@
+@using BlazorOrchestrator.Web.Services.Community
+@inject DialogService DialogService
+@inject NavigationManager Navigation
+
+<RadzenStack Gap="1rem" Style="min-width:520px;">
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+        Signed in as @(State?.DisplayName ?? State?.Email ?? "your community account").
+    </RadzenText>
+
+    <RadzenRow Gap="0.75rem">
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard Style="padding:1rem;cursor:pointer;height:100%;" @onclick="@PublishThisJob">
+                <RadzenIcon Icon="cloud_upload" Style="color:#00B4D8;font-size:1.6rem;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0.5rem 0 0.25rem;">Publish this job</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                    Share the currently open job with the community.
+                </RadzenText>
+            </RadzenCard>
+        </RadzenColumn>
+
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard Style="padding:1rem;cursor:pointer;height:100%;" @onclick="@(() => Go("/community/submissions"))">
+                <RadzenIcon Icon="inventory" Style="color:#00B4D8;font-size:1.6rem;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0.5rem 0 0.25rem;">My submissions</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                    Review, update or add a new version of a package you published.
+                </RadzenText>
+            </RadzenCard>
+        </RadzenColumn>
+
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard Style="padding:1rem;cursor:pointer;height:100%;" @onclick="@(() => Go("/community"))">
+                <RadzenIcon Icon="travel_explore" Style="color:#00B4D8;font-size:1.6rem;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0.5rem 0 0.25rem;">Browse community jobs</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                    Search the gallery and pull jobs into this installation.
+                </RadzenText>
+            </RadzenCard>
+        </RadzenColumn>
+
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard Style="padding:1rem;cursor:pointer;height:100%;" @onclick="@(() => Go("/community/favorites"))">
+                <RadzenIcon Icon="star" Style="color:#00B4D8;font-size:1.6rem;" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0.5rem 0 0.25rem;">My favorites</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+                    Jump back to the jobs you starred.
+                </RadzenText>
+            </RadzenCard>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End">
+        <RadzenButton Text="Close" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public CommunityAuthState? State { get; set; }
+    [Parameter] public int? JobId { get; set; }
+    [Parameter] public string? JobName { get; set; }
+
+    private async Task PublishThisJob()
+    {
+        if (JobId is null)
+        {
+            Go("/community");
+            return;
+        }
+
+        DialogService.Close(true);
+
+        await DialogService.OpenAsync<PublishToCommunityDialog>("Publish To Community Site",
+            new Dictionary<string, object?>
+            {
+                { "JobId", JobId.Value },
+                { "JobName", JobName ?? string.Empty }
+            },
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = false });
+    }
+
+    private void Go(string url)
+    {
+        DialogService.Close(true);
+        Navigation.NavigateTo(url);
+    }
+}

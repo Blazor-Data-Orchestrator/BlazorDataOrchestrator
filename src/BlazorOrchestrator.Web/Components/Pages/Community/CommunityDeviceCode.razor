@@ -1,0 +1,139 @@
+@page "/community/device"
+@using BlazorOrchestrator.Web.Services.Community
+@attribute [Authorize]
+@implements IDisposable
+@inject CommunitySignInCoordinator SignIn
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Connect to the Community Jobs Library</PageTitle>
+
+<RadzenStack Gap="1rem" Style="padding:1.5rem;max-width:640px;">
+    <RadzenText TextStyle="TextStyle.H4" Style="margin:0;">Connect a device</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#6b7280;">
+        Use this when a browser popup cannot be opened on the machine running Blazor Data Orchestrator.
+    </RadzenText>
+
+    @if (challenge is null)
+    {
+        <RadzenButton Text="Start device sign-in" Icon="devices" ButtonStyle="ButtonStyle.Primary"
+                      IsBusy="@starting" Click="@StartAsync" Style="align-self:flex-start;" />
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false" Text="@message" />
+        }
+    }
+    else if (completed)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Success" AllowClose="false"
+                     Text="This installation is now connected to the Community Jobs Library." />
+        <RadzenButton Text="Browse community jobs" Icon="travel_explore" ButtonStyle="ButtonStyle.Primary"
+                      Click="@(() => Navigation.NavigateTo("/community"))" Style="align-self:flex-start;" />
+    }
+    else
+    {
+        <RadzenCard Style="padding:1.5rem;text-align:center;border:1px solid #e5e7eb;">
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0 0 0.75rem;">
+                Open <a href="@challenge.VerificationUri" target="_blank" rel="noopener noreferrer">@challenge.VerificationUri</a>
+                on any device and enter this code:
+            </RadzenText>
+            <div style="font-family:ui-monospace,Consolas,monospace;font-size:2rem;letter-spacing:6px;padding:1rem;background:#f6f8fa;border-radius:8px;">
+                @challenge.UserCode
+            </div>
+            <RadzenButton Text="Copy code" Icon="content_copy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Style="margin-top:0.75rem;" Click="@CopyAsync" />
+        </RadzenCard>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small" />
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">Waiting for approval…</RadzenText>
+        </RadzenStack>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" AllowClose="false" Text="@message" />
+        }
+    }
+</RadzenStack>
+
+@code {
+    private DeviceCodeChallenge? challenge;
+    private CancellationTokenSource? pollCts;
+    private bool starting;
+    private bool completed;
+    private string? message;
+
+    private async Task StartAsync()
+    {
+        starting = true;
+        message = null;
+
+        try
+        {
+            challenge = await SignIn.StartDeviceFlowAsync();
+            if (challenge is null)
+            {
+                message = "The device flow could not be started.";
+                return;
+            }
+
+            pollCts = new CancellationTokenSource();
+            _ = PollAsync(pollCts.Token);
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+        finally
+        {
+            starting = false;
+        }
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        var interval = TimeSpan.FromSeconds(challenge!.Interval);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(challenge.ExpiresIn);
+
+        while (!ct.IsCancellationRequested && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(interval, ct);
+
+            var result = await SignIn.PollDeviceFlowAsync(challenge.DeviceCode, ct);
+            if (result.Completed)
+            {
+                completed = true;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            if (!result.Pending)
+            {
+                message = result.Error ?? "The device sign-in failed.";
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            // slow_down responses ask the client to back off.
+            interval = interval.Add(TimeSpan.FromSeconds(1));
+        }
+
+        message = "The device code expired. Start again.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CopyAsync()
+    {
+        if (challenge is not null)
+        {
+            await JS.InvokeVoidAsync("communityAuth.copyText", challenge.UserCode);
+        }
+    }
+
+    public void Dispose()
+    {
+        pollCts?.Cancel();
+        pollCts?.Dispose();
+    }
+}

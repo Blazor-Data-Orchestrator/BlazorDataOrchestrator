@@ -1,0 +1,79 @@
+@using BlazorOrchestrator.Web.Services.Community
+
+<RadzenCard Style="height:100%;padding:1rem;border:1px solid #e5e7eb;">
+    <RadzenStack Gap="0.75rem" Style="height:100%;">
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                <div style="width:36px;height:36px;border-radius:8px;background-color:#e0f7fb;display:flex;align-items:center;justify-content:center;">
+                    <RadzenIcon Icon="inventory_2" Style="color:#00B4D8;" />
+                </div>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H6" Style="margin:0;">@Package.Title</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;color:#6b7280;">
+                        @Package.PackageIdentifier v@Package.CurrentVersion
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenButton Icon="@(IsFavorite ? "star" : "star_border")"
+                          ButtonStyle="ButtonStyle.Light" Variant="Variant.Text" Size="ButtonSize.Small"
+                          title="@(IsFavorite ? "Remove from favorites" : "Add to favorites")"
+                          Click="@(() => OnToggleFavorite.InvokeAsync(Package))" />
+        </RadzenStack>
+
+        @if (!string.IsNullOrWhiteSpace(Package.Description))
+        {
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;color:#4b5563;">@Truncate(Package.Description)</RadzenText>
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+            @foreach (var tag in Package.Tags.Take(5))
+            {
+                <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@tag" />
+            }
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1.25rem" AlignItems="AlignItems.Center">
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
+                <RadzenIcon Icon="star" Style="font-size:1rem;color:#f59e0b;" />
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">
+                    @(Package.AverageRating?.ToString("0.0") ?? "—") (@Package.RatingCount)
+                </RadzenText>
+            </RadzenStack>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
+                <RadzenIcon Icon="download" Style="font-size:1rem;color:#6b7280;" />
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;">@Package.DownloadCount</RadzenText>
+            </RadzenStack>
+            @if (!string.IsNullOrEmpty(Package.Language))
+            {
+                <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="@Package.Language" />
+            }
+            @if (Package.IsDeprecated)
+            {
+                <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="Deprecated" />
+            }
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Style="margin-top:auto;">
+            <RadzenButton Text="Details" Icon="open_in_new" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Click="@(() => OnOpenDetails.InvokeAsync(Package))" />
+            @if (ShowPull)
+            {
+                <RadzenButton Text="Pull into my installation" Icon="download_for_offline"
+                              ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                              Click="@(() => OnPull.InvokeAsync(Package))" />
+            }
+        </RadzenStack>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    [Parameter, EditorRequired] public CommunityPackageSummary Package { get; set; } = default!;
+    [Parameter] public bool IsFavorite { get; set; }
+    [Parameter] public bool ShowPull { get; set; } = true;
+    [Parameter] public EventCallback<CommunityPackageSummary> OnOpenDetails { get; set; }
+    [Parameter] public EventCallback<CommunityPackageSummary> OnPull { get; set; }
+    [Parameter] public EventCallback<CommunityPackageSummary> OnToggleFavorite { get; set; }
+
+    private static string Truncate(string value) => value.Length <= 160 ? value : value[..160] + "…";
+}

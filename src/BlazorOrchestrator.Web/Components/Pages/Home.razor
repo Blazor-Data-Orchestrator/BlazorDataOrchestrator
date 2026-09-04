@@ -26,6 +26,8 @@
 @inject IJSRuntime JSRuntime
 @inject EditorFileStorageService FileStorage
 @inject JobCodeEditorService CodeEditorService
+@inject BlazorOrchestrator.Web.Services.Community.ICommunitySettingsService CommunitySettings
+@inject BlazorOrchestrator.Web.Services.Community.CommunitySignInCoordinator CommunitySignIn
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -185,6 +187,13 @@ else
                                         <RadzenButton Text="Download as VS Solution" Icon="code" ButtonStyle="ButtonStyle.Light"
                                                       Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                       Style="border-color: #d1d5db; color: #4f46e5;" Click="@(() => CreateVSSolutionFromJob(job.Id, job.Name))" />
+                                        @if (communityPublishEnabled)
+                                        {
+                                            <RadzenButton Text="Publish To Community Site" Icon="cloud_upload" ButtonStyle="ButtonStyle.Primary"
+                                                          Size="ButtonSize.Small"
+                                                          Style="background-color: #00B4D8; color: #fff; border: none;"
+                                                          Click="@(() => OpenPublishToCommunityDialog(job.Id, job.Name))" />
+                                        }
                                     }
                                     <span style="flex: 1;"></span>
                                     <RadzenButton Text="View Logs" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
@@ -245,9 +254,22 @@ else
         _ = InvokeAsync(async () =>
         {
             await LoadDashboardData();
+            await LoadCommunitySettingsAsync();
             await CheckForGitHubUpdateAsync();
             StateHasChanged();
         });
+    }
+
+    private async Task LoadCommunitySettingsAsync()
+    {
+        try
+        {
+            communityPublishEnabled = (await CommunitySettings.GetOptionsAsync()).EnableCommunityPublish;
+        }
+        catch (Exception)
+        {
+            communityPublishEnabled = false;
+        }
     }
 
     private async Task CheckForGitHubUpdateAsync()
@@ -584,6 +606,37 @@ else
 
     // Create Job Dialog state
     private string newJobName = string.Empty;
+
+    // Community Jobs Library
+    private bool communityPublishEnabled;
+
+    private async Task OpenPublishToCommunityDialog(int jobId, string jobName)
+    {
+        var outcome = await CommunitySignIn.EnsureSignedInAsync();
+        if (!outcome.Succeeded)
+        {
+            if (outcome.Message == "device-code")
+            {
+                NavigationManager.NavigateTo("/community/device");
+                return;
+            }
+
+            NotificationService.Notify(NotificationSeverity.Info, "Sign in required",
+                outcome.Message ?? "Sign in to the Community Jobs Library to publish.");
+            return;
+        }
+
+        var state = await CommunitySignIn.GetStateAsync();
+
+        await DialogService.OpenAsync<CommunityHubDialog>("Community Jobs Library",
+            new Dictionary<string, object?>
+            {
+                { "State", state },
+                { "JobId", jobId },
+                { "JobName", jobName }
+            },
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = true });
+    }
 
     private async Task OpenJobDetailsDialog(int jobId)
     {

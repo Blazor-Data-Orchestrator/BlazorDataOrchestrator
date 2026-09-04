@@ -26,6 +26,8 @@
 @inject EditorFileStorageService FileStorage
 @inject CodeChangeLogService CodeChangeLog
 @inject ProjectCreatorService ProjectCreatorService
+@inject BlazorOrchestrator.Web.Services.Community.ICommunitySettingsService CommunitySettings
+@inject BlazorOrchestrator.Web.Services.Community.CommunitySignInCoordinator CommunitySignIn
 @inject ILogger<JobDetailsDialog> _logger
 
 @if (IsLoading)
@@ -284,6 +286,14 @@ Content-Type: application/json
                             </RadzenStack>
                             
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                @if (CanPublishToCommunity)
+                                {
+                                    <RadzenButton Text="Publish To Community Site" Icon="cloud_upload"
+                                                  ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Medium"
+                                                  Style="background-color: #00B4D8; color: #fff; border: none;"
+                                                  Click="@OpenPublishToCommunityDialog"
+                                                  title="Share this job on the Community Jobs Library" />
+                                }
                                 @if (codeEditMode == CodeEditMode.Editor)
                                 {
                                     <RadzenButton Text="AI Assistant" Icon="smart_toy" ButtonStyle="ButtonStyle.Info" 
@@ -586,6 +596,7 @@ Content-Type: application/json
     protected override async Task OnInitializedAsync()
     {
         SelectedTabIndex = InitialTabIndex;
+        await LoadCommunitySettingsAsync();
         await LoadJobData();
     }
 
@@ -2033,6 +2044,54 @@ Content-Type: application/json
     private async Task OpenAIChatDialog()
     {
         await OpenAIChatDialogWithPrompt(null);
+    }
+
+    // Community Jobs Library
+    private bool communityPublishEnabled;
+
+    private bool CanPublishToCommunity =>
+        communityPublishEnabled && !string.IsNullOrWhiteSpace(Job?.JobCodeFile);
+
+    private async Task LoadCommunitySettingsAsync()
+    {
+        try
+        {
+            communityPublishEnabled = (await CommunitySettings.GetOptionsAsync()).EnableCommunityPublish;
+        }
+        catch (Exception)
+        {
+            communityPublishEnabled = false;
+        }
+    }
+
+    private async Task OpenPublishToCommunityDialog()
+    {
+        if (Job is null)
+        {
+            return;
+        }
+
+        var outcome = await CommunitySignIn.EnsureSignedInAsync();
+        if (!outcome.Succeeded)
+        {
+            if (outcome.Message == "device-code")
+            {
+                NavigationManager.NavigateTo("/community/device");
+                return;
+            }
+
+            NotificationService.Notify(NotificationSeverity.Info, "Sign in required",
+                outcome.Message ?? "Sign in to the Community Jobs Library to publish.");
+            return;
+        }
+
+        await DialogService.OpenAsync<PublishToCommunityDialog>("Publish To Community Site",
+            new Dictionary<string, object?>
+            {
+                { "JobId", Job.Id },
+                { "JobName", Job.JobName }
+            },
+            new DialogOptions { Width = "760px", CloseDialogOnEsc = false, CloseDialogOnOverlayClick = false });
     }
 
     private async Task OpenAIChatDialogWithPrompt(string? initialPrompt)

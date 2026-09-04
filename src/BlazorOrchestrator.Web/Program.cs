@@ -2,6 +2,8 @@ using BlazorOrchestrator.Web.Components;
 using BlazorOrchestrator.Web.Data;
 using BlazorOrchestrator.Web.Data.Data;
 using BlazorOrchestrator.Web.Services;
+using BlazorOrchestrator.Web.Services.Community;
+using BlazorOrchestrator.Web.Services.Mcp;
 using BlazorDataOrchestrator.Core;
 using BlazorDataOrchestrator.Core.Configuration;
 using BlazorDataOrchestrator.Core.Services;
@@ -239,6 +241,47 @@ builder.Services.AddScoped<WebNuGetPackageService>();
 
 builder.Services.AddRadzenComponents();
 
+// ---------------------------------------------------------------- Community Jobs Library
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.Configure<CommunityOptions>(builder.Configuration.GetSection(CommunityOptions.SectionName));
+
+builder.Services.AddScoped<ICommunitySettingsService, CommunitySettingsService>();
+builder.Services.AddScoped<ICommunityUserContext, CommunityUserContext>();
+builder.Services.AddScoped<CommunityTokenStore>();
+builder.Services.AddScoped<ICommunityAuthService, CommunityAuthService>();
+builder.Services.AddTransient<CommunityAuthDelegatingHandler>();
+builder.Services.AddScoped<ICommunityImportService, CommunityImportService>();
+builder.Services.AddScoped<CommunitySignInCoordinator>();
+
+builder.Services.AddHttpClient(CommunityAuthService.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient(CommunityImportService.DownloadHttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+
+builder.Services.AddHttpClient<ICommunityClient, CommunityClient>(CommunityClient.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+}).AddHttpMessageHandler<CommunityAuthDelegatingHandler>();
+
+builder.Services.AddHostedService<InstallationHeartbeatService>();
+
+// MCP client layer used by the AI code assistant
+builder.Services.AddHttpClient(McpHttpClient.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+builder.Services.AddScoped<IMcpCredentialProvider, McpCredentialProvider>();
+builder.Services.AddScoped<IMcpClient, McpHttpClient>();
+builder.Services.AddScoped<IMcpClientRegistry, McpClientRegistry>();
+builder.Services.AddScoped<McpToolBridge>();
+builder.Services.AddScoped<IExternalToolProvider>(sp => sp.GetRequiredService<McpToolBridge>());
+
 builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
 
 var app = builder.Build();
@@ -285,6 +328,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path;
     if (!path.StartsWithSegments("/setup") &&
         !path.StartsWithSegments("/account") &&
+        !path.StartsWithSegments("/community") &&
         !path.StartsWithSegments("/_blazor") &&
         !path.StartsWithSegments("/_framework"))
     {

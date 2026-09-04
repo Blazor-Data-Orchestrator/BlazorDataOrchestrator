@@ -1,0 +1,88 @@
+@page "/community/favorites"
+@using BlazorOrchestrator.Web.Services.Community
+@using BlazorOrchestrator.Web.Components.Community
+@using BlazorOrchestrator.Web.Components.Pages.Dialogs
+@attribute [Authorize]
+@inject ICommunityClient CommunityClient
+@inject ICommunitySettingsService CommunitySettings
+@inject DialogService DialogService
+@inject NavigationManager Navigation
+
+<PageTitle>My community favorites</PageTitle>
+
+<RadzenStack Gap="1rem" Style="padding:1.5rem;">
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+        <RadzenText TextStyle="TextStyle.H4" Style="margin:0;">My favorites</RadzenText>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="Browse gallery" Icon="travel_explore" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@(() => Navigation.NavigateTo("/community"))" />
+            <CommunityAccountChip StateChanged="@OnAuthStateChanged" />
+        </RadzenStack>
+    </RadzenStack>
+
+    @if (!signedIn)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false"
+                     Text="Sign in to the Community Jobs Library to see your favorites." />
+    }
+    else if (favorites.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Light" Shade="Shade.Lighter" AllowClose="false"
+                     Text="You have not favorited any community jobs yet." />
+    }
+    else
+    {
+        <RadzenRow Gap="1rem">
+            @foreach (var package in favorites)
+            {
+                <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
+                    <CommunityPackageCard Package="@package" IsFavorite="true" ShowPull="@allowImport"
+                                          OnOpenDetails="@OpenDetails"
+                                          OnPull="@PullAsync"
+                                          OnToggleFavorite="@RemoveFavoriteAsync" />
+                </RadzenColumn>
+            }
+        </RadzenRow>
+    }
+</RadzenStack>
+
+@code {
+    private List<CommunityPackageSummary> favorites = [];
+    private bool signedIn;
+    private bool allowImport = true;
+
+    protected override async Task OnInitializedAsync() =>
+        allowImport = (await CommunitySettings.GetOptionsAsync()).AllowImport;
+
+    private async Task OnAuthStateChanged(CommunityAuthState state)
+    {
+        signedIn = state.IsSignedIn;
+        if (signedIn)
+        {
+            favorites = (await CommunityClient.GetFavoritesAsync(1)).Items.ToList();
+        }
+
+        StateHasChanged();
+    }
+
+    private void OpenDetails(CommunityPackageSummary package) =>
+        Navigation.NavigateTo($"/community/package/{Uri.EscapeDataString(package.PackageIdentifier)}");
+
+    private async Task RemoveFavoriteAsync(CommunityPackageSummary package)
+    {
+        if (await CommunityClient.SetFavoriteAsync(package.PackageIdentifier, false))
+        {
+            favorites.RemoveAll(f => f.PackageIdentifier == package.PackageIdentifier);
+        }
+    }
+
+    private async Task PullAsync(CommunityPackageSummary package) =>
+        await DialogService.OpenAsync<PullJobDialog>($"Pull {package.Title}",
+            new Dictionary<string, object?>
+            {
+                { "PackageIdentifier", package.PackageIdentifier },
+                { "Version", package.CurrentVersion },
+                { "SuggestedJobName", package.Title }
+            },
+            new DialogOptions { Width = "620px", CloseDialogOnOverlayClick = false });
+}

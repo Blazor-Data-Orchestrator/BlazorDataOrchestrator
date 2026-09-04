@@ -1,0 +1,26 @@
+@using BlazorOrchestrator.Web.Services.Community
+
+<RadzenStack Gap="0.5rem">
+    @foreach (var file in Files)
+    {
+        <RadzenCard Style="padding:0;border:1px solid #1f2937;background:#0b1220;overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.75rem;background:#111827;border-bottom:1px solid #1f2937;">
+                <span style="font-family:ui-monospace,Consolas,monospace;font-size:0.8rem;color:#9ca3af;">@file.FileName</span>
+                <span style="font-family:ui-monospace,Consolas,monospace;font-size:0.75rem;color:#6b7280;">
+                    @file.LineCount lines@(file.IsTruncated ? " (truncated)" : "")
+                </span>
+            </div>
+            <pre style="margin:0;padding:0.75rem;overflow:auto;max-height:340px;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:0.8rem;line-height:1.45;"><code>@file.Content</code></pre>
+        </RadzenCard>
+    }
+
+    @if (Files.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Light" Shade="Shade.Lighter" AllowClose="false"
+                     Text="No source files were published for this package." />
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public IReadOnlyList<CommunitySourceFile> Files { get; set; } = [];
+}
