@@ -18,6 +18,8 @@ public sealed class GoogleAIModelCatalog : HttpModelCatalogBase
 
     public override ServiceKind ServiceType => ServiceKind.GoogleAI;
 
+    private const int MaxPages = 10;
+
     public override async Task<ModelListResult> ListModelsAsync(AIProviderSettings settings, CancellationToken cancellationToken)
     {
         if (!settings.IsConfigured)
@@ -25,45 +27,63 @@ public sealed class GoogleAIModelCatalog : HttpModelCatalogBase
             return ModelListResult.NotConfigured("Enter an API key to load models.");
         }
 
-        string? body = null;
-
-        var failure = await SendAsync(() => new HttpRequestMessage(
-            HttpMethod.Get,
-            $"https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key={Uri.EscapeDataString(settings.ApiKey.Trim())}"),
-            cancellationToken,
-            content => body = content);
-
-        if (failure is not null)
-        {
-            return failure;
-        }
-
-        using var doc = JsonDocument.Parse(body!);
-
+        var key = Uri.EscapeDataString(settings.ApiKey.Trim());
         var models = new List<string>();
-        if (doc.RootElement.TryGetProperty("models", out var data))
+        string? pageToken = null;
+
+        for (var page = 0; page < MaxPages; page++)
         {
-            foreach (var model in data.EnumerateArray())
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key={key}";
+            if (pageToken is not null)
             {
-                if (!model.TryGetProperty("name", out var name) || name.GetString() is not { } fullName)
+                url += $"&pageToken={Uri.EscapeDataString(pageToken)}";
+            }
+
+            string? body = null;
+
+            var failure = await SendAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, url),
+                cancellationToken,
+                content => body = content);
+
+            if (failure is not null)
+            {
+                return failure;
+            }
+
+            using var doc = JsonDocument.Parse(body!);
+
+            if (doc.RootElement.TryGetProperty("models", out var data))
+            {
+                foreach (var model in data.EnumerateArray())
                 {
-                    continue;
+                    if (!model.TryGetProperty("name", out var name) || name.GetString() is not { } fullName)
+                    {
+                        continue;
+                    }
+
+                    var supportsGenerate = model.TryGetProperty("supportedGenerationMethods", out var methods)
+                        && methods.EnumerateArray().Any(m => m.GetString() == "generateContent");
+
+                    if (!supportsGenerate)
+                    {
+                        continue;
+                    }
+
+                    var id = fullName.StartsWith("models/") ? fullName["models/".Length..] : fullName;
+
+                    if (!id.Contains("embedding") && !id.Contains("aqa") && !id.Contains("imagen"))
+                    {
+                        models.Add(id);
+                    }
                 }
+            }
 
-                var supportsGenerate = model.TryGetProperty("supportedGenerationMethods", out var methods)
-                    && methods.EnumerateArray().Any(m => m.GetString() == "generateContent");
+            pageToken = doc.RootElement.TryGetProperty("nextPageToken", out var next) ? next.GetString() : null;
 
-                if (!supportsGenerate)
-                {
-                    continue;
-                }
-
-                var id = fullName.StartsWith("models/") ? fullName["models/".Length..] : fullName;
-
-                if (!id.Contains("embedding") && !id.Contains("aqa") && !id.Contains("imagen"))
-                {
-                    models.Add(id);
-                }
+            if (string.IsNullOrEmpty(pageToken))
+            {
+                break;
             }
         }
 

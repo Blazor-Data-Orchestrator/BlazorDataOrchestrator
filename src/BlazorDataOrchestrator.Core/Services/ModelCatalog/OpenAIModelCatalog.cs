@@ -61,6 +61,12 @@ public sealed class OpenAIModelCatalog : HttpModelCatalogBase
             .OrderByDescending(m => m, StringComparer.Ordinal)
             .ToList();
 
+        // A future naming scheme must not empty the dropdown: fall back to everything returned.
+        if (filtered.Count == 0)
+        {
+            filtered = models.Distinct().OrderByDescending(m => m, StringComparer.Ordinal).ToList();
+        }
+
         return ModelListResult.Success(filtered);
     }
 }

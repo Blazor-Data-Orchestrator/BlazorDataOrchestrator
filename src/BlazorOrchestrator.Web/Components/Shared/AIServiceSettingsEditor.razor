@@ -74,11 +74,20 @@
     <RadzenStack Gap="0.5rem">
         <RadzenLabel Text="@ModelLabel" Component="AIModel" Style="font-weight: 600;" />
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-            <RadzenDropDown Data="@AvailableModels" @bind-Value="@Current.AIModel"
-                            Name="AIModel" Style="@FieldStyle"
-                            AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
-                            AllowClear="true" Disabled="@(!CanSelectModel)"
-                            Placeholder="@ModelPlaceholder" />
+            @if (UseFreeTextModel)
+            {
+                @* A provider that cannot list models must still allow the name to be entered. *@
+                <RadzenTextBox @bind-Value="@Current.AIModel" Name="AIModel" Style="@FieldStyle"
+                               Placeholder="@ModelPlaceholder" />
+            }
+            else
+            {
+                <RadzenDropDown Data="@AvailableModels" @bind-Value="@Current.AIModel"
+                                Name="AIModel" Style="@FieldStyle"
+                                AllowFiltering="true" FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                                AllowClear="true" Disabled="@(!CanSelectModel)"
+                                Placeholder="@ModelPlaceholder" />
+            }
             <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Click="@(() => LoadModelsAsync(forceRefresh: true))"
                           Disabled="@(!Current.IsConfigured)" IsBusy="@IsLoadingModels"
@@ -157,6 +166,10 @@
     private bool IsSaving { get; set; }
     private bool CanSelectModel => AvailableModels.Count > 0;
 
+    /// <summary>Not every provider can list models, so fall back to a plain text field.</summary>
+    private bool UseFreeTextModel =>
+        Current.IsConfigured && AvailableModels.Count == 0 && !IsLoadingModels;
+
     private string ApiKeyDisplay { get; set; } = "";
     private bool ApiKeyMasked { get; set; }
 
@@ -217,7 +230,10 @@
         {
             if (!Current.IsConfigured) return "Enter an API key to load models";
             if (IsLoadingModels) return "Loading models...";
-            if (AvailableModels.Count == 0) return "No models available";
+            if (AvailableModels.Count == 0)
+            {
+                return SelectedServiceType == ServiceKind.AzureOpenAI ? "Enter the deployment name" : "Enter the model name";
+            }
             return SelectedServiceType == ServiceKind.AzureOpenAI ? "Select a deployment..." : "Select a model...";
         }
     }
@@ -340,19 +356,14 @@
             }
 
             AvailableModels = result.Models.ToList();
-            ModelLoadError = result.Status == ModelListStatus.Success ? null : result.ErrorMessage;
+            ModelLoadError = result.Status == ModelListStatus.Success ? null : DescribeFailure(result);
 
-            // Keep a previously saved model usable even when it is missing from the list.
-            if (!string.IsNullOrWhiteSpace(provider.AIModel) && !AvailableModels.Contains(provider.AIModel))
+            // A previously saved model stays usable even when the list could not be loaded.
+            if (!string.IsNullOrWhiteSpace(provider.AIModel)
+                && AvailableModels.Count > 0
+                && !AvailableModels.Contains(provider.AIModel))
             {
-                if (AvailableModels.Count > 0)
-                {
-                    AvailableModels.Insert(0, provider.AIModel);
-                }
-                else
-                {
-                    provider.AIModel = "";
-                }
+                AvailableModels.Insert(0, provider.AIModel);
             }
         }
         catch (OperationCanceledException)
@@ -416,6 +427,17 @@
             IsSaving = false;
             StateHasChanged();
         }
+    }
+
+    private string? DescribeFailure(ModelListResult result)
+    {
+        if (result.Status is ModelListStatus.Unreachable or ModelListStatus.Empty)
+        {
+            var noun = SelectedServiceType == ServiceKind.AzureOpenAI ? "deployment name" : "model name";
+            return $"{result.ErrorMessage} Enter the {noun} manually, or use Refresh to try again.";
+        }
+
+        return result.ErrorMessage;
     }
 
     private async Task NotifyChangedAsync()

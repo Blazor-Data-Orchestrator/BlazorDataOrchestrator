@@ -19,6 +19,11 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
 
     public override ServiceKind ServiceType => ServiceKind.AzureOpenAI;
 
+    // The deployments route is only served by the older data-plane api-versions, so newer
+    // versions (e.g. 2024-12-01-preview) answer 404. Try the known routes in order.
+    private const string DeploymentsApiVersion = "2023-03-15-preview";
+    private const string ModelsApiVersion = "2024-06-01";
+
     public override async Task<ModelListResult> ListModelsAsync(AIProviderSettings settings, CancellationToken cancellationToken)
     {
         if (!settings.IsConfigured)
@@ -34,44 +39,81 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
         var isFoundry = ChatClientFactory.IsAIFoundryEndpoint(settings.Endpoint);
         var baseEndpoint = settings.Endpoint.TrimEnd('/');
 
-        if (!isFoundry && string.IsNullOrWhiteSpace(settings.ApiVersion))
+        ModelListResult? lastFailure = null;
+
+        foreach (var url in BuildCandidateUrls(baseEndpoint, isFoundry, settings.ApiVersion))
         {
-            return ModelListResult.NotConfigured("Enter the Azure OpenAI API version to load deployments.");
+            string? body = null;
+
+            var failure = await SendAsync(() =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (isFoundry)
+                {
+                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {settings.ApiKey.Trim()}");
+                }
+                else
+                {
+                    request.Headers.TryAddWithoutValidation("api-key", settings.ApiKey.Trim());
+                }
+                return request;
+            }, cancellationToken, content => body = content);
+
+            if (failure is not null)
+            {
+                if (failure.Status == ModelListStatus.InvalidKey)
+                {
+                    return failure;
+                }
+
+                lastFailure = failure;
+                continue;
+            }
+
+            var models = ParseModels(body!);
+            if (models.Count > 0)
+            {
+                return ModelListResult.Success(models);
+            }
+
+            lastFailure = ModelListResult.Empty();
         }
 
-        var url = isFoundry
-            ? $"{baseEndpoint}/deployments"
-            : $"{baseEndpoint}/openai/deployments?api-version={settings.ApiVersion.Trim()}";
+        return lastFailure ?? ModelListResult.Empty();
+    }
 
-        string? body = null;
-
-        var failure = await SendAsync(() =>
+    private static IEnumerable<string> BuildCandidateUrls(string baseEndpoint, bool isFoundry, string apiVersion)
+    {
+        if (isFoundry)
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            if (isFoundry)
-            {
-                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {settings.ApiKey.Trim()}");
-            }
-            else
-            {
-                request.Headers.TryAddWithoutValidation("api-key", settings.ApiKey.Trim());
-            }
-            return request;
-        }, cancellationToken, content => body = content);
-
-        if (failure is not null)
-        {
-            return failure;
+            yield return $"{baseEndpoint}/deployments";
+            yield return $"{baseEndpoint}/models";
+            yield break;
         }
 
-        using var doc = JsonDocument.Parse(body!);
+        // Deployment names are what the chat client needs, so try those routes first.
+        yield return $"{baseEndpoint}/openai/deployments?api-version={DeploymentsApiVersion}";
+
+        var configured = apiVersion?.Trim();
+        if (!string.IsNullOrEmpty(configured) && configured != DeploymentsApiVersion)
+        {
+            yield return $"{baseEndpoint}/openai/deployments?api-version={configured}";
+        }
+
+        yield return $"{baseEndpoint}/openai/v1/models";
+        yield return $"{baseEndpoint}/openai/models?api-version={(string.IsNullOrEmpty(configured) ? ModelsApiVersion : configured)}";
+    }
+
+    private static List<string> ParseModels(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
 
         var deployments = new List<string>();
-        if (doc.RootElement.TryGetProperty("data", out var data))
+        if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
         {
             foreach (var deployment in data.EnumerateArray())
             {
-                // The management surface uses "id"; the data-plane list uses "name".
+                // The deployments list uses "id"; some surfaces only return "name".
                 var value = deployment.TryGetProperty("id", out var id) ? id.GetString() : null;
                 value ??= deployment.TryGetProperty("name", out var name) ? name.GetString() : null;
 
@@ -82,6 +124,6 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
             }
         }
 
-        return ModelListResult.Success(deployments.Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList());
+        return deployments.Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
     }
 }

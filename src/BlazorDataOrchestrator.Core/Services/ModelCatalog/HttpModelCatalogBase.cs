@@ -63,6 +63,16 @@ public abstract class HttpModelCatalogBase : IAIModelCatalog
 
                 if (!response.IsSuccessStatusCode)
                 {
+                    var errorBody = await ReadBodySafelyAsync(response, cancellationToken);
+
+                    // Google AI reports a bad key as 400 INVALID_ARGUMENT rather than 401.
+                    if (LooksLikeInvalidKey(errorBody))
+                    {
+                        _logger.LogWarning("{Provider} model listing rejected the API key ({StatusCode}).",
+                            ServiceType, (int)response.StatusCode);
+                        return ModelListResult.InvalidKey();
+                    }
+
                     _logger.LogWarning("{Provider} model listing failed with {StatusCode}.",
                         ServiceType, (int)response.StatusCode);
                     return ModelListResult.Unreachable($"HTTP {(int)response.StatusCode}");
@@ -86,5 +96,32 @@ public abstract class HttpModelCatalogBase : IAIModelCatalog
         }
 
         return ModelListResult.Unreachable();
+    }
+
+    private static async Task<string> ReadBodySafelyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool LooksLikeInvalidKey(string body)
+    {
+        if (string.IsNullOrEmpty(body))
+        {
+            return false;
+        }
+
+        return body.Contains("API key not valid", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("API_KEY_INVALID", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("invalid x-api-key", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("authentication_error", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("invalid subscription key", StringComparison.OrdinalIgnoreCase);
     }
 }
