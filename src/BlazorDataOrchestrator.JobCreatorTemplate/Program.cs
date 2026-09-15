@@ -28,7 +28,10 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             // Add services to the container.
             builder.Services.AddHttpClient();
             builder.Services.AddRazorComponents()
-                .AddInteractiveServerComponents();
+                .AddInteractiveServerComponents()
+                // The editor returns the whole file over JS interop; the 32 KB SignalR default
+                // kills the circuit for any job larger than that.
+                .AddHubOptions(options => options.MaximumReceiveMessageSize = 1024 * 1024);
 
             builder.Services.AddRadzenComponents();
 

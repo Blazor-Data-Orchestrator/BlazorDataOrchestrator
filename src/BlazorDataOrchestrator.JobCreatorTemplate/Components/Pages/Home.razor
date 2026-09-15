@@ -1367,10 +1367,16 @@ except Exception as e:
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
 
-            var exited = process.WaitForExit(120_000); // 2 minute timeout
-            if (!exited)
+            // Must be an async wait: a blocking WaitForExit holds the Blazor circuit's dispatcher for the
+            // whole build, which stops rendering and drops the SignalR connection mid-save.
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try
             {
-                process.Kill();
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
                 return (false, "Build timed out.", new List<string> { "Build process timed out after 120 seconds." });
             }
 
@@ -1476,6 +1482,21 @@ except Exception as e:
             if (File.Exists(dllPath) && loadedPaths.Add(dllPath))
             {
                 references.Add(MetadataReference.CreateFromFile(dllPath));
+            }
+        }
+
+        // Package assemblies such as Newtonsoft.Json and SSH.NET are loaded lazily on first use, so they
+        // are absent from AppDomain before the job ever runs. Reference everything shipped beside the app.
+        foreach (var dllPath in Directory.EnumerateFiles(AppContext.BaseDirectory, "*.dll"))
+        {
+            if (!loadedPaths.Add(dllPath)) continue;
+            try
+            {
+                references.Add(MetadataReference.CreateFromFile(dllPath));
+            }
+            catch (BadImageFormatException)
+            {
+                loadedPaths.Remove(dllPath);
             }
         }
 
