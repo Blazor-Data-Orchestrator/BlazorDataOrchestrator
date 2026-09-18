@@ -91,6 +91,10 @@ Thumbs.db
 !/src/BlazorOrchestrator.ServiceDefaults/
 !/src/BlazorOrchestrator.Web/
 
+# TFVC workspace config for orgs that map their job store onto src/. Local to the deployment,
+# not part of the product.
+/src/.tfignore
+
 # Auto-generated job template zip (built by scripts/Package-JobTemplate.ps1)
 /src/BlazorOrchestrator.Web/JobTemplate/BlazorDataOrchestrator.JobCreatorTemplate.zip
 /src/BlazorOrchestrator.Agent/Properties/PublishProfiles/LACOEAzureContainerProd.pubxml
