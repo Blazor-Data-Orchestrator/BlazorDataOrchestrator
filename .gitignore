@@ -78,6 +78,19 @@ Thumbs.db
 .azure
 /src/BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj.lscache
 
+# Job projects are org-owned and belong in the organization's own repository, never in the product
+# repo. Allowlist: everything under src/ is ignored except the product projects listed below, so a new
+# job folder is ignored automatically in every fork without editing this file.
+# Keep this block above the per-file rules that follow — the last matching pattern wins.
+/src/*/
+!/src/BlazorDataOrchestrator.Core/
+!/src/BlazorDataOrchestrator.JobCreatorTemplate/
+!/src/BlazorOrchestrator.Agent/
+!/src/BlazorOrchestrator.AppHost/
+!/src/BlazorOrchestrator.Scheduler/
+!/src/BlazorOrchestrator.ServiceDefaults/
+!/src/BlazorOrchestrator.Web/
+
 # Auto-generated job template zip (built by scripts/Package-JobTemplate.ps1)
 /src/BlazorOrchestrator.Web/JobTemplate/BlazorDataOrchestrator.JobCreatorTemplate.zip
 /src/BlazorOrchestrator.Agent/Properties/PublishProfiles/LACOEAzureContainerProd.pubxml
@@ -85,6 +98,3 @@ Thumbs.db
 /src/BlazorOrchestrator.Web/Properties/PublishProfiles
 docs/ProductionARMDeploymentPlan.md
 docs/ProductionEnvironmentVariables.txt
-
-# Customer-specific project, intentionally not tracked
-/src/RegroupMassNotification/
