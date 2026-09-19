@@ -11,6 +11,7 @@ using BlazorDataOrchestrator.Core.Models;
 using CSScriptLib;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
 
 namespace BlazorDataOrchestrator.Core.Services;
 
@@ -91,28 +92,37 @@ public class CodeExecutorService
                 return result;
             }
 
-            // Find main.cs
-            var mainCsPath = Path.Combine(codeFolder, "main.cs");
-            if (!File.Exists(mainCsPath))
+            // A job's C# source is every .cs file under CodeCSharp; they compile together
+            // into one assembly. main.cs is a convention, not a requirement.
+            var sourceFiles = Directory
+                .GetFiles(codeFolder, "*.cs", SearchOption.AllDirectories)
+                .OrderBy(p => !Path.GetFileName(p).Equals("main.cs", StringComparison.OrdinalIgnoreCase))
+                .ThenBy(p => Path.GetRelativePath(codeFolder, p), StringComparer.Ordinal)
+                .ToList();
+
+            if (sourceFiles.Count == 0)
             {
-                // Try to find any .cs file
-                var csFiles = Directory.GetFiles(codeFolder, "*.cs", SearchOption.AllDirectories);
-                if (csFiles.Length == 0)
-                {
-                    result.Success = false;
-                    result.ErrorMessage = "No C# files found in CodeCSharp folder.";
-                    return result;
-                }
-                mainCsPath = csFiles[0];
+                result.Success = false;
+                result.ErrorMessage = "No C# files found in CodeCSharp folder.";
+                return result;
             }
 
-            result.Logs.Add($"Loading C# code from: {Path.GetFileName(mainCsPath)}");
+            result.Logs.Add($"Compiling {sourceFiles.Count} C# file(s): " +
+                string.Join(", ", sourceFiles.Select(f => Path.GetRelativePath(codeFolder, f))));
 
-            // Read the code
-            var code = await File.ReadAllTextAsync(mainCsPath);
+            var sources = new List<(string Path, string Text)>(sourceFiles.Count);
+            foreach (var file in sourceFiles)
+            {
+                sources.Add((file, await File.ReadAllTextAsync(file)));
+            }
 
-            // Parse NuGet requirements from comments
-            var nugetPackages = ParseNuGetRequirements(code);
+            // Parse NuGet requirements from comments across every source file, so a helper
+            // file's headers are not lost. Informational only — resolution uses the nuspec.
+            var nugetPackages = sources
+                .SelectMany(s => ParseNuGetRequirements(s.Text))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.Ordinal)
+                .ToList();
             if (nugetPackages.Any())
             {
                 result.Logs.Add($"Required NuGet packages: {string.Join(", ", nugetPackages)}");
@@ -219,12 +229,18 @@ public class CodeExecutorService
             if (AzureEnvironmentDetector.IsAzureContainerApp)
             {
                 // Azure path — compile in-memory to avoid CS-Script assembly probing issues
-                assembly = CompileWithRoslyn(code, result.Logs, resolvedAssemblyPaths);
+                assembly = CompileWithRoslyn(sources, result.Logs, resolvedAssemblyPaths);
+            }
+            else if (sources.Count > 1)
+            {
+                // CS-Script's CompileCode takes a single script string, so multi-file jobs
+                // go through Roslyn even locally. Single-file jobs keep the CS-Script path.
+                assembly = CompileWithRoslyn(sources, result.Logs, resolvedAssemblyPaths);
             }
             else
             {
                 // Local path — use existing CS-Script evaluator
-                assembly = evaluator.CompileCode(code);
+                assembly = evaluator.CompileCode(sources[0].Text);
             }
 
             // Pre-load all resolved assemblies into the current AppDomain
@@ -265,16 +281,29 @@ public class CodeExecutorService
 
             try
             {
-                // Find the BlazorDataOrchestratorJob class
-                var jobType = assembly.GetTypes()
-                    .FirstOrDefault(t => t.Name == "BlazorDataOrchestratorJob");
+                // Find the BlazorDataOrchestratorJob class. Roslyn only rejects a duplicate
+                // declaration when both share a namespace, so check for ambiguity here.
+                var candidates = assembly.GetTypes()
+                    .Where(t => t.Name == "BlazorDataOrchestratorJob")
+                    .ToList();
 
-                if (jobType == null)
+                if (candidates.Count == 0)
                 {
                     result.Success = false;
                     result.ErrorMessage = "Class 'BlazorDataOrchestratorJob' not found. Code must define a class named 'BlazorDataOrchestratorJob'.";
                     return result;
                 }
+
+                if (candidates.Count > 1)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "Multiple 'BlazorDataOrchestratorJob' types were found: " +
+                        string.Join(", ", candidates.Select(t => t.FullName)) +
+                        ". Exactly one is required.";
+                    return result;
+                }
+
+                var jobType = candidates[0];
 
                 // Find the ExecuteJob method - try 6-parameter version first (with webAPIParameter)
                 var executeMethod = jobType.GetMethod("ExecuteJob",
@@ -371,15 +400,19 @@ public class CodeExecutorService
 
     /// <summary>
     /// Compiles C# code using Roslyn in-memory compilation.
-    /// Used when running in Azure Container Apps to avoid CS-Script's file-system
-    /// assembly probing issues (Bad IL format errors).
+    /// Used in Azure Container Apps to avoid CS-Script's file-system assembly probing
+    /// issues (Bad IL format errors), and for any multi-file job, which CS-Script's
+    /// single-string CompileCode cannot express.
     /// </summary>
-    private Assembly CompileWithRoslyn(string code, List<string> logs,
+    private Assembly CompileWithRoslyn(IReadOnlyList<(string Path, string Text)> sources, List<string> logs,
         List<string> resolvedAssemblyPaths)
     {
-        logs.Add("Using in-memory Roslyn compilation (Azure Container Apps).");
+        logs.Add($"Using in-memory Roslyn compilation for {sources.Count} file(s).");
 
-        var syntaxTree = CSharpSyntaxTree.ParseText(code);
+        // Passing the real path makes every diagnostic and stack frame name the correct file.
+        var syntaxTrees = sources
+            .Select(s => CSharpSyntaxTree.ParseText(SourceText.From(s.Text, Encoding.UTF8), path: s.Path))
+            .ToArray();
 
         // 1. Gather MetadataReferences from currently loaded assemblies
         var references = new List<MetadataReference>();
@@ -426,7 +459,7 @@ public class CodeExecutorService
         // 4. Compile
         var compilation = CSharpCompilation.Create(
             assemblyName: $"Job_{Guid.NewGuid():N}",
-            syntaxTrees: new[] { syntaxTree },
+            syntaxTrees: syntaxTrees,
             references: references,
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
                 .WithOptimizationLevel(OptimizationLevel.Release));

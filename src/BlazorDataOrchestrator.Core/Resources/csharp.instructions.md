@@ -90,6 +90,24 @@ public class BlazorDataOrchestratorJob
 }
 ```
 
+### Source File Layout
+
+* **Write the whole job into `CodeCSharp/main.cs`.** That is the file the AI code editor writes and the only file the template's **Run** button compiles.
+* At run time the Agent compiles **every** `.cs` file under `CodeCSharp` together into a single assembly, so hand-authored helper files placed beside `main.cs` are packaged and compiled. They cannot be exercised with the template's **Run** button, which still compiles only the file open in the editor.
+* No filename is load-bearing — `main.cs` is a convention, not a requirement.
+* Exactly **one** type named `BlazorDataOrchestratorJob` may exist across all files. Two are rejected with an ambiguity error, even in different namespaces.
+
+### Package Validation Rules
+
+A job package is refused at build time when any of these hold:
+
+* No `.cs` file in `CodeCSharp` and no `.py` file in `CodePython` — code files sitting directly at the job root are named in the error.
+* `dependencies.json` or the job `.csproj` cannot be parsed.
+* Any dependency version contains `*` — pin an exact version, for example `13.0.4`. Bracketed ranges such as `[1.2.3]` remain valid.
+* A file being packaged is a compiled binary, whatever its extension. Declare a NuGet dependency instead.
+
+Declare `Microsoft.EntityFrameworkCore` and `Microsoft.EntityFrameworkCore.SqlServer` explicitly at the version `BlazorDataOrchestrator.Core` uses. If the job omits them, an older default is injected that cannot restore.
+
 ### Dependencies & Context
 
 * The code must return a `List<string>` containing log messages.
