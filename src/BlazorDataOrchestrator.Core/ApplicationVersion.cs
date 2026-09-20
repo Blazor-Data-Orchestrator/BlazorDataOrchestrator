@@ -15,5 +15,5 @@ public static class ApplicationVersion
     /// <summary>
     /// The current application/code version, e.g. <c>"01.20.00"</c>.
     /// </summary>
-    public const string Current = "01.30.00";
+    public const string Current = "01.40.00";
 }

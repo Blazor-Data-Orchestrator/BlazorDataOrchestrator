@@ -35,7 +35,6 @@ var db = sqlServer.AddDatabase("blazororchestratordb");
 var storage = builder.AddAzureStorage("storage")
     .RunAsEmulator(emulator =>
     {
-        emulator.WithLifetime(ContainerLifetime.Persistent);
         emulator.WithDataVolume();  // Persist Azurite data across restarts
         emulator.WithEndpoint("blob", endpoint => endpoint.Port = 10000);
         emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);

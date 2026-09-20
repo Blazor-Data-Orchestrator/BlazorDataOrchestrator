@@ -181,13 +181,10 @@ public class NuGetPackageBuilderService
                 foreach (var file in rootJsonFiles)
                 {
                     var fileName = Path.GetFileName(file);
-                    if (!fileName.Equals("configuration.json", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var destPath = Path.Combine(rootContentFolder, fileName);
-                        await CopyFileAsync(file, destPath);
-                        result.IncludedFiles.Add(fileName);
-                        result.Logs.Add($"Added root config file: {fileName}");
-                    }
+                    var destPath = Path.Combine(rootContentFolder, fileName);
+                    await CopyFileAsync(file, destPath);
+                    result.IncludedFiles.Add(fileName);
+                    result.Logs.Add($"Added root config file: {fileName}");
                 }
             }
 
