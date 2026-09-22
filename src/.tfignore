@@ -1,0 +1,22 @@
+# TFVC ignore for $/EPICMain/BlazorDataOrchestrator, which is mapped to this src folder.
+# Only LACOE job projects belong in TFVC. The product itself is owned by the GitHub repo.
+# A leading \ anchors to this folder; a bare name matches at any depth.
+
+# --- Product projects: owned by the open-source repo, never checked into TFVC ---
+\BlazorDataOrchestrator.Core
+\BlazorDataOrchestrator.JobCreatorTemplate
+\BlazorOrchestrator.Agent
+\BlazorOrchestrator.AppHost
+\BlazorOrchestrator.Scheduler
+\BlazorOrchestrator.ServiceDefaults
+\BlazorOrchestrator.Web
+\.dockerignore
+
+# --- Build output, IDE state and run-time artifacts, at any depth ---
+bin
+obj
+.vs
+*.user
+*.suo
+*.nupkg
+execution_errors.log
