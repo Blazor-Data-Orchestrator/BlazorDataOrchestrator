@@ -181,6 +181,7 @@ public class AISettingsService
             ApiVersion = settings.ApiVersion,
             DeploymentPath = settings.DeploymentPath,
             EmbeddingModel = settings.EmbeddingModel,
+            ApiProtocol = settings.ApiProtocol,
             Timestamp = DateTimeOffset.UtcNow
         };
 
@@ -238,7 +239,8 @@ public class AISettingsService
         Endpoint = entity.Endpoint ?? "",
         ApiVersion = entity.ApiVersion ?? "",
         DeploymentPath = entity.DeploymentPath ?? "",
-        EmbeddingModel = entity.EmbeddingModel ?? ""
+        EmbeddingModel = entity.EmbeddingModel ?? "",
+        ApiProtocol = entity.ApiProtocol ?? ""
     };
 }
 
@@ -258,6 +260,9 @@ public class AIProviderSettingsEntity : ITableEntity
     public string? ApiVersion { get; set; }
     public string? EmbeddingModel { get; set; }
     public string? DeploymentPath { get; set; }
+
+    /// <summary>Azure AI Foundry wire protocol. Null on rows written before the Foundry support.</summary>
+    public string? ApiProtocol { get; set; }
 }
 
 /// <summary>

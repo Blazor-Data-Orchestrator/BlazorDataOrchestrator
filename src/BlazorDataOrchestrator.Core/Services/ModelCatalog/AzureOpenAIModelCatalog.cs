@@ -147,26 +147,5 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
         return $"{uri.Scheme}://{uri.Authority}";
     }
 
-    private static List<string> ParseModels(string body)
-    {
-        using var doc = JsonDocument.Parse(body);
-
-        var deployments = new List<string>();
-        if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var deployment in data.EnumerateArray())
-            {
-                // The deployments list uses "id"; some surfaces only return "name".
-                var value = deployment.TryGetProperty("id", out var id) ? id.GetString() : null;
-                value ??= deployment.TryGetProperty("name", out var name) ? name.GetString() : null;
-
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    deployments.Add(value!);
-                }
-            }
-        }
-
-        return deployments.Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
-    }
+    private static List<string> ParseModels(string body) => ModelListParser.ParseDeployments(body);
 }

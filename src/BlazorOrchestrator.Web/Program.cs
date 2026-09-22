@@ -189,9 +189,13 @@ builder.Services.AddScoped<AISettingsService>(sp =>
 builder.Services.AddHttpClient(BlazorDataOrchestrator.Core.Services.ModelCatalog.HttpModelCatalogBase.HttpClientName);
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.OpenAIModelCatalog>();
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.AzureOpenAIModelCatalog>();
+builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.AzureAIFoundryModelCatalog>();
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.AnthropicModelCatalog>();
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.IAIModelCatalog, BlazorDataOrchestrator.Core.Services.ModelCatalog.GoogleAIModelCatalog>();
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.ModelCatalog.AIProviderRegistry>();
+
+// Verifies an AI provider configuration with a single minimal prompt.
+builder.Services.AddScoped<AIConnectionTester>();
 
 // Register AI Model Cache service (fetches and caches provider models in Azure Table Storage)
 builder.Services.AddScoped<AIModelCacheService>(sp =>

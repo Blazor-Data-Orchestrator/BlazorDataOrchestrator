@@ -8,5 +8,6 @@ public enum AIServiceType
     OpenAI = 0,
     AzureOpenAI = 1,
     Anthropic = 2,
-    GoogleAI = 3
+    GoogleAI = 3,
+    AzureAIFoundry = 4
 }

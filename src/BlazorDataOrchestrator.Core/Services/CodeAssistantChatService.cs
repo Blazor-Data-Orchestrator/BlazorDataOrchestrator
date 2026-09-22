@@ -2,9 +2,11 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.ClientModel;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using OpenAI;
 using Azure.AI.OpenAI;
 using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services.Foundry;
 
 // Use aliases to avoid ambiguity
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
@@ -22,8 +24,13 @@ public class CodeAssistantChatService : IAIChatService
     private readonly AISettingsService _settingsService;
     private readonly IInstructionsProvider _instructionsProvider;
     private readonly IExternalToolProvider? _externalToolProvider;
+    private readonly ILogger<CodeAssistantChatService>? _logger;
     private AISettings? _cachedSettings;
     private IChatClient? _chatClient;
+    private FoundryEndpointResolution? _lastResolution;
+    private string? _clientCreationError;
+    private bool _suppressTemperature;
+    private bool _suppressTools;
     private string _currentEditorCode = "";
     private string _currentLanguage = "csharp";
     
@@ -49,11 +56,13 @@ Keep responses concise and focused on the code task at hand.
     public CodeAssistantChatService(
         AISettingsService settingsService, 
         IInstructionsProvider instructionsProvider,
-        IExternalToolProvider? externalToolProvider = null)
+        IExternalToolProvider? externalToolProvider = null,
+        ILogger<CodeAssistantChatService>? logger = null)
     {
         _settingsService = settingsService;
         _instructionsProvider = instructionsProvider;
         _externalToolProvider = externalToolProvider;
+        _logger = logger;
     }
     
     /// <summary>
@@ -104,12 +113,17 @@ Keep responses concise and focused on the code task at hand.
             _cachedSettings.Active.AIModel == settings.Active.AIModel &&
             _cachedSettings.Active.Endpoint == settings.Active.Endpoint &&
             _cachedSettings.Active.ApiVersion == settings.Active.ApiVersion &&
+            _cachedSettings.Active.ApiProtocol == settings.Active.ApiProtocol &&
             _cachedSettings.Active.DeploymentPath == settings.Active.DeploymentPath)
         {
             return _chatClient;
         }
 
         _cachedSettings = settings;
+        _clientCreationError = null;
+        _lastResolution = null;
+        _suppressTemperature = false;
+        _suppressTools = false;
 
         if (!settings.IsConfigured)
         {
@@ -119,18 +133,49 @@ Keep responses concise and focused on the code task at hand.
 
         try
         {
+            _lastResolution = ResolveTargetOrNull(settings.Active);
+
             // Function invocation lets the model call MCP-backed tools without extra plumbing here.
             var innerClient = ChatClientFactory.Create(settings);
             _chatClient = innerClient is null
                 ? null
                 : innerClient.AsBuilder().UseFunctionInvocation().Build();
+
+            if (_lastResolution is not null)
+            {
+                _logger?.LogInformation(
+                    "AI chat client created. Target {OperationUrl}, protocol {Protocol}, deployment {Deployment}.",
+                    _lastResolution.OperationUrl,
+                    FoundryEndpointResolver.Describe(_lastResolution.Protocol),
+                    settings.Active.AIModel);
+            }
         }
-        catch (Exception)
+        catch (AIConfigurationException ex)
         {
+            _clientCreationError = ex.Message;
             _chatClient = null;
+            _logger?.LogWarning("AI chat client configuration is invalid: {Reason}", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _clientCreationError = ex.Message;
+            _chatClient = null;
+            _logger?.LogWarning(ex, "AI chat client could not be created.");
         }
 
         return _chatClient;
+    }
+
+    /// <summary>
+    /// Resolves the Foundry request target, or null for providers that don't use one.
+    /// </summary>
+    private static FoundryEndpointResolution? ResolveTargetOrNull(AIProviderSettings provider)
+    {
+        var usesFoundryRouting = provider.ServiceType == AIServiceType.AzureAIFoundry
+            || (provider.ServiceType == AIServiceType.AzureOpenAI
+                && FoundryEndpointResolver.ShouldUseV1Routing(provider.Endpoint));
+
+        return usesFoundryRouting ? ChatClientFactory.ResolveFoundry(provider) : null;
     }
 
     public async IAsyncEnumerable<string> GetCompletionsAsync(
@@ -153,7 +198,9 @@ Keep responses concise and focused on the code task at hand.
         
         if (chatClient == null)
         {
-            var fallbackResponse = "⚠️ AI service is not configured. Please click the gear icon (⚙️) to configure your AI provider settings (OpenAI, Azure OpenAI, Anthropic, or Google AI).";
+            var fallbackResponse = _clientCreationError is null
+                ? "⚠️ AI service is not configured. Please click the gear icon (⚙️) to configure your AI provider settings (OpenAI, Azure OpenAI, Azure AI Foundry, Anthropic, or Google AI)."
+                : $"⚠️ AI configuration problem: {_clientCreationError}";
             session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = fallbackResponse });
             yield return fallbackResponse;
             yield break;
@@ -216,24 +263,21 @@ Keep responses concise and focused on the code task at hand.
                 }
             }
 
-            // Some models only support temperature=1 or don't support temperature at all
-            var modelName = _cachedSettings?.Active.AIModel?.ToLowerInvariant() ?? "";
-            var isRestrictedModel = modelName.Contains("gpt-5") || 
-                                    modelName.Contains("gpt5") || 
-                                    modelName.StartsWith("o1") ||
-                                    modelName.Contains("o1-preview") ||
-                                    modelName.Contains("o1-mini");
-            
-            // Anthropic and Google handle temperature internally through their adapters
+            // Some models reject a custom temperature or a tools array outright.
+            var modelName = _cachedSettings?.Active.AIModel ?? "";
+            var protocol = _lastResolution?.Protocol ?? FoundryApiProtocol.ChatCompletions;
+            var allowTemperature = !_suppressTemperature && ModelCapabilities.SupportsTemperature(modelName, protocol);
+            var allowTools = !_suppressTools && ModelCapabilities.SupportsTools(modelName, protocol);
+
             // Use at least 16384 output tokens so large code blocks are never truncated
             var effectiveMaxTokens = Math.Max(maxTokens ?? 16384, 8192);
             var options = new ChatOptions
             {
-                Temperature = isRestrictedModel ? null : (float?)temperature ?? 0.7f,
+                Temperature = allowTemperature ? (float?)temperature ?? 0.7f : null,
                 MaxOutputTokens = effectiveMaxTokens
             };
 
-            if (_externalToolProvider is not null)
+            if (allowTools && _externalToolProvider is not null)
             {
                 try
                 {
@@ -251,7 +295,7 @@ Keep responses concise and focused on the code task at hand.
 
             var responseBuilder = new System.Text.StringBuilder();
             
-            await foreach (var update in _chatClient!.GetStreamingResponseAsync(messages, options, cancellationToken))
+            await foreach (var update in StreamWithCapabilityRetryAsync(messages, options, cancellationToken))
             {
                 if (update.Text != null)
                 {
@@ -265,13 +309,99 @@ Keep responses concise and focused on the code task at hand.
         }
         catch (Exception ex)
         {
-            var errorMessage = $"❌ Error communicating with AI service: {ex.Message}";
+            _logger?.LogWarning(ex, "AI request to {OperationUrl} failed with status {Status}.",
+                _lastResolution?.OperationUrl ?? _cachedSettings?.Active.Endpoint ?? "(default)",
+                AIErrorTranslator.ExtractStatus(ex));
+
+            var errorMessage = AIErrorTranslator.Translate(ex, _lastResolution, _cachedSettings?.Active);
             session.Messages.Add(new RadzenChatMessage { IsUser = false, Content = errorMessage });
             results.Clear();
             results.Add(errorMessage);
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Streams the response, retrying once without temperature or tools when the
+    /// deployment rejects them. The decision is remembered for the rest of the session.
+    /// </summary>
+    private async IAsyncEnumerable<ChatResponseUpdate> StreamWithCapabilityRetryAsync(
+        List<AIChatMessage> messages,
+        ChatOptions options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        IAsyncEnumerator<ChatResponseUpdate>? enumerator = null;
+
+        try
+        {
+            enumerator = _chatClient!.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+            var started = false;
+
+            while (true)
+            {
+                bool moved;
+
+                try
+                {
+                    moved = await enumerator.MoveNextAsync();
+                }
+                catch (Exception ex) when (!started && TryRelaxOptions(ex, options))
+                {
+                    await enumerator.DisposeAsync();
+                    enumerator = _chatClient!.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+                    continue;
+                }
+
+                if (!moved)
+                {
+                    yield break;
+                }
+
+                started = true;
+                yield return enumerator.Current;
+            }
+        }
+        finally
+        {
+            if (enumerator is not null)
+            {
+                await enumerator.DisposeAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes the option the service rejected. Returns false when the error is unrelated
+    /// or the option was already removed, so the caller surfaces the original failure.
+    /// </summary>
+    private bool TryRelaxOptions(Exception ex, ChatOptions options)
+    {
+        if (AIErrorTranslator.ExtractStatus(ex) != 400)
+        {
+            return false;
+        }
+
+        var message = ex.Message ?? "";
+
+        if (options.Temperature is not null && message.Contains("temperature", StringComparison.OrdinalIgnoreCase))
+        {
+            options.Temperature = null;
+            _suppressTemperature = true;
+            _logger?.LogInformation("Retrying without temperature: the deployment rejected it.");
+            return true;
+        }
+
+        if (options.Tools is { Count: > 0 } && message.Contains("tool", StringComparison.OrdinalIgnoreCase))
+        {
+            options.Tools = null;
+            _suppressTools = true;
+            _logger?.LogInformation("Retrying without tools: the deployment rejected them.");
+            return true;
+        }
+
+        return false;
     }
 
     public ConversationSession GetOrCreateSession(string? sessionId = null)
@@ -317,5 +447,9 @@ Keep responses concise and focused on the code task at hand.
     {
         _cachedSettings = null;
         _chatClient = null;
+        _lastResolution = null;
+        _clientCreationError = null;
+        _suppressTemperature = false;
+        _suppressTools = false;
     }
 }

@@ -23,6 +23,17 @@ public class AIProviderSettings
 
     public string EmbeddingModel { get; set; } = "";
 
+    /// <summary>
+    /// Azure AI Foundry wire protocol, stored as a <see cref="FoundryApiProtocol"/> name.
+    /// Empty means <see cref="FoundryApiProtocol.Auto"/>.
+    /// </summary>
+    public string ApiProtocol { get; set; } = "";
+
+    public FoundryApiProtocol ParsedApiProtocol =>
+        Enum.TryParse<FoundryApiProtocol>(ApiProtocol, ignoreCase: true, out var protocol)
+            ? protocol
+            : FoundryApiProtocol.Auto;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 
     public AIProviderSettings Clone() => new()
@@ -33,7 +44,8 @@ public class AIProviderSettings
         Endpoint = Endpoint,
         ApiVersion = ApiVersion,
         DeploymentPath = DeploymentPath,
-        EmbeddingModel = EmbeddingModel
+        EmbeddingModel = EmbeddingModel,
+        ApiProtocol = ApiProtocol
     };
 }
 

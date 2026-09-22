@@ -1,10 +1,12 @@
 @using BlazorDataOrchestrator.Core.Models
 @using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Services.Foundry
 @using BlazorDataOrchestrator.Core.Services.ModelCatalog
 @using ServiceKind = BlazorDataOrchestrator.Core.Models.AIServiceType
 @implements IDisposable
 @inject AISettingsService SettingsService
 @inject AIModelCacheService ModelCacheService
+@inject AIConnectionTester ConnectionTester
 @inject NotificationService NotificationService
 @inject IJSRuntime JSRuntime
 
@@ -30,8 +32,71 @@
         </RadzenText>
     </RadzenStack>
 
+    @if (SelectedServiceType == ServiceKind.AzureAIFoundry)
+    {
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="Foundry Endpoint" Component="FoundryEndpoint" Style="font-weight: 600;" />
+            <RadzenTextBox Value="@Current.Endpoint" ValueChanged="@(async v => { Current.Endpoint = v; await ScheduleModelLoadAsync(); })"
+                           Name="FoundryEndpoint" Style="@FieldStyle"
+                           Placeholder="https://your-resource.services.ai.azure.com" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                Paste any Foundry URL. Project, /openai/v1, and /anthropic URLs are normalised automatically.
+            </RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Gap="0.5rem">
+            <RadzenLabel Text="API Protocol" Component="ApiProtocol" Style="font-weight: 600;" />
+            <RadzenDropDown Data="@ProtocolOptions" TextProperty="Text" ValueProperty="Value"
+                            TValue="FoundryApiProtocol" Value="@Current.ParsedApiProtocol"
+                            ValueChanged="@OnProtocolChangedAsync"
+                            Name="ApiProtocol" Style="@FieldStyle" />
+            <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
+                Auto picks the protocol from the URL, then the deployment name. Choose explicitly when the deployment name doesn't reveal the model family.
+            </RadzenText>
+        </RadzenStack>
+
+        @if (Resolution is not null)
+        {
+            <RadzenStack Gap="0.25rem">
+                <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280; font-weight: 600;">Resolved request</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Style="color: #374151; word-break: break-all;">
+                    @($"{FoundryEndpointResolver.Describe(Resolution.Protocol)} → {Resolution.OperationUrl}")
+                </RadzenText>
+            </RadzenStack>
+
+            @foreach (var notice in Resolution.Notices)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin: 0;">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@notice</RadzenText>
+                </RadzenAlert>
+            }
+        }
+
+        @if (!string.IsNullOrEmpty(ResolutionError))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" Style="margin: 0;">
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@ResolutionError</RadzenText>
+            </RadzenAlert>
+        }
+    }
+
     @if (SelectedServiceType == ServiceKind.AzureOpenAI)
     {
+        @if (LooksLikeFoundryHost)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin: 0;">
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        This is an Azure AI Foundry endpoint. Requests will be routed automatically.
+                        For Claude or Responses-only models, switch to Azure AI Foundry to choose the protocol explicitly.
+                    </RadzenText>
+                    <RadzenButton Text="Switch to Azure AI Foundry" Icon="swap_horiz" Size="ButtonSize.Small"
+                                  ButtonStyle="ButtonStyle.Secondary" Variant="Variant.Outlined"
+                                  Click="@SwitchToFoundryAsync" />
+                </RadzenStack>
+            </RadzenAlert>
+        }
+
         <RadzenStack Gap="0.5rem">
             <RadzenLabel Text="Azure OpenAI Endpoint" Component="Endpoint" Style="font-weight: 600;" />
             <RadzenTextBox Value="@Current.Endpoint" ValueChanged="@(async v => { Current.Endpoint = v; await ScheduleModelLoadAsync(); })"
@@ -113,6 +178,27 @@
                       Click="@OpenApiKeyPage" Style="@FieldStyle" />
     }
 
+    @if (ShowTestConnection)
+    {
+        <RadzenStack Gap="0.5rem">
+            <RadzenButton Text="Test Connection" Icon="network_check"
+                          ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined"
+                          Click="@TestConnectionAsync" IsBusy="@IsTesting"
+                          Disabled="@(!Current.IsConfigured)" Style="@FieldStyle" />
+
+            @if (TestResult is not null)
+            {
+                <RadzenAlert AlertStyle="@(TestResult.Success ? AlertStyle.Success : AlertStyle.Danger)"
+                             Shade="Shade.Lighter" AllowClose="false" Style="margin: 0;">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@TestResult.Message</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; word-break: break-all;">
+                        @($"{TestResult.Protocol} → {TestResult.OperationUrl} ({TestResult.Elapsed.TotalSeconds:0.0}s)")
+                    </RadzenText>
+                </RadzenAlert>
+            }
+        </RadzenStack>
+    }
+
     @if (ShowStatusCard)
     {
         @if (Current.IsConfigured)
@@ -164,7 +250,31 @@
     private string? ModelLoadError { get; set; }
     private bool IsLoadingModels { get; set; }
     private bool IsSaving { get; set; }
+    private bool IsTesting { get; set; }
+    private AIConnectionTestResult? TestResult { get; set; }
     private bool CanSelectModel => AvailableModels.Count > 0;
+
+    /// <summary>Live preview of how the Foundry endpoint will be called. Null for other providers.</summary>
+    private FoundryEndpointResolution? Resolution => ResolvePreview().Resolution;
+    private string? ResolutionError => ResolvePreview().Error;
+
+    private bool ShowTestConnection =>
+        SelectedServiceType is ServiceKind.AzureAIFoundry or ServiceKind.AzureOpenAI;
+
+    private bool LooksLikeFoundryHost =>
+        !string.IsNullOrWhiteSpace(Current.Endpoint)
+        && Uri.TryCreate(Current.Endpoint.Trim(), UriKind.Absolute, out var uri)
+        && uri.Host.EndsWith(".services.ai.azure.com", StringComparison.OrdinalIgnoreCase);
+
+    private List<ProtocolOption> ProtocolOptions { get; } = new()
+    {
+        new("Auto (recommended)", FoundryApiProtocol.Auto),
+        new("Chat Completions", FoundryApiProtocol.ChatCompletions),
+        new("Responses", FoundryApiProtocol.Responses),
+        new("Anthropic Messages", FoundryApiProtocol.AnthropicMessages)
+    };
+
+    private record ProtocolOption(string Text, FoundryApiProtocol Value);
 
     /// <summary>Not every provider can list models, so fall back to a plain text field.</summary>
     private bool UseFreeTextModel =>
@@ -192,6 +302,7 @@
     {
         ServiceKind.OpenAI => "sk-...",
         ServiceKind.AzureOpenAI => "Your Azure OpenAI key",
+        ServiceKind.AzureAIFoundry => "Your Foundry resource key",
         ServiceKind.Anthropic => "sk-ant-...",
         _ => "Your Google AI key"
     };
@@ -200,6 +311,7 @@
     {
         ServiceKind.OpenAI => "Your OpenAI API key. Must start with 'sk-'.",
         ServiceKind.AzureOpenAI => "The access key for your Azure OpenAI resource.",
+        ServiceKind.AzureAIFoundry => "Keys and Endpoint on the Foundry resource Overview page, or the Project API key in the Foundry portal.",
         ServiceKind.Anthropic => "Your Anthropic API key from the Anthropic console.",
         _ => "Your Google AI Studio API key."
     };
@@ -208,6 +320,7 @@
     {
         ServiceKind.OpenAI => "Get an OpenAI API Key",
         ServiceKind.AzureOpenAI => "Learn how to create an Azure OpenAI resource",
+        ServiceKind.AzureAIFoundry => "Open the Azure AI Foundry portal",
         ServiceKind.Anthropic => "Get an Anthropic API Key",
         _ => "Get a Google AI API Key"
     };
@@ -216,12 +329,13 @@
     {
         ServiceKind.OpenAI => "https://platform.openai.com/account/api-keys",
         ServiceKind.AzureOpenAI => "https://learn.microsoft.com/azure/ai-services/openai/how-to/create-resource?pivots=web-portal",
+        ServiceKind.AzureAIFoundry => "https://ai.azure.com/",
         ServiceKind.Anthropic => "https://console.anthropic.com/settings/keys",
         _ => "https://aistudio.google.com/app/apikey"
     };
 
-    private string ModelLabel => SelectedServiceType == ServiceKind.AzureOpenAI
-        ? "Model Deployment Name"
+    private string ModelLabel => SelectedServiceType is ServiceKind.AzureOpenAI or ServiceKind.AzureAIFoundry
+        ? "Deployment Name"
         : $"{ServiceDisplayName} Model";
 
     private string ModelPlaceholder
@@ -232,9 +346,9 @@
             if (IsLoadingModels) return "Loading models...";
             if (AvailableModels.Count == 0)
             {
-                return SelectedServiceType == ServiceKind.AzureOpenAI ? "Enter the deployment name" : "Enter the model name";
+                return SelectedServiceType is ServiceKind.AzureOpenAI or ServiceKind.AzureAIFoundry ? "Enter the deployment name" : "Enter the model name";
             }
-            return SelectedServiceType == ServiceKind.AzureOpenAI ? "Select a deployment..." : "Select a model...";
+            return SelectedServiceType is ServiceKind.AzureOpenAI or ServiceKind.AzureAIFoundry ? "Select a deployment..." : "Select a model...";
         }
     }
 
@@ -289,9 +403,64 @@
             Working.Providers[serviceType] = await SettingsService.GetProviderSettingsAsync(serviceType);
         }
 
+        TestResult = null;
         SetApiKeyDisplayFromCurrent();
         await NotifyChangedAsync();
         await LoadModelsAsync(forceRefresh: false);
+    }
+
+    private async Task OnProtocolChangedAsync(FoundryApiProtocol protocol)
+    {
+        Current.ApiProtocol = protocol == FoundryApiProtocol.Auto ? "" : protocol.ToString();
+        await NotifyChangedAsync();
+    }
+
+    /// <summary>Copies the current Azure OpenAI values into the Foundry provider and selects it.</summary>
+    private async Task SwitchToFoundryAsync()
+    {
+        var source = Current;
+        var target = Working.GetOrCreate(ServiceKind.AzureAIFoundry);
+
+        target.ApiKey = source.ApiKey;
+        target.Endpoint = source.Endpoint;
+        target.AIModel = source.AIModel;
+
+        await OnServiceTypeChangedAsync(ServiceKind.AzureAIFoundry);
+    }
+
+    /// <summary>Recomputes the Foundry request preview from the current endpoint and deployment.</summary>
+    private (FoundryEndpointResolution? Resolution, string? Error) ResolvePreview()
+    {
+        if (SelectedServiceType != ServiceKind.AzureAIFoundry || string.IsNullOrWhiteSpace(Current.Endpoint))
+        {
+            return (null, null);
+        }
+
+        return FoundryEndpointResolver.TryResolve(
+                Current.Endpoint, Current.AIModel, Current.ParsedApiProtocol, out var resolution, out var error)
+            ? (resolution, null)
+            : (null, error);
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        IsTesting = true;
+        TestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            TestResult = await ConnectionTester.TestAsync(Current);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Test failed", ex.Message);
+        }
+        finally
+        {
+            IsTesting = false;
+            StateHasChanged();
+        }
     }
 
     private async Task OnApiKeyInputAsync(ChangeEventArgs args)
@@ -410,6 +579,15 @@
                 return false;
             }
 
+            if (SelectedServiceType == ServiceKind.AzureAIFoundry && Current.IsConfigured)
+            {
+                if (ResolutionError is not null)
+                {
+                    Notify(NotificationSeverity.Error, "Invalid Endpoint", ResolutionError);
+                    return false;
+                }
+            }
+
             await SettingsService.SaveSettingsAsync(Working);
             SetApiKeyDisplayFromCurrent();
 
@@ -433,6 +611,11 @@
     {
         if (result.Status is ModelListStatus.Unreachable or ModelListStatus.Empty)
         {
+            if (SelectedServiceType == ServiceKind.AzureAIFoundry)
+            {
+                return "Could not list deployments. Enter the deployment name from the Foundry portal.";
+            }
+
             var noun = SelectedServiceType == ServiceKind.AzureOpenAI ? "deployment name" : "model name";
             return $"{result.ErrorMessage} Enter the {noun} manually, or use Refresh to try again.";
         }

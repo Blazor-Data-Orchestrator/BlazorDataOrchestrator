@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using OpenAI;
 using Azure.AI.OpenAI;
 using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services.Foundry;
 
 namespace BlazorDataOrchestrator.Core.Services;
 
@@ -34,6 +35,7 @@ public static class ChatClientFactory
 
         return settings.ServiceType switch
         {
+            ServiceKind.AzureAIFoundry => CreateFoundry(settings),
             ServiceKind.AzureOpenAI => CreateAzureOpenAI(settings),
             ServiceKind.Anthropic => new AnthropicChatClientAdapter(settings.ApiKey, settings.AIModel),
             ServiceKind.GoogleAI => new GoogleAIChatClientAdapter(settings.ApiKey, settings.AIModel),
@@ -41,15 +43,60 @@ public static class ChatClientFactory
         };
     }
 
+    /// <summary>
+    /// Resolves the endpoint and returns the client for the resulting wire protocol.
+    /// </summary>
+    /// <exception cref="AIConfigurationException">The endpoint could not be resolved.</exception>
+    public static IChatClient CreateFoundry(AIProviderSettings settings)
+    {
+        var resolution = ResolveFoundry(settings);
+
+        return resolution.Protocol switch
+        {
+            FoundryApiProtocol.AnthropicMessages =>
+                new AnthropicChatClientAdapter(settings.ApiKey.Trim(), settings.AIModel, resolution.BaseAddress),
+
+            FoundryApiProtocol.Responses =>
+                CreateResponsesClient(settings, resolution.BaseAddress),
+
+            _ =>
+                CreateOpenAICompatibleClient(settings.ApiKey, resolution.BaseAddress)
+                    .GetChatClient(settings.AIModel)
+                    .AsIChatClient(),
+        };
+    }
+
+    /// <summary>
+    /// Resolves the request target for a provider, or throws when the endpoint is unusable.
+    /// </summary>
+    /// <exception cref="AIConfigurationException">The endpoint could not be resolved.</exception>
+    public static FoundryEndpointResolution ResolveFoundry(AIProviderSettings settings)
+    {
+        if (!FoundryEndpointResolver.TryResolve(
+                settings.Endpoint, settings.AIModel, settings.ParsedApiProtocol, out var resolution, out var error))
+        {
+            throw new AIConfigurationException(error!);
+        }
+
+        return resolution!;
+    }
+
+#pragma warning disable OPENAI001 // The Responses API is still marked experimental.
+    private static IChatClient CreateResponsesClient(AIProviderSettings settings, Uri baseAddress)
+        => CreateOpenAICompatibleClient(settings.ApiKey, baseAddress)
+            .GetResponsesClient()
+            .AsIChatClient(settings.AIModel);
+#pragma warning restore OPENAI001
+
+    private static OpenAIClient CreateOpenAICompatibleClient(string apiKey, Uri baseAddress)
+        => new(new ApiKeyCredential(apiKey.Trim()), new OpenAIClientOptions { Endpoint = baseAddress });
+
     private static IChatClient CreateAzureOpenAI(AIProviderSettings settings)
     {
-        // AI Foundry endpoints use OpenAI-compatible /v1 path and don't need api-version.
-        if (IsAIFoundryEndpoint(settings.Endpoint))
+        // Foundry hosts, /openai/v1, /anthropic, and project URLs can't use the classic deployments route.
+        if (FoundryEndpointResolver.ShouldUseV1Routing(settings.Endpoint))
         {
-            var endpoint = ResolveAzureEndpoint(settings);
-            var openAIOptions = new OpenAIClientOptions { Endpoint = endpoint };
-            var client = new OpenAIClient(new ApiKeyCredential(settings.ApiKey), openAIOptions);
-            return client.GetChatClient(settings.AIModel).AsIChatClient();
+            return CreateFoundry(settings);
         }
 
         // Traditional Azure OpenAI: apply the configured API version when supplied.
@@ -112,13 +159,10 @@ public static class ChatClientFactory
     }
 
     /// <summary>
-    /// Detects Azure AI Foundry endpoints that use path-based versioning (/v1) instead of ?api-version=.
+    /// Detects endpoints that must use the Foundry v1 surfaces instead of ?api-version= routing.
     /// </summary>
     public static bool IsAIFoundryEndpoint(string endpoint)
-    {
-        return !string.IsNullOrWhiteSpace(endpoint)
-            && endpoint.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase);
-    }
+        => FoundryEndpointResolver.ShouldUseV1Routing(endpoint);
 
     private static IChatClient CreateOpenAI(AIProviderSettings settings)
     {

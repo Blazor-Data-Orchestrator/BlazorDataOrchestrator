@@ -13,6 +13,7 @@ public static class AIServiceTypes
     public static string ToDisplayName(ServiceKind type) => type switch
     {
         ServiceKind.AzureOpenAI => "Azure OpenAI",
+        ServiceKind.AzureAIFoundry => "Azure AI Foundry",
         ServiceKind.Anthropic => "Anthropic",
         ServiceKind.GoogleAI => "Google AI",
         _ => "OpenAI"
@@ -54,6 +55,13 @@ public static class AIServiceTypes
             case "azureoai":
                 result = ServiceKind.AzureOpenAI;
                 return true;
+            case "foundry":
+            case "aifoundry":
+            case "azurefoundry":
+            case "azureaifoundry":
+            case "microsoftfoundry":
+                result = ServiceKind.AzureAIFoundry;
+                return true;
             case "google":
             case "gemini":
             case "googlegemini":
@@ -80,6 +88,7 @@ public static class AIServiceTypes
     {
         ServiceKind.OpenAI,
         ServiceKind.AzureOpenAI,
+        ServiceKind.AzureAIFoundry,
         ServiceKind.Anthropic,
         ServiceKind.GoogleAI
     };

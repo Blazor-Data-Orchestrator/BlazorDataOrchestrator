@@ -11,4 +11,5 @@
   <Project Path="src/BlazorOrchestrator.Scheduler/BlazorOrchestrator.Scheduler.csproj" />
   <Project Path="src/BlazorOrchestrator.ServiceDefaults/BlazorOrchestrator.ServiceDefaults.csproj" />
   <Project Path="src/BlazorOrchestrator.Web/BlazorOrchestrator.Web.csproj" />
+  <Project Path="tests/BlazorDataOrchestrator.Core.Tests/BlazorDataOrchestrator.Core.Tests.csproj" />
 </Solution>

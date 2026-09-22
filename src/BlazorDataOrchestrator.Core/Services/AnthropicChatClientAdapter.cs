@@ -14,13 +14,32 @@ namespace BlazorDataOrchestrator.Core.Services;
 /// </summary>
 public class AnthropicChatClientAdapter : IChatClient
 {
+    // Shared so rebuilding adapters on a settings change never exhausts sockets.
+    private static readonly SocketsHttpHandler SharedHandler = new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+    };
+
     private readonly AnthropicClient _client;
+    private readonly HttpClient? _httpClient;
     private readonly string _model;
 
-    public AnthropicChatClientAdapter(string apiKey, string model)
+    /// <param name="baseAddress">
+    /// Azure AI Foundry Anthropic passthrough base (for example
+    /// <c>https://resource.services.ai.azure.com/anthropic</c>). Null targets api.anthropic.com.
+    /// </param>
+    public AnthropicChatClientAdapter(string apiKey, string model, Uri? baseAddress = null)
     {
-        _client = new AnthropicClient(apiKey);
         _model = model;
+
+        if (baseAddress is null)
+        {
+            _client = new AnthropicClient(apiKey);
+            return;
+        }
+
+        _httpClient = new HttpClient(new AnthropicBaseAddressHandler(baseAddress, SharedHandler), disposeHandler: false);
+        _client = new AnthropicClient(new APIAuthentication(apiKey), _httpClient);
     }
 
     public ChatClientMetadata Metadata => new("Anthropic", null, _model);
@@ -100,7 +119,7 @@ public class AnthropicChatClientAdapter : IChatClient
         return null;
     }
 
-    public void Dispose() { }
+    public void Dispose() { _httpClient?.Dispose(); }
 
     private static (string? SystemPrompt, List<Anthropic.SDK.Messaging.Message> Messages) ConvertMessages(
         IEnumerable<ChatMessage> chatMessages)

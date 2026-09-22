@@ -147,10 +147,36 @@ Configure the AI backend through the **Administration > Settings** page:
 
 | Setting | Description |
 |---------|-------------|
-| **Provider** | OpenAI or Azure OpenAI |
+| **Provider** | OpenAI, Azure OpenAI, Azure AI Foundry, Anthropic, or Google AI |
 | **API Key** | Your API key for the selected provider |
-| **Endpoint** | Azure OpenAI endpoint URL (Azure OpenAI only) |
-| **Model** | The model to use (e.g., `gpt-4`, `gpt-3.5-turbo`) |
+| **Endpoint** | Resource endpoint URL (Azure OpenAI and Azure AI Foundry only) |
+| **API Protocol** | Azure AI Foundry only. Auto, Chat Completions, Responses, or Anthropic Messages |
+| **Model** | The model or deployment name to use (e.g., `gpt-4o`, `gpt-5-codex`, `claude-sonnet-4-6`) |
+
+#### Azure AI Foundry
+
+Select **Azure AI Foundry** when your key belongs to a `*.services.ai.azure.com` resource.
+One key and one endpoint serve every deployment on that resource; only the deployment name changes.
+
+Any Foundry URL is accepted and normalised to the right request target:
+
+| URL you paste | Resolved request |
+|---|---|
+| `https://<resource>.services.ai.azure.com` | Picked from the deployment name |
+| `https://<resource>.services.ai.azure.com/openai/v1/responses` | `/openai/v1/responses` (Responses API) |
+| `https://<resource>.services.ai.azure.com/anthropic/v1/messages` | `/anthropic/v1/messages` (Claude) |
+| `https://<resource>.services.ai.azure.com/api/projects/<project>` | Rewritten to the resource endpoint |
+
+Leave **API Protocol** on **Auto** unless the deployment name hides the model family — for example a
+Claude deployment named `code-helper`. In that case pick **Anthropic Messages** explicitly.
+The **Resolved request** line shows the exact URL and protocol that will be used, and
+**Test Connection** verifies the configuration with a single prompt.
+
+> API key authentication only. Models that require Microsoft Entra ID, such as the Claude Mythos
+> family, are not supported.
+
+Endpoints entered under **Azure OpenAI** that point at a Foundry resource are routed the same way
+automatically, so existing configurations keep working.
 
 ---
 
