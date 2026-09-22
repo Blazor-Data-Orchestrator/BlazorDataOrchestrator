@@ -44,28 +44,23 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
 
         ModelListResult? lastFailure = null;
 
-        foreach (var url in BuildCandidateUrls(baseEndpoint, isFoundry, isAnthropicPassthrough, settings.ApiVersion))
+        foreach (var candidate in BuildCandidateUrls(baseEndpoint, isFoundry, isAnthropicPassthrough, settings.ApiVersion))
         {
             string? body = null;
 
             var failure = await SendAsync(() =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                if (isAnthropicPassthrough)
+                var request = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
+                request.Headers.TryAddWithoutValidation("api-key", apiKey);
+                if (candidate.Anthropic)
                 {
                     // Foundry's Anthropic passthrough expects Anthropic-style auth, not Bearer.
                     request.Headers.TryAddWithoutValidation("x-api-key", apiKey);
                     request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
-                    request.Headers.TryAddWithoutValidation("api-key", apiKey);
-                }
-                else if (isFoundry)
-                {
-                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {apiKey}");
-                    request.Headers.TryAddWithoutValidation("api-key", apiKey);
                 }
                 else
                 {
-                    request.Headers.TryAddWithoutValidation("api-key", apiKey);
+                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {apiKey}");
                 }
                 return request;
             }, cancellationToken, content => body = content);
@@ -93,32 +88,63 @@ public sealed class AzureOpenAIModelCatalog : HttpModelCatalogBase
         return lastFailure ?? ModelListResult.Empty();
     }
 
-    private static IEnumerable<string> BuildCandidateUrls(string baseEndpoint, bool isFoundry, bool isAnthropicPassthrough, string apiVersion)
+    private readonly record struct Candidate(string Url, bool Anthropic);
+
+    private static IEnumerable<Candidate> BuildCandidateUrls(string baseEndpoint, bool isFoundry, bool isAnthropicPassthrough, string apiVersion)
     {
+        var configured = apiVersion?.Trim();
+
         if (isAnthropicPassthrough)
         {
-            yield return $"{baseEndpoint}/models?limit=100";
+            yield return new Candidate($"{baseEndpoint}/models?limit=100", true);
+
+            // The Anthropic passthrough has no listing route on most resources, so fall
+            // back to the Foundry account root, which lists every deployment.
+            var root = GetAccountRoot(baseEndpoint);
+            if (root is not null)
+            {
+                yield return new Candidate($"{root}/openai/v1/models", false);
+                yield return new Candidate($"{root}/models?api-version={(string.IsNullOrEmpty(configured) ? ModelsApiVersion : configured)}", false);
+                yield return new Candidate($"{root}/openai/deployments?api-version={DeploymentsApiVersion}", false);
+            }
+
             yield break;
         }
 
         if (isFoundry)
         {
-            yield return $"{baseEndpoint}/deployments";
-            yield return $"{baseEndpoint}/models";
+            yield return new Candidate($"{baseEndpoint}/deployments", false);
+            yield return new Candidate($"{baseEndpoint}/models", false);
+
+            var root = GetAccountRoot(baseEndpoint);
+            if (root is not null)
+            {
+                yield return new Candidate($"{root}/openai/deployments?api-version={DeploymentsApiVersion}", false);
+            }
+
             yield break;
         }
 
         // Deployment names are what the chat client needs, so try those routes first.
-        yield return $"{baseEndpoint}/openai/deployments?api-version={DeploymentsApiVersion}";
+        yield return new Candidate($"{baseEndpoint}/openai/deployments?api-version={DeploymentsApiVersion}", false);
 
-        var configured = apiVersion?.Trim();
         if (!string.IsNullOrEmpty(configured) && configured != DeploymentsApiVersion)
         {
-            yield return $"{baseEndpoint}/openai/deployments?api-version={configured}";
+            yield return new Candidate($"{baseEndpoint}/openai/deployments?api-version={configured}", false);
         }
 
-        yield return $"{baseEndpoint}/openai/v1/models";
-        yield return $"{baseEndpoint}/openai/models?api-version={(string.IsNullOrEmpty(configured) ? ModelsApiVersion : configured)}";
+        yield return new Candidate($"{baseEndpoint}/openai/v1/models", false);
+        yield return new Candidate($"{baseEndpoint}/openai/models?api-version={(string.IsNullOrEmpty(configured) ? ModelsApiVersion : configured)}", false);
+    }
+
+    private static string? GetAccountRoot(string baseEndpoint)
+    {
+        if (!Uri.TryCreate(baseEndpoint, UriKind.Absolute, out var uri) || uri.AbsolutePath.Length <= 1)
+        {
+            return null;
+        }
+
+        return $"{uri.Scheme}://{uri.Authority}";
     }
 
     private static List<string> ParseModels(string body)
