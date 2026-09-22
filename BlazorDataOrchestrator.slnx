@@ -6,6 +6,12 @@
     <File Path="docs/LLMNuGetNuspecAutoConfigPlan.md" />
   </Folder>
   <Folder Name="/src/" />
+  <Folder Name="/Tests/">
+    <Project Path="tests/BlazorDataOrchestrator.Core.Tests/BlazorDataOrchestrator.Core.Tests.csproj" />
+    <Project Path="tests/BlazorOrchestrator.E2E.Tests/BlazorOrchestrator.E2E.Tests.csproj" />
+    <Project Path="tests/BlazorOrchestrator.Testing/BlazorOrchestrator.Testing.csproj" />
+    <Project Path="tests/BlazorOrchestrator.Web.Tests/BlazorOrchestrator.Web.Tests.csproj" />
+  </Folder>
   <Project Path="src/BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
   <Project Path="src/BlazorOrchestrator.Agent/BlazorOrchestrator.Agent.csproj" />
   <Project Path="src/BlazorOrchestrator.AppHost/BlazorOrchestrator.AppHost.csproj" />
