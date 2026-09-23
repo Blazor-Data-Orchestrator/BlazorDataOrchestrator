@@ -193,7 +193,8 @@
 @* Executing Job Overlay *@
 @if (isExecuting)
 {
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    @* z-index kept below Radzen dialogs so error dialogs are never hidden behind the spinner *@
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 900;">
         <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
             <RadzenStack AlignItems="AlignItems.Center" Gap="20">
                 <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
@@ -809,6 +810,8 @@ except Exception as e:
                 // Write error to file for diagnostics
                 try { await File.AppendAllTextAsync(Path.Combine(Environment.ContentRootPath, "execution_errors.log"), fullDetail + "\n\n"); } catch { }
 
+                // Hide the executing overlay so it cannot cover the error dialog
+                isExecuting = false;
                 if (!_disposed) StateHasChanged();
 
                 // Show the error in a visible dialog so the user sees it
@@ -820,9 +823,13 @@ except Exception as e:
                                          Style="white-space: pre-wrap; word-break: break-word;">
                                 @errorDetail
                             </RadzenAlert>
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">Details</RadzenText>
+                            <div style="max-height: 320px; overflow: auto; background: #1e1e1e; color: #e6e6e6; padding: 12px; border-radius: 6px;">
+                                <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-family: Consolas, monospace; font-size: 12px;">@fullDetail</pre>
+                            </div>
                             <RadzenButton Text="Close" Click="() => ds.Close(true)" Style="width: 100px; align-self: center;" />
                         </RadzenStack>
-                    );
+                    , new DialogOptions { Width = "800px", Resizable = true, Draggable = true });
                 }
                 catch { /* Dialog might fail if disposed */ }
 
