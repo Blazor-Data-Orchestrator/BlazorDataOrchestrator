@@ -1175,6 +1175,66 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     }
 
     /// <summary>
+    /// Parses <c># ADD TO REQUIREMENTS.txt:</c> and <c># REQUIREMENTS:</c> headers from Python code.
+    /// </summary>
+    public List<string> ParseRequirementsHeadersFromCode(string code)
+    {
+        var requirements = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(code))
+            return requirements;
+
+        var regex = new Regex(
+            @"^[ \t]*#[ \t]*(?:ADD[ \t]+TO[ \t]+REQUIREMENTS\.txt|REQUIREMENTS)[ \t]*:[ \t]*(\S[^\r\n]*?)[ \t]*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+        foreach (Match match in regex.Matches(code))
+        {
+            var line = match.Groups[1].Value;
+            var name = GetRequirementName(line);
+            requirements.RemoveAll(r => GetRequirementName(r).Equals(name, StringComparison.OrdinalIgnoreCase));
+            requirements.Add(line);
+        }
+
+        _logger.LogInformation("Parsed {Count} Python requirements from code headers", requirements.Count);
+        return requirements;
+    }
+
+    /// <summary>
+    /// Merges requirement lines into existing requirements.txt content; header lines replace existing pins for the same package.
+    /// </summary>
+    public string MergeRequirements(string? existingRequirements, List<string> headerRequirements)
+    {
+        var headerNames = new HashSet<string>(
+            headerRequirements.Select(GetRequirementName), StringComparer.OrdinalIgnoreCase);
+
+        var kept = (existingRequirements ?? "")
+            .Split('\n')
+            .Select(l => l.TrimEnd('\r'))
+            .Where(l =>
+            {
+                var trimmed = l.Trim();
+                if (trimmed.Length == 0 || trimmed.StartsWith('#') || trimmed.StartsWith('-'))
+                    return true;
+                return !headerNames.Contains(GetRequirementName(trimmed));
+            })
+            .ToList();
+
+        while (kept.Count > 0 && string.IsNullOrWhiteSpace(kept[^1]))
+            kept.RemoveAt(kept.Count - 1);
+
+        kept.AddRange(headerRequirements);
+        return string.Join("\n", kept) + "\n";
+    }
+
+    private static string GetRequirementName(string requirementLine)
+    {
+        var match = Regex.Match(requirementLine.Trim(), @"^[A-Za-z0-9][A-Za-z0-9._-]*");
+        // PEP 503: names compare case-insensitively with runs of -, _ and . treated as equal.
+        return match.Success ? Regex.Replace(match.Value, @"[-_.]+", "-") : requirementLine.Trim();
+    }
+
+    /// <summary>
     /// Generates a .nuspec XML string from a list of NuGet dependencies.
     /// </summary>
     /// <param name="dependencies">The list of NuGet dependencies.</param>

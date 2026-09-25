@@ -270,7 +270,7 @@ All other settings (API keys, feature flags, custom connection strings) are used
 
 ## Python Dependencies
 
-If your solution requires 3rd party libraries (PyPI packages), you MUST indicate the exact lines to be added to the `requirements.txt` file at the very top of the `main.py` file using the syntax `# REQUIREMENTS: <line content>`.
+If your solution requires 3rd party libraries (PyPI packages), you MUST indicate the exact lines to be added to the `requirements.txt` file at the very top of the `main.py` file using the syntax `# ADD TO REQUIREMENTS.txt: <line content>`.
 
 * **Do not** assume packages are pre-installed.
 * **Always** specify a stable version using the `==` operator.

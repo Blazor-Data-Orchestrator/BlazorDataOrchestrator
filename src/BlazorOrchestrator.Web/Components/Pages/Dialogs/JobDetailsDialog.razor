@@ -1830,6 +1830,30 @@ Content-Type: application/json
                     Console.WriteLine($"[SaveAndCompileCode] Auto-parsed {headerDeps.Count} NuGet deps from code headers → .nuspec ({parsedDeps.Count} total deps)");
                 }
             }
+            // --- Auto-parse # ADD TO REQUIREMENTS.txt: headers from main.py into requirements.txt ---
+            else if (codeLanguage == "python")
+            {
+                var headerRequirements = CodeEditorService.ParseRequirementsHeadersFromCode(mainCode);
+
+                if (headerRequirements.Any())
+                {
+                    var existingRequirements = FileStorage.GetFile(JobId, "requirements.txt") ?? loadedCodeModel?.RequirementsTxt;
+                    var updatedRequirements = CodeEditorService.MergeRequirements(existingRequirements, headerRequirements);
+
+                    FileStorage.SetFile(JobId, "requirements.txt", updatedRequirements);
+                    if (loadedCodeModel != null)
+                    {
+                        loadedCodeModel.RequirementsTxt = updatedRequirements;
+                    }
+
+                    if (!codeFileList.Contains("requirements.txt"))
+                    {
+                        codeFileList.Add("requirements.txt");
+                    }
+
+                    Console.WriteLine($"[SaveAndCompileCode] Auto-parsed {headerRequirements.Count} Python requirements from code headers → requirements.txt");
+                }
+            }
 
             // Attempt compilation/validation
             CompilationResult compilationResult;
