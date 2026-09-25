@@ -347,7 +347,7 @@ Content-Type: application/json
                                                     Style="font-family: monospace; background: #ffffff; padding: 0.5rem; border-radius: 4px; flex: 1;">
                                             @(string.IsNullOrEmpty(Job.JobCodeFile) ? "No code file uploaded" : Job.JobCodeFile)
                                         </RadzenText>
-                                        @if (!string.IsNullOrEmpty(Job.JobCodeFile))
+                                        @if (hasPackage)
                                         {
                                             <RadzenButton Text="Download NuGet Package" Icon="inventory_2" ButtonStyle="ButtonStyle.Info" Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                           Title="Download NuGet Package (.nupkg)" Click="@DownloadCodePackage" />
@@ -513,6 +513,7 @@ Content-Type: application/json
     private List<JobQueue> AvailableJobQueues { get; set; } = new();
 
     private bool IsLoading { get; set; } = true;
+    private bool hasPackage;
     private bool IsUploading { get; set; } = false;
     private bool IsRunningJob { get; set; } = false;
     private int SelectedTabIndex { get; set; } = 0;
@@ -609,6 +610,7 @@ Content-Type: application/json
         {
             Environments = JobService.GetEnvironments();
             Job = await JobService.GetJobByIdAsync(JobId);
+            hasPackage = await JobManager.JobPackageExistsAsync(Job?.JobCodeFile);
             
             // Load available job groups
             AvailableJobGroups = await JobGroupService.GetActiveJobGroupsAsync();
@@ -948,6 +950,7 @@ Content-Type: application/json
             
             // Update local job object with the new blob name
             Job.JobCodeFile = blobName;
+            hasPackage = true;
             
             NotificationService.Notify(NotificationSeverity.Success, "Success", "Code file uploaded successfully.");
             SelectedFile = null;
@@ -1903,6 +1906,7 @@ Content-Type: application/json
             
             // Update job record
             Job.JobCodeFile = blobName;
+            hasPackage = true;
             
             // Mark that we've saved, so next load will get this version
             hasLoadedPackageFiles = false;
@@ -2034,6 +2038,7 @@ Content-Type: application/json
                 var blobName = await PackageService.CreateAndUploadPackageAsync(Job.Id, codeModel);
                 
                 Job.JobCodeFile = blobName;
+                hasPackage = true;
             }
             else if (string.IsNullOrEmpty(Job.JobCodeFile))
             {
@@ -2042,8 +2047,8 @@ Content-Type: application/json
                 return;
             }
             
-            // Queue job for execution with Agent
-            var jobInstanceId = await JobManager.RunJobNowAsync(Job.Id);
+            // Queue job for execution with Agent; editor test runs are allowed on disabled jobs
+            var jobInstanceId = await JobManager.RunJobNowAsync(Job.Id, allowDisabled: true);
             
             NotificationService.Notify(NotificationSeverity.Success, "Job Queued", 
                 $"Job has been queued for execution. Instance ID: {jobInstanceId}");
