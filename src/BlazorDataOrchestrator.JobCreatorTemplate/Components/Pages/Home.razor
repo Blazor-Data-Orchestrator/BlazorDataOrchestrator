@@ -1215,6 +1215,7 @@ except Exception as e:
                                 _ = SendCompilationErrorsToCopilotAsync(code, buildErrors);
                             }
 
+                            await HideSavingOverlayAsync();
                             await DialogService.Alert($"Compilation Failed:\n{errorMsg}", "Build Error");
                             if (!_disposed) StateHasChanged();
                             return false;
@@ -1288,6 +1289,7 @@ except Exception as e:
                                     _ = SendCompilationErrorsToCopilotAsync(code, new List<string> { error });
                                 }
 
+                                await HideSavingOverlayAsync();
                                 await DialogService.Alert($"Compilation Failed:\n{error}", "Build Error");
                                 if (!_disposed) StateHasChanged();
                                 return false;
@@ -1300,6 +1302,7 @@ except Exception as e:
                         catch (System.ComponentModel.Win32Exception)
                         {
                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found. Skipping syntax check.\n";
+                            await HideSavingOverlayAsync();
                             await DialogService.Alert(
                                 "Python is not installed or not found in your system PATH.\n\n" +
                                 "To resolve this:\n" +
@@ -1334,6 +1337,13 @@ except Exception as e:
             isSaving = false;
             if (!_disposed) StateHasChanged();
         }
+    }
+
+    private async Task HideSavingOverlayAsync()
+    {
+        isSaving = false;
+        if (!_disposed) StateHasChanged();
+        await Task.Delay(1); // Allow UI to remove the saving overlay before showing a dialog
     }
 
     /// <summary>
