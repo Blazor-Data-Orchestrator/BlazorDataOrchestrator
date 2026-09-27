@@ -66,8 +66,10 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
             }
             catch (Exception ex)
             {
+                // Rethrow: swallowing this writes an empty dependencies.json over a good one
+                // and the job then fails at execution with an unrelated missing-type error.
                 _logger.LogError(ex, "Failed to extract dependencies from project file");
-                return new List<PackageDependency>();
+                throw;
             }
         }
 
@@ -91,8 +93,8 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
 
             if (!result.Success)
             {
-                _logger.LogError("Failed to create package: {Error}", result.ErrorMessage);
-                throw new InvalidOperationException($"Failed to create package: {result.ErrorMessage}");
+                _logger.LogError("Failed to create package (build {BuildId}): {Error}", result.BuildId, result.ErrorMessage);
+                throw new InvalidOperationException($"Failed to create package: {result.ErrorMessage} (build {result.BuildId})");
             }
 
             foreach (var log in result.Logs)
@@ -100,7 +102,7 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
                 _logger.LogInformation("{Log}", log);
             }
 
-            _logger.LogInformation("Created NuGet package: {PackagePath}", result.PackagePath);
+            _logger.LogInformation("Created NuGet package: {PackagePath} (build {BuildId})", result.PackagePath, result.BuildId);
 
             return result.PackagePath!;
         }

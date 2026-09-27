@@ -35,11 +35,8 @@ var db = sqlServer.AddDatabase("blazororchestratordb");
 var storage = builder.AddAzureStorage("storage")
     .RunAsEmulator(emulator =>
     {
-        emulator.WithLifetime(ContainerLifetime.Persistent);
         emulator.WithDataVolume();  // Persist Azurite data across restarts
-        emulator.WithEndpoint("blob", endpoint => endpoint.Port = 10000);
-        emulator.WithEndpoint("queue", endpoint => endpoint.Port = 10001);
-        emulator.WithEndpoint("table", endpoint => endpoint.Port = 10002);
+        // No fixed host ports: another app's Azurite on 10000-10002 would silently split host and container traffic.
         // Allow any hostname for table requests — fixes container DNS issues
         // where the agent receives storage.dev.internal instead of 127.0.0.1
         emulator.WithArgs("--disableProductStyleUrl");

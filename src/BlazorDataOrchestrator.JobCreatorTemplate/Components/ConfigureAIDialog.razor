@@ -97,13 +97,14 @@
         try
         {
             var settings = await SettingsService.GetSettingsAsync();
-            aiServiceType = settings.AIServiceType;
-            apiKey = settings.ApiKey;
-            aiModel = settings.AIModel;
-            endpoint = settings.Endpoint;
-            apiVersion = settings.ApiVersion;
-            embeddingModel = settings.EmbeddingModel;
-            deploymentPath = settings.DeploymentPath;
+            var active = settings.Active;
+            aiServiceType = AIServiceTypes.ToDisplayName(settings.ActiveServiceType);
+            apiKey = active.ApiKey;
+            aiModel = active.AIModel;
+            endpoint = active.Endpoint;
+            apiVersion = active.ApiVersion;
+            embeddingModel = active.EmbeddingModel;
+            deploymentPath = active.DeploymentPath;
 
             isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
         }
@@ -134,6 +135,19 @@
     {
         apiKey = args.Value?.ToString() ?? "";
         isSettingsEntered = !string.IsNullOrWhiteSpace(apiKey);
+    }
+
+    private AISettings BuildSettings()
+    {
+        var settings = new AISettings { ActiveServiceType = AIServiceTypes.ParseOrDefault(aiServiceType) };
+        var provider = settings.Active;
+        provider.ApiKey = apiKey;
+        provider.AIModel = aiModel;
+        provider.Endpoint = endpoint;
+        provider.ApiVersion = apiVersion;
+        provider.EmbeddingModel = embeddingModel;
+        provider.DeploymentPath = deploymentPath;
+        return settings;
     }
 
     private async Task GetOpenAIApiKey()
@@ -185,16 +199,7 @@
                 if (aiServiceType == "Azure OpenAI")
                 {
                     // Build a settings instance so the test honors the deployment path and API version.
-                    var testSettings = new AISettings
-                    {
-                        AIServiceType = aiServiceType,
-                        ApiKey = apiKey,
-                        AIModel = aiModel,
-                        Endpoint = endpoint,
-                        ApiVersion = apiVersion,
-                        EmbeddingModel = embeddingModel,
-                        DeploymentPath = deploymentPath
-                    };
+                    var testSettings = BuildSettings();
 
                     var testClient = ChatClientFactory.Create(testSettings);
                     if (testClient == null)
@@ -223,16 +228,7 @@
                 return;
             }
 
-            var settings = new AISettings
-            {
-                AIServiceType = aiServiceType,
-                ApiKey = apiKey,
-                AIModel = aiModel,
-                Endpoint = endpoint,
-                ApiVersion = apiVersion,
-                EmbeddingModel = embeddingModel,
-                DeploymentPath = deploymentPath
-            };
+            var settings = BuildSettings();
 
             await SettingsService.SaveSettingsAsync(settings);
 

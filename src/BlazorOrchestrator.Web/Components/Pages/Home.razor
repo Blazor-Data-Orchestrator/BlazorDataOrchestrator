@@ -358,7 +358,7 @@ else
                     IsEnabled = j.JobEnabled,
                     IsQueued = j.JobQueued,
                     HasError = j.JobInError,
-                    HasCode = !string.IsNullOrEmpty(j.JobCodeFile),
+                    HasCode = await JobManager.JobPackageExistsAsync(j.JobCodeFile),
                     LastRun = GetLastRunDisplay(j),
                     NextRun = GetNextRunDisplay(j),
                     JobGroups = jobGroups.Select(g => g.JobGroupName ?? "Unnamed").ToList(),

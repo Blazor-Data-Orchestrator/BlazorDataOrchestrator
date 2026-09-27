@@ -928,6 +928,23 @@ namespace BlazorDataOrchestrator.Core
         }
 
         /// <summary>
+        /// Returns true when the code file refers to a real package that exists in blob storage.
+        /// </summary>
+        public async Task<bool> JobPackageExistsAsync(string? jobCodeFile)
+        {
+            if (string.IsNullOrWhiteSpace(jobCodeFile)) return false;
+
+            try
+            {
+                return await _packageContainerClient.GetBlobClient(jobCodeFile).ExistsAsync();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Downloads a job's NuGet package from blob storage.
         /// </summary>
         /// <param name="jobId">The job ID</param>
@@ -971,8 +988,9 @@ namespace BlazorDataOrchestrator.Core
         /// Dynamically routes to the appropriate Azure Queue based on job configuration.
         /// </summary>
         /// <param name="jobId">The job ID to run</param>
+        /// <param name="allowDisabled">When true, runs the job even if it is disabled (code editor test runs)</param>
         /// <returns>The created JobInstance ID</returns>
-        public async Task<int> RunJobNowAsync(int jobId)
+        public async Task<int> RunJobNowAsync(int jobId, bool allowDisabled = false)
         {
             using var context = CreateDbContext();
             await LogAsync("RunJobNow", $"Triggering immediate run for Job {jobId}", jobId: jobId);
@@ -985,6 +1003,11 @@ namespace BlazorDataOrchestrator.Core
             if (job == null)
             {
                 throw new ArgumentException($"Job {jobId} not found.");
+            }
+
+            if (!job.JobEnabled && !allowDisabled)
+            {
+                throw new InvalidOperationException($"Job {jobId} is disabled.");
             }
 
             // Get or create a schedule
