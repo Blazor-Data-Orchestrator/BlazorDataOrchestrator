@@ -20,3 +20,11 @@ obj
 *.suo
 *.nupkg
 execution_errors.log
+
+# --- Python run-time artefacts written into Code\CodePython by the template UI and the Agent ---
+__pycache__
+*.pyc
+runner.py
+_runner.py
+# Holds fully resolved settings, including connection strings
+resolved.appsettings.json
