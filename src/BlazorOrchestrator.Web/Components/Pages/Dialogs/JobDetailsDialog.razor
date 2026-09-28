@@ -1058,7 +1058,7 @@ Content-Type: application/json
 
             if (IsRunningLocally)
             {
-                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles);
+                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles, JobId);
 
                 if (!result.Success)
                 {
@@ -1070,7 +1070,7 @@ Content-Type: application/json
             }
             else
             {
-                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles);
+                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles, JobId);
                 using var streamRef = new DotNetStreamReference(new MemoryStream(zipBytes));
                 await JSRuntime.InvokeVoidAsync("downloadFileFromStream", $"{projectName}.zip", streamRef);
                 await ShowVSSolutionDownloadDialog(projectName);

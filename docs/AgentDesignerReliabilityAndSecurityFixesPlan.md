@@ -852,22 +852,33 @@ flowchart LR
     F --> G["Browser hard-reload not required after deploy"]
 ```
 
-- [ ] S1: the "failed compile then successful compile" repro passes on the agent container
-- [ ] S2: a fresh clone and build produces a zip that contains `HideSavingOverlayAsync`
-- [ ] S3: the zip has no `\` entries, and Linux extraction produces a project folder
-- [ ] S4: no `Password=` in any designer-built `.nupkg`
-- [ ] S5: the designer's logs appear on the Web Logs page with no Azurite on 10000–10002
-- [ ] O1: the dashboard shows one row per VS project after designer runs
-- [ ] O2: a Python job receives the webhook parameter
-- [ ] O3: each Python log line appears once
-- [ ] O4: the Python editor lists four appsettings files
-- [ ] O5: `dynamic` compiles on the agent
-- [ ] O6: package default EF Core version = 10.0.11
-- [ ] O7: a generated project with `Humanizer.Core 2.14.1` restores and builds
-- [ ] O8: a machine with only the Store stub shows "Python Not Found"
-- [ ] O9: the `site.js` URL is fingerprinted and has `immutable` caching
+- [x] S1: the "failed compile then successful compile" repro passes on the agent container
+- [x] S2: a fresh clone and build produces a zip that contains `HideSavingOverlayAsync`
+- [x] S3: the zip has no `\` entries, and Linux extraction produces a project folder
+- [x] S4: no `Password=` in any designer-built `.nupkg`
+- [x] S5: the designer's logs appear on the Web Logs page with no Azurite on 10000–10002 (verified with a legacy Azurite still running on 10000–10002, which the designer ignored)
+- [x] O1: the dashboard shows one row per VS project after designer runs
+- [x] O2: a Python job receives the webhook parameter
+- [x] O3: each Python log line appears once
+- [x] O4: the Python editor lists four appsettings files
+- [x] O5: `dynamic` compiles on the agent
+- [x] O6: package default EF Core version = 10.0.11
+- [x] O7: a generated project with `Humanizer.Core 2.14.1` restores and builds
+- [x] O8: a machine with only the Store stub shows "Python Not Found"
+- [x] O9: the `site.js` URL is fingerprinted and has `immutable` caching (published output only; see 5.3)
 
-### 5.3 Risks
+### 5.3 Implementation notes
+
+Differences from the plan text above, found while implementing and testing:
+
+- **S1:** CS-Script's `ReferenceAssembly(path)` loads into a separate `Assembly.LoadFile` context, not the default one, so the job after a failed compile logs `+ X.dll`. `= Reusing X.dll` appears once a successful job has pre-loaded the assembly into the default context. The Core test uses `CsvHelper`, because `Humanizer.Core` 2.14.1 is host-provided (Roslyn Workspaces depends on it). Host-provided assemblies are referenced from the host copy, since a host assembly that is not loaded yet would otherwise be missing from the CS-Script compilation.
+- **S4:** `AppSettingsResolver` now accepts comments and trailing commas, as ASP.NET configuration does, so a commented appsettings file does not fail the build. `appsettings*.json` files under `CodeCSharp`/`CodePython` are blanked too. The designer's Python run now deletes `Code/CodePython/resolved.appsettings.json` (fully resolved connection strings) afterwards; before, the package builder would have shipped it.
+- **S5:** The designer's `JobManager` constructor calls storage synchronously and retries for about a minute, which terminated the Blazor circuit before the banner could render. `Home.razor` now waits for the 3-second probe and skips building `JobManager` when storage is unreachable.
+- **O1:** The template's `Code/configuration.json` is reset to `LastJobId: 0`. With `preferredJobId`, a committed ID would otherwise attach every new project to whichever job has that ID.
+- **O8:** App Execution Aliases are probed with `--version` rather than rejected outright, so a real Python installed from the Microsoft Store (also a 0-byte alias) keeps working; the placeholder fails the version check and is reported as `WindowsStoreStubOnly`.
+- **O9:** `MapStaticAssets` serves every asset with `no-cache` when it runs from a build manifest (`dotnet run`), whatever the environment. `immutable` applies to published output, which is what Azure runs. The setup-redirect middleware skips static-asset endpoints, because `UseStaticFiles` no longer serves them before it.
+
+### 5.4 Risks
 
 | Risk | Mitigation |
 |---|---|

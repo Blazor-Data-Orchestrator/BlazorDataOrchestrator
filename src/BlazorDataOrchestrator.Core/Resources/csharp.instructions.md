@@ -106,7 +106,7 @@ A job package is refused at build time when any of these hold:
 * Any dependency version contains `*` — pin an exact version, for example `13.0.4`. Bracketed ranges such as `[1.2.3]` remain valid.
 * A file being packaged is a compiled binary, whatever its extension. Declare a NuGet dependency instead.
 
-Declare `Microsoft.EntityFrameworkCore` and `Microsoft.EntityFrameworkCore.SqlServer` explicitly at the version `BlazorDataOrchestrator.Core` uses. If the job omits them, an older default is injected that cannot restore.
+Declare `Microsoft.EntityFrameworkCore` and `Microsoft.EntityFrameworkCore.SqlServer` explicitly at version `10.0.11`, the version `BlazorDataOrchestrator.Core` uses. If the job omits them, that same version is injected by default.
 
 ### Dependencies & Context
 

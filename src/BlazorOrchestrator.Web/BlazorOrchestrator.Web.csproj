@@ -6,13 +6,36 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- Auto-package the JobCreatorTemplate zip before build -->
+  <!-- Auto-package the JobCreatorTemplate zip before build. The zip is not tracked in git; it is
+       rebuilt whenever the content hash of its inputs changes (timestamps are unreliable after a checkout). -->
+  <PropertyGroup>
+    <JobTemplateSourceDir>$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate</JobTemplateSourceDir>
+    <JobTemplateZip>$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip</JobTemplateZip>
+    <JobTemplateScript>$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1</JobTemplateScript>
+    <JobTemplatePowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</JobTemplatePowerShell>
+    <JobTemplatePowerShell Condition="'$(JobTemplatePowerShell)' == ''">pwsh</JobTemplatePowerShell>
+  </PropertyGroup>
   <ItemGroup>
-    <JobTemplateInputs Include="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\**\*.*" Exclude="$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\bin\**;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate\obj\**" />
+    <JobTemplateInputs Include="$(JobTemplateSourceDir)\**\*.*" Exclude="$(JobTemplateSourceDir)\bin\**;$(JobTemplateSourceDir)\obj\**;$(JobTemplateSourceDir)\.vs\**;$(JobTemplateSourceDir)\Properties\**;$(JobTemplateSourceDir)\**\*.csproj.user;$(JobTemplateSourceDir)\**\*.suo;$(JobTemplateSourceDir)\execution_errors.log;$(JobTemplateSourceDir)\Code\**\__pycache__\**" />
     <JobTemplateInputs Include="$(MSBuildProjectDirectory)\JobTemplate\JobCreatorTemplate.slnx.template" />
+    <JobTemplateInputs Include="$(JobTemplateScript)" />
   </ItemGroup>
-  <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild" Inputs="@(JobTemplateInputs)" Outputs="$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1&quot; -SourceDir &quot;$(MSBuildProjectDirectory)\..\BlazorDataOrchestrator.JobCreatorTemplate&quot; -OutputZip &quot;$(MSBuildProjectDirectory)\JobTemplate\BlazorDataOrchestrator.JobCreatorTemplate.zip&quot;" />
+  <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <JobTemplateHashFile>$(IntermediateOutputPath)jobtemplate.inputs.hash</JobTemplateHashFile>
+    </PropertyGroup>
+    <GetFileHash Files="@(JobTemplateInputs)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_JobTemplateHashed" />
+    </GetFileHash>
+    <PropertyGroup>
+      <!-- '|' rather than ';' so WriteLinesToFile keeps it on one line and the comparison below is exact. -->
+      <_JobTemplateCombined>@(_JobTemplateHashed->'%(RecursiveDir)%(Filename)%(Extension)=%(FileHash)', '|')</_JobTemplateCombined>
+      <_JobTemplatePrevious Condition="Exists('$(JobTemplateHashFile)')">$([System.IO.File]::ReadAllText('$(JobTemplateHashFile)').Trim())</_JobTemplatePrevious>
+    </PropertyGroup>
+    <Exec Condition="!Exists('$(JobTemplateZip)') Or '$(_JobTemplateCombined)' != '$(_JobTemplatePrevious)'"
+          Command="$(JobTemplatePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(JobTemplateScript)&quot; -SourceDir &quot;$(JobTemplateSourceDir)&quot; -OutputZip &quot;$(JobTemplateZip)&quot;" />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(JobTemplateHashFile)" Lines="$(_JobTemplateCombined)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 
   <!-- Exclude Mockups folder from compilation - these are reference files only -->
@@ -33,6 +56,10 @@
 
   <ItemGroup>
     <None Include="efpt.config.json.user" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BlazorOrchestrator.Web.Tests" />
   </ItemGroup>
 
   <ItemGroup>

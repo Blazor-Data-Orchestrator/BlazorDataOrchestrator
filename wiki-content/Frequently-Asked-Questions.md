@@ -94,7 +94,18 @@ The entry point is the `BlazorDataOrchestratorJob.ExecuteJob()` static method in
 
 ### What is the entry point for a Python job?
 
-The entry point is the `execute_job()` function in `main.py`.
+The entry point is the `execute_job()` function in `main.py`:
+
+```python
+def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int,
+                job_schedule_id: int, web_api_parameter: str = "") -> list[str]:
+```
+
+`web_api_parameter` receives the webhook's `webAPIParameter` value (`""` when the job is not started by a webhook). It is optional: jobs that declare only the first five parameters still run.
+
+### Saving `main.py` shows "Python Not Found"
+
+The designer checks for a real Python 3 before validating `main.py`. On Windows, the `python.exe` in `%LOCALAPPDATA%\Microsoft\WindowsApps` is often only the Microsoft Store placeholder, which is not a working interpreter. Install Python from [python.org](https://www.python.org/downloads/) with **Add Python to PATH** checked, or turn off the **App execution aliases** for `python.exe` in Windows Settings.
 
 ### Can I use multiple code files?
 

@@ -1,7 +1,10 @@
 using System.IO.Compression;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using BlazorDataOrchestrator.Core.Configuration;
 using BlazorDataOrchestrator.Core.Models;
 
 namespace BlazorDataOrchestrator.Core.Services;
@@ -89,12 +92,21 @@ public class NuGetPackageBuilderService
     }
 
     /// <summary>
+    /// The EF Core package version the host loads. The informational version carries the NuGet
+    /// package version; the file version (10.0.0.0) does not.
+    /// </summary>
+    private static string EfCoreVersion { get; } =
+        typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            .Split('+')[0] ?? "10.0.11";
+
+    /// <summary>
     /// Default NuGet dependencies for job packages.
     /// </summary>
     public static readonly List<PackageDependency> DefaultDependencies = new()
     {
-        new() { Id = "Microsoft.EntityFrameworkCore", Version = "10.0.0" },
-        new() { Id = "Microsoft.EntityFrameworkCore.SqlServer", Version = "10.0.0" },
+        new() { Id = "Microsoft.EntityFrameworkCore", Version = EfCoreVersion },
+        new() { Id = "Microsoft.EntityFrameworkCore.SqlServer", Version = EfCoreVersion },
         new() { Id = "Azure.Data.Tables", Version = "12.9.1" }
     };
 
@@ -182,7 +194,7 @@ public class NuGetPackageBuilderService
                 {
                     var fileName = Path.GetFileName(file);
                     var destPath = Path.Combine(rootContentFolder, fileName);
-                    await CopyFileAsync(file, destPath);
+                    await CopyPackagedFileAsync(file, destPath, result.Logs);
                     result.IncludedFiles.Add(fileName);
                     result.Logs.Add($"Added root config file: {fileName}");
                 }
@@ -192,7 +204,7 @@ public class NuGetPackageBuilderService
             if (!string.IsNullOrEmpty(config.AppSettingsPath) && File.Exists(config.AppSettingsPath))
             {
                 var destPath = Path.Combine(rootContentFolder, Configuration.JobEnvironments.BaseFileName);
-                await CopyFileAsync(config.AppSettingsPath, destPath);
+                await CopyAppSettingsBlankedAsync(config.AppSettingsPath, destPath, result.Logs);
                 result.IncludedFiles.Add(Configuration.JobEnvironments.BaseFileName);
                 result.Logs.Add($"Added {Configuration.JobEnvironments.BaseFileName}");
             }
@@ -205,7 +217,7 @@ public class NuGetPackageBuilderService
                 }
 
                 var fileName = Configuration.JobEnvironments.GetFileName(environment);
-                await CopyFileAsync(sourcePath, Path.Combine(rootContentFolder, fileName));
+                await CopyAppSettingsBlankedAsync(sourcePath, Path.Combine(rootContentFolder, fileName), result.Logs);
                 result.IncludedFiles.Add(fileName);
                 result.Logs.Add($"Added {fileName}");
             }
@@ -231,7 +243,7 @@ public class NuGetPackageBuilderService
                     if (!fileName.Equals("configuration.json", StringComparison.OrdinalIgnoreCase))
                     {
                         var destPath = Path.Combine(csharpContentFolder, fileName);
-                        await CopyFileAsync(file, destPath);
+                        await CopyPackagedFileAsync(file, destPath, result.Logs);
                         result.IncludedFiles.Add($"CodeCSharp/{fileName}");
                         result.Logs.Add($"Added C# config: {fileName}");
                     }
@@ -268,7 +280,7 @@ public class NuGetPackageBuilderService
                     if (!fileName.Equals("configuration.json", StringComparison.OrdinalIgnoreCase))
                     {
                         var destPath = Path.Combine(pythonContentFolder, fileName);
-                        await CopyFileAsync(file, destPath);
+                        await CopyPackagedFileAsync(file, destPath, result.Logs);
                         result.IncludedFiles.Add($"CodePython/{fileName}");
                         result.Logs.Add($"Added Python config: {fileName}");
                     }
@@ -367,6 +379,16 @@ public class NuGetPackageBuilderService
 
             // Create the NuGet package (which is a ZIP file with .nupkg extension)
             ZipFile.CreateFromDirectory(tempFolder, nupkgPath);
+
+            try
+            {
+                AssertReservedConnectionStringsBlank(nupkgPath);
+            }
+            catch
+            {
+                try { File.Delete(nupkgPath); } catch { }
+                throw;
+            }
 
             result.Success = true;
             result.PackagePath = nupkgPath;
@@ -634,6 +656,71 @@ public class NuGetPackageBuilderService
 
         await using var stream = new FileStream(nuspecPath, FileMode.Create, FileAccess.Write, FileShare.None);
         await Task.Run(() => nuspec.Save(stream));
+    }
+
+    /// <summary>
+    /// Copies a file into the package, blanking the reserved connection strings when it is an appsettings file.
+    /// </summary>
+    private static Task CopyPackagedFileAsync(string sourcePath, string destPath, List<string> logs) =>
+        JobEnvironments.AllFileNames.Contains(Path.GetFileName(sourcePath), StringComparer.OrdinalIgnoreCase)
+            ? CopyAppSettingsBlankedAsync(sourcePath, destPath, logs)
+            : CopyFileAsync(sourcePath, destPath);
+
+    /// <summary>
+    /// Copies an appsettings file with the four host-owned connection strings set to "", so local
+    /// secrets such as the designer's sa password never enter a package. Everything else is preserved.
+    /// </summary>
+    private static async Task CopyAppSettingsBlankedAsync(string sourcePath, string destPath, List<string> logs)
+    {
+        var fileName = Path.GetFileName(sourcePath);
+        var json = await File.ReadAllTextAsync(sourcePath);
+
+        // Packaging unparseable content as-is could leak the very secrets this step removes.
+        if (!AppSettingsResolver.IsValidSettingsJson(json))
+        {
+            throw new PackageBuildException(
+                $"'{fileName}' is not a valid JSON object, so its reserved connection strings cannot be blanked. " +
+                "Fix the file and build again.");
+        }
+
+        var blanked = AppSettingsResolver.ApplyReserved(json, ReservedConnectionStrings.Empty);
+        await File.WriteAllTextAsync(destPath, blanked);
+        logs.Add($"Blanked reserved connection strings in {fileName}");
+    }
+
+    /// <summary>
+    /// Fails the build if any appsettings entry in the finished package carries a reserved connection string value.
+    /// </summary>
+    private static void AssertReservedConnectionStringsBlank(string nupkgPath)
+    {
+        using var archive = ZipFile.OpenRead(nupkgPath);
+        foreach (var entry in archive.Entries)
+        {
+            if (!JobEnvironments.AllFileNames.Contains(entry.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            using var reader = new StreamReader(entry.Open());
+            var node = AppSettingsResolver.TryParseSettings(reader.ReadToEnd());
+            if (node?["ConnectionStrings"] is not JsonObject connectionStrings)
+            {
+                continue;
+            }
+
+            var leaked = connectionStrings
+                .Where(p => ReservedConnectionStrings.IsReservedKey(p.Key) &&
+                            p.Value is JsonValue v && v.TryGetValue<string>(out var s) && !string.IsNullOrEmpty(s))
+                .Select(p => p.Key)
+                .ToList();
+
+            if (leaked.Count > 0)
+            {
+                throw new PackageBuildException(
+                    $"'{entry.FullName}' in the built package still has values for reserved connection string(s): " +
+                    $"{string.Join(", ", leaked)}. The package was discarded.");
+            }
+        }
     }
 
     private static async Task CopyFileAsync(string sourcePath, string destPath)

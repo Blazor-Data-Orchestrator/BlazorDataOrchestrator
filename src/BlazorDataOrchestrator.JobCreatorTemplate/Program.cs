@@ -63,6 +63,7 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             // Register Copilot Health & Model services
             builder.Services.AddSingleton<CopilotHealthService>();
             builder.Services.AddSingleton<CopilotModelService>();
+            builder.Services.AddSingleton<StorageHealthService>();
             
             // Register Copilot Cookie Service for persisting user preferences
             builder.Services.AddScoped<CopilotCookieService>();
@@ -94,6 +95,9 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             var copilotClient = app.Services.GetRequiredService<CopilotClient>();
             var copilotHealth = app.Services.GetRequiredService<CopilotHealthService>();
             var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+            var storageHealth = app.Services.GetRequiredService<StorageHealthService>();
+            _ = Task.Run(() => storageHealth.ProbeAsync(app.Services, logger));
 
             var cliInstalled = await copilotHealth.CheckCliInstalledAsync();
 

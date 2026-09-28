@@ -111,6 +111,26 @@ fails with a descriptive error rather than running with blank connection strings
 Reserved values are also stamped into the package at upload/publish time so the developer can see the
 effective values in the editor; the runtime application remains authoritative.
 
+Packages built by the designer or the package builder always ship the four reserved keys **blank**.
+The builder rewrites every appsettings file it packages, and refuses to produce a package if any
+reserved value survives (or if an appsettings file is not valid JSON), so local secrets such as the
+designer's `sa` password never enter a `.nupkg`.
+
+### Local Development Endpoints
+
+The AppHost pins Azurite to dedicated host ports so generated designer projects can reach it with
+explicit connection strings (the designer's `appsettings.Development.json`):
+
+| Service | Port |
+|---|---|
+| Blob | `10100` |
+| Queue | `10101` |
+| Table | `10102` |
+| SQL Server | `14330` |
+
+The constants live in `BlazorDataOrchestrator.Core/Configuration/LocalDevEndpoints.cs`, which the
+AppHost compiles as a linked file. Stopping an old standalone Azurite on 10000–10002 is optional.
+
 ### 1. Update Job Table & Edit Screen
 
 - Create a new page called Admin/AdminHome.razor with a link on the /temporary page called Administration.

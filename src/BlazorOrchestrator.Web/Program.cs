@@ -329,8 +329,6 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseStaticFiles();
-
 // External providers return to callback paths such as /signin-google. Authentication
 // must process those requests before the setup gate redirects application traffic.
 app.UseAuthentication();
@@ -339,7 +337,10 @@ app.UseAuthentication();
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
-    if (!path.StartsWithSegments("/setup") &&
+    // Static assets are endpoints now (MapStaticAssets), so the setup page's CSS/JS must bypass the gate.
+    var isStaticAsset = context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.StaticAssets.StaticAssetDescriptor>() != null;
+    if (!isStaticAsset &&
+        !path.StartsWithSegments("/setup") &&
         !path.StartsWithSegments("/account") &&
         !path.StartsWithSegments("/community") &&
         !path.StartsWithSegments("/_blazor") &&
@@ -364,6 +365,8 @@ app.Use(async (context, next) =>
 app.UseAuthorization();
 
 app.UseAntiforgery();
+
+app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

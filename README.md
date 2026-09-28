@@ -42,6 +42,10 @@ An open-source job orchestration platform built on .NET Aspire and Blazor Server
 
 ## Configuration
 
+The Visual Studio job template (`src/BlazorOrchestrator.Web/JobTemplate/BlazorDataOrchestrator.JobCreatorTemplate.zip`)
+is generated at build time from `src/BlazorDataOrchestrator.JobCreatorTemplate` and is not committed.
+The Web build regenerates it whenever the content of the template changes.
+
 The solution is configured to:
 
 - Use in-memory databases in development mode

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Azure.Provisioning.AppContainers;
+using BlazorDataOrchestrator.Core.Configuration;
 using Microsoft.Extensions.Hosting;
 
 // Auto-detect Docker or Podman before Aspire reads the env var.
@@ -24,7 +25,7 @@ var sqlServer = builder.AddAzureSqlServer("sqlserver")
         container.WithEnvironment("ACCEPT_EULA", "Y");
         container.WithDataVolume();
         container.WithLifetime(ContainerLifetime.Persistent);
-        container.WithEndpoint("tcp", endpoint => endpoint.Port = 14330);
+        container.WithEndpoint("tcp", endpoint => endpoint.Port = LocalDevEndpoints.SqlPort);
     });
 
 var db = sqlServer.AddDatabase("blazororchestratordb");
@@ -36,7 +37,10 @@ var storage = builder.AddAzureStorage("storage")
     .RunAsEmulator(emulator =>
     {
         emulator.WithDataVolume();  // Persist Azurite data across restarts
-        // No fixed host ports: another app's Azurite on 10000-10002 would silently split host and container traffic.
+        // Dedicated ports so generated designer projects can reach this Azurite, not a stray one on 10000-10002.
+        emulator.WithBlobPort(LocalDevEndpoints.BlobPort)
+            .WithQueuePort(LocalDevEndpoints.QueuePort)
+            .WithTablePort(LocalDevEndpoints.TablePort);
         // Allow any hostname for table requests — fixes container DNS issues
         // where the agent receives storage.dev.internal instead of 127.0.0.1
         emulator.WithArgs("--disableProductStyleUrl");

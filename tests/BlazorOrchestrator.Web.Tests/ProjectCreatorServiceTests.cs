@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json.Nodes;
 using BlazorOrchestrator.Testing;
 using BlazorOrchestrator.Web.Services;
 using Microsoft.AspNetCore.Hosting;
@@ -42,6 +43,87 @@ public class ProjectCreatorServiceTests
         Assert.Contains(entries, entry => entry.EndsWith("/Code/configuration.json", StringComparison.Ordinal));
         Assert.DoesNotContain(entries, entry => entry.Contains("..", StringComparison.Ordinal));
         Assert.DoesNotContain(entries, entry => entry.Contains("JobCreatorTemplate", StringComparison.Ordinal));
+    }
+
+    [Fact(DisplayName = "O1: VS project export points configuration.json at the platform job")]
+    [Trait("Category", "Integration")]
+    public async Task CreateProjectZip_WithJobId_RewritesConfiguration()
+    {
+        using var scope = new TestRunScope("project-export-jobid");
+        var contentRoot = scope.CreateDirectory("web-root");
+        Directory.CreateDirectory(Path.Combine(contentRoot, "JobTemplate"));
+        CreateTemplate(Path.Combine(contentRoot, "JobTemplate", "BlazorDataOrchestrator.JobCreatorTemplate.zip"), scope.RootPath);
+
+        var service = new ProjectCreatorService(new TestWebHostEnvironment(contentRoot), NullLogger<ProjectCreatorService>.Instance);
+        var archiveBytes = await service.CreateProjectZipAsync("Weather", new Dictionary<string, string>
+        {
+            ["main.py"] = "PY",
+            // Carries the ID of whichever job last uploaded the package.
+            ["configuration.json"] = "{\"SelectedLanguage\":\"python\",\"LastJobId\":77,\"LastJobInstanceId\":900}"
+        }, jobId: 12);
+
+        using var archive = new ZipArchive(new MemoryStream(archiveBytes), ZipArchiveMode.Read);
+        var entry = Assert.Single(archive.Entries, e => e.FullName.Replace('\\', '/').EndsWith("/Code/configuration.json", StringComparison.Ordinal));
+        using var reader = new StreamReader(entry.Open());
+        var configuration = JsonNode.Parse(reader.ReadToEnd())!;
+        Assert.Equal(12, configuration["LastJobId"]!.GetValue<int>());
+        Assert.Equal(0, configuration["LastJobInstanceId"]!.GetValue<int>());
+        Assert.Equal("python", configuration["SelectedLanguage"]!.GetValue<string>());
+    }
+
+    [Fact(DisplayName = "S3: backslash entry names extract as folders")]
+    [Trait("Category", "Contract")]
+    public void ExtractTemplateNormalized_BackslashZip_CreatesFolders()
+    {
+        using var scope = new TestRunScope("extract-backslash");
+        var zipPath = Path.Combine(scope.RootPath, "backslash.zip");
+        CreateZip(zipPath, @"a\b\c.txt", "content");
+        var output = scope.CreateDirectory("out");
+
+        ProjectCreatorService.ExtractTemplateNormalized(zipPath, output);
+
+        var extracted = Path.Combine(output, "a", "b", "c.txt");
+        Assert.True(File.Exists(extracted));
+        Assert.Equal("content", File.ReadAllText(extracted));
+        Assert.Single(Directory.GetFiles(output, "*", SearchOption.AllDirectories));
+    }
+
+    [Theory(DisplayName = "S3: entries that escape the output directory are rejected")]
+    [Trait("Category", "Contract")]
+    [InlineData(@"..\evil.txt")]
+    [InlineData("../evil.txt")]
+    [InlineData(@"a\..\..\evil.txt")]
+    public void ExtractTemplateNormalized_RejectsTraversal(string entryName)
+    {
+        using var scope = new TestRunScope("extract-traversal");
+        var zipPath = Path.Combine(scope.RootPath, "evil.zip");
+        CreateZip(zipPath, entryName, "evil");
+        var output = scope.CreateDirectory("out");
+
+        Assert.Throws<InvalidDataException>(() => ProjectCreatorService.ExtractTemplateNormalized(zipPath, output));
+        Assert.False(File.Exists(Path.Combine(scope.RootPath, "evil.txt")));
+    }
+
+    [Fact(DisplayName = "S3: a template without a project folder fails clearly")]
+    [Trait("Category", "Integration")]
+    public async Task CreateProjectZip_TemplateWithoutProjectFolder_Throws()
+    {
+        using var scope = new TestRunScope("project-export-flat");
+        var contentRoot = scope.CreateDirectory("web-root");
+        Directory.CreateDirectory(Path.Combine(contentRoot, "JobTemplate"));
+        CreateZip(Path.Combine(contentRoot, "JobTemplate", "BlazorDataOrchestrator.JobCreatorTemplate.zip"), "Program.cs", "// flat");
+
+        var service = new ProjectCreatorService(new TestWebHostEnvironment(contentRoot), NullLogger<ProjectCreatorService>.Instance);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateProjectZipAsync("Flat", new Dictionary<string, string> { ["main.cs"] = "CS" }));
+        Assert.Contains("did not extract to a project folder", error.Message);
+    }
+
+    private static void CreateZip(string zipPath, string entryName, string content)
+    {
+        using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        using var writer = new StreamWriter(archive.CreateEntry(entryName).Open());
+        writer.Write(content);
     }
 
     private static void CreateTemplate(string zipPath, string workspace)

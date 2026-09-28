@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -66,7 +68,7 @@ public class ProjectCreatorService
             _logger.LogInformation("Creating project '{ProjectName}' at: {OutputPath}", projectName, outputDirectory);
 
             // Extract the zip file
-            ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
+            ExtractTemplateNormalized(templateZipPath, outputDirectory);
 
             // Replace all instances of "JobCreatorTemplate" with the new project name
             await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
@@ -169,7 +171,8 @@ public class ProjectCreatorService
 
     public async Task<ProjectCreationResult> CreateProjectWithCodeAsync(
         string projectName,
-        Dictionary<string, string> codeFiles)
+        Dictionary<string, string> codeFiles,
+        int jobId = 0)
     {
         // 1. Use existing method to create the project on disk
         var result = await CreateProjectAsync(projectName);
@@ -180,7 +183,15 @@ public class ProjectCreatorService
         }
 
         // 2. Inject code files into the project's Code/ subdirectory
-        InjectCodeFiles(result.OutputPath, projectName, codeFiles);
+        try
+        {
+            InjectCodeFiles(result.OutputPath, codeFiles, jobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to inject code into project '{ProjectName}'", projectName);
+            return new ProjectCreationResult { Success = false, ErrorMessage = ex.Message };
+        }
 
         return result;
     }
@@ -189,16 +200,16 @@ public class ProjectCreatorService
     /// Writes the job's code files into the extracted project's Code/ folder, routing each file
     /// into the language subfolder (CodeCSharp / CodePython) the template expects.
     /// </summary>
-    private void InjectCodeFiles(string outputDirectory, string projectName, Dictionary<string, string>? codeFiles)
+    private void InjectCodeFiles(string outputDirectory, Dictionary<string, string>? codeFiles, int jobId)
     {
-        if (codeFiles == null || codeFiles.Count == 0)
+        if ((codeFiles == null || codeFiles.Count == 0) && jobId <= 0)
         {
             return;
         }
 
-        var projectDirectory = ResolveProjectDirectory(outputDirectory, projectName);
+        var projectDirectory = ResolveProjectDirectory(outputDirectory);
 
-        foreach (var (fileName, fileContent) in codeFiles)
+        foreach (var (fileName, fileContent) in codeFiles ?? new Dictionary<string, string>())
         {
             // Guard against path traversal from package entry names
             var safeFileName = Path.GetFileName(fileName);
@@ -214,23 +225,80 @@ public class ProjectCreatorService
             File.WriteAllText(filePath, fileContent);
             _logger.LogInformation("Injected code file: {FilePath}", filePath);
         }
+
+        if (jobId > 0)
+        {
+            PointConfigurationAtJob(Path.Combine(projectDirectory, "Code", "configuration.json"), jobId);
+        }
     }
 
-    private string ResolveProjectDirectory(string outputDirectory, string projectName)
+    /// <summary>
+    /// Makes the designer reuse the platform job instead of the job that last uploaded the package.
+    /// </summary>
+    private static void PointConfigurationAtJob(string configurationPath, int jobId)
+    {
+        JsonObject? configuration = null;
+        if (File.Exists(configurationPath))
+        {
+            try { configuration = JsonNode.Parse(File.ReadAllText(configurationPath)) as JsonObject; }
+            catch (JsonException) { }
+        }
+
+        configuration ??= new JsonObject { ["SelectedLanguage"] = "csharp" };
+        configuration["LastJobId"] = jobId;
+        configuration["LastJobInstanceId"] = 0;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
+        File.WriteAllText(configurationPath, configuration.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string ResolveProjectDirectory(string outputDirectory)
     {
         // The template zip nests the project under "BlazorDataOrchestrator.{projectName}" after renaming,
         // so locate it by its .csproj rather than assuming the folder name.
-        var projectDirectory = Directory
+        return Directory
             .EnumerateDirectories(outputDirectory)
-            .FirstOrDefault(d => Directory.EnumerateFiles(d, "*.csproj").Any());
+            .FirstOrDefault(d => Directory.EnumerateFiles(d, "*.csproj").Any())
+            ?? throw new InvalidOperationException(
+                $"The template did not extract to a project folder under '{outputDirectory}'. " +
+                "The template zip may be corrupt or use unsupported path separators.");
+    }
 
-        if (projectDirectory == null)
+    /// <summary>
+    /// Extracts a template zip, treating '\' in entry names as a folder separator so zips written by
+    /// Windows PowerShell 5.1 extract correctly on Linux. Entries that resolve outside the output
+    /// directory are rejected (zip-slip guard).
+    /// </summary>
+    internal static void ExtractTemplateNormalized(string zipPath, string outputDirectory)
+    {
+        var root = Path.GetFullPath(outputDirectory);
+        var rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
         {
-            projectDirectory = Path.Combine(outputDirectory, $"BlazorDataOrchestrator.{projectName}");
-            _logger.LogWarning("Could not locate the extracted project folder under {OutputDirectory}; falling back to {ProjectDirectory}", outputDirectory, projectDirectory);
-        }
+            var name = entry.FullName.Replace('\\', '/');
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
 
-        return projectDirectory;
+            var destination = Path.GetFullPath(Path.Combine(root, name));
+            if (!destination.StartsWith(rootWithSeparator, comparison))
+            {
+                throw new InvalidDataException($"Template zip entry '{entry.FullName}' resolves outside the output directory.");
+            }
+
+            if (name.EndsWith('/'))
+            {
+                Directory.CreateDirectory(destination);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            entry.ExtractToFile(destination, overwrite: false);
+        }
     }
 
     private static string GetLanguageSubFolder(string fileName)
@@ -256,7 +324,8 @@ public class ProjectCreatorService
 
     public async Task<byte[]> CreateProjectZipAsync(
         string projectName,
-        Dictionary<string, string> codeFiles)
+        Dictionary<string, string> codeFiles,
+        int jobId = 0)
     {
         var tempParent = Path.Combine(Path.GetTempPath(), $"bdo-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempParent);
@@ -273,10 +342,10 @@ public class ProjectCreatorService
             var outputDirectory = Path.Combine(tempParent, projectName);
             Directory.CreateDirectory(outputDirectory);
 
-            ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
+            ExtractTemplateNormalized(templateZipPath, outputDirectory);
             await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
 
-            InjectCodeFiles(outputDirectory, projectName, codeFiles);
+            InjectCodeFiles(outputDirectory, codeFiles, jobId);
 
             var zipFilePath = Path.Combine(tempParent, $"{projectName}.zip");
             ZipFile.CreateFromDirectory(outputDirectory, zipFilePath, CompressionLevel.Optimal, includeBaseDirectory: true);

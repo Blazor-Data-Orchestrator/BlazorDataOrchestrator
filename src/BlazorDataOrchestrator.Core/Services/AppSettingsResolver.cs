@@ -157,13 +157,24 @@ public static class AppSettingsResolver
             return null;
         try
         {
-            return JsonNode.Parse(json) as JsonObject;
+            // Match ASP.NET configuration, which accepts comments and trailing commas in appsettings files.
+            return JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            }) as JsonObject;
         }
         catch (JsonException)
         {
             return null;
         }
     }
+
+    /// <summary>Parses a settings document, returning null when it is not a JSON object.</summary>
+    public static JsonObject? TryParseSettings(string json) => TryParse(json);
+
+    /// <summary>True when the text is a JSON object that <see cref="ApplyReserved(string, ReservedConnectionStrings)"/> can rewrite.</summary>
+    public static bool IsValidSettingsJson(string json) => TryParse(json) != null;
 
     /// <summary>Finds the shallowest match for a file name under the given directory.</summary>
     private static string? FindFile(string directory, string fileName)

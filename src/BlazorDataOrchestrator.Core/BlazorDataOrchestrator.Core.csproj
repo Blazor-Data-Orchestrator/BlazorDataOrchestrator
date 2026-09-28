@@ -15,10 +15,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="BlazorDataOrchestrator.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.5.4" />
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.5.4" />
     <PackageReference Include="Aspire.Azure.Storage.Queues" Version="13.5.4" />
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.5.4" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
     <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.5.4" />
     <PackageReference Include="CS-Script" Version="4.14.11" />

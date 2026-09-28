@@ -735,44 +735,21 @@ namespace BlazorDataOrchestrator.Core
         }
 
         // #6 Create Designer Job Instance
-        public async Task<int> CreateDesignerJobInstanceAsync(string jobName)
+        /// <summary>
+        /// Creates a RunNow instance for a designer run, reusing the platform job the designer belongs to.
+        /// </summary>
+        /// <param name="jobName">The designer's entry-assembly name, usually "BlazorDataOrchestrator.&lt;name&gt;".</param>
+        /// <param name="preferredJobId">LastJobId from the designer's configuration.json; wins when that job exists.</param>
+        public async Task<int> CreateDesignerJobInstanceAsync(string jobName, int preferredJobId = 0)
         {
             using var context = CreateDbContext();
-            await LogAsync("CreateDesignerJobInstance", $"Creating designer instance for Job {jobName}");
+            await LogAsync("CreateDesignerJobInstance", $"Creating designer instance for Job {jobName} (preferred Job ID {preferredJobId})");
 
-            var result = context.Database.CanConnect();
-
-            // 1. Create Job if needed
-            var job = await context.Jobs.FirstOrDefaultAsync(j => j.JobName == jobName);
-            if (job == null)
-            {
-                // Ensure Organization exists
-                var org = await context.JobOrganizations.FirstOrDefaultAsync(o => o.OrganizationName == "Designer");
-                if (org == null)
-                {
-                    org = new JobOrganization
-                    {
-                        OrganizationName = "Designer",
-                        CreatedDate = DateTime.UtcNow,
-                        CreatedBy = "System"
-                    };
-                    context.JobOrganizations.Add(org);
-                    await context.SaveChangesAsync();
-                }
-
-                job = new Job
-                {
-                    JobName = jobName,
-                    JobCodeFile = "Designer.cs", // Placeholder
-                    JobEnvironment = "Designer",
-                    JobOrganizationId = org.Id,
-                    CreatedDate = DateTime.UtcNow,
-                    CreatedBy = "Designer"
-                };
-                context.Jobs.Add(job);
-                await context.SaveChangesAsync();
-                await LogAsync("CreateDesignerJobInstance", $"Created Job {jobName}");
-            }
+            // 1. Find the job, or create it
+            var (job, created) = await ResolveDesignerJobAsync(context, jobName, preferredJobId);
+            await LogAsync("CreateDesignerJobInstance", created
+                ? $"Created Job {job.JobName} with ID {job.Id}"
+                : $"Reusing Job {job.JobName} with ID {job.Id}", jobId: job.Id);
 
             // 2. Ensure Schedule exists
             var schedule = await context.JobSchedules.FirstOrDefaultAsync(s => s.JobId == job.Id && s.ScheduleName == "RunNow");
@@ -790,7 +767,7 @@ namespace BlazorDataOrchestrator.Core
                 };
                 context.JobSchedules.Add(schedule);
                 await context.SaveChangesAsync();
-                await LogAsync("CreateDesignerJobInstance", $"Created Schedule for Job {jobName}");
+                await LogAsync("CreateDesignerJobInstance", $"Created Schedule for Job {job.JobName}");
             }
 
             // 3. Create JobInstance
@@ -808,6 +785,66 @@ namespace BlazorDataOrchestrator.Core
 
             await LogAsync("CreateDesignerJobInstance", $"Created Instance {instance.Id} with ScheduleId {schedule.Id}");
             return instance.Id;
+        }
+
+        private const string DesignerPrefix = "BlazorDataOrchestrator.";
+
+        /// <summary>Removes the leading "BlazorDataOrchestrator." that generated designer projects add to the job name.</summary>
+        internal static string StripDesignerPrefix(string jobName) =>
+            jobName.StartsWith(DesignerPrefix, StringComparison.Ordinal) && jobName.Length > DesignerPrefix.Length
+                ? jobName[DesignerPrefix.Length..]
+                : jobName;
+
+        /// <summary>
+        /// Resolves the job for a designer run: preferred ID, then exact name, then unprefixed name.
+        /// Only when none match is a job created, and it gets the unprefixed name.
+        /// </summary>
+        internal static async Task<(Job Job, bool Created)> ResolveDesignerJobAsync(ApplicationDbContext context, string jobName, int preferredJobId)
+        {
+            if (preferredJobId > 0)
+            {
+                var preferred = await context.Jobs.FirstOrDefaultAsync(j => j.Id == preferredJobId);
+                if (preferred != null)
+                    return (preferred, false);
+            }
+
+            var exact = await context.Jobs.FirstOrDefaultAsync(j => j.JobName == jobName);
+            if (exact != null)
+                return (exact, false);
+
+            var unprefixedName = StripDesignerPrefix(jobName);
+            if (unprefixedName != jobName)
+            {
+                var unprefixed = await context.Jobs.FirstOrDefaultAsync(j => j.JobName == unprefixedName);
+                if (unprefixed != null)
+                    return (unprefixed, false);
+            }
+
+            var org = await context.JobOrganizations.FirstOrDefaultAsync(o => o.OrganizationName == "Designer");
+            if (org == null)
+            {
+                org = new JobOrganization
+                {
+                    OrganizationName = "Designer",
+                    CreatedDate = DateTime.UtcNow,
+                    CreatedBy = "System"
+                };
+                context.JobOrganizations.Add(org);
+                await context.SaveChangesAsync();
+            }
+
+            var job = new Job
+            {
+                JobName = unprefixedName,
+                JobCodeFile = "Designer.cs", // Placeholder
+                JobEnvironment = "Designer",
+                JobOrganizationId = org.Id,
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "Designer"
+            };
+            context.Jobs.Add(job);
+            await context.SaveChangesAsync();
+            return (job, true);
         }
 
         // #7 Complete Job Instance
