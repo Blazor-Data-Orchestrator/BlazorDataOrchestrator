@@ -111,6 +111,53 @@ public class NuGetPackageBuilderService
     };
 
     /// <summary>
+    /// Package-id prefixes the designer project itself references; they are never job dependencies.
+    /// </summary>
+    public static readonly string[] DesignerHostPackagePrefixes =
+    {
+        "Aspire.",
+        "Radzen.Blazor",
+        "SimpleBlazorMonaco",
+        "GitHub.Copilot.SDK",
+        "Microsoft.CodeAnalysis",
+        "Microsoft.Extensions.AI",
+        "Azure.AI.OpenAI"
+    };
+
+    /// <summary>
+    /// Folder under which <see cref="BuildPackageAsync"/> writes every .nupkg.
+    /// </summary>
+    public static string PackageOutputRoot => Path.Combine(Path.GetTempPath(), "NuGetPackages");
+
+    /// <summary>
+    /// True only for a .nupkg inside <see cref="PackageOutputRoot"/>, so a caller-supplied path cannot reach other files.
+    /// </summary>
+    public static bool IsBuiltPackagePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        var root = Path.GetFullPath(PackageOutputRoot);
+        root = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        return fullPath.StartsWith(root, comparison)
+            && fullPath.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The NuGet package-id grammar. Excludes '/', '\\', ':' and '..', so a value matching
     /// this pattern cannot escape the folder it is combined with.
     /// </summary>
@@ -156,7 +203,7 @@ public class NuGetPackageBuilderService
         result.BuildId = buildId;
 
         var tempFolder = Path.Combine(Path.GetTempPath(), "NuGetBuild", buildId);
-        var outputFolder = Path.Combine(Path.GetTempPath(), "NuGetPackages", buildId);
+        var outputFolder = Path.Combine(PackageOutputRoot, buildId);
         result.OutputFolder = outputFolder;
 
         try
@@ -521,16 +568,7 @@ public class NuGetPackageBuilderService
             return dependencies;
         }
 
-        excludePatterns ??= new[]
-        {
-            "Aspire.",
-            "Radzen.Blazor",
-            "SimpleBlazorMonaco",
-            "GitHub.Copilot.SDK",
-            "Microsoft.CodeAnalysis",
-            "Microsoft.Extensions.AI",
-            "Azure.AI.OpenAI"
-        };
+        excludePatterns ??= DesignerHostPackagePrefixes;
 
         try
         {
@@ -797,7 +835,7 @@ public class NuGetPackageBuilderService
 
         try
         {
-            var root = Path.Combine(Path.GetTempPath(), "NuGetPackages");
+            var root = PackageOutputRoot;
             if (!Directory.Exists(root))
             {
                 return;

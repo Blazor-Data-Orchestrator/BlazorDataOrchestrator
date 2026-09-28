@@ -40,6 +40,23 @@ public class NuGetPackageBuilderTests
         Assert.Contains("No code was packaged", result.ErrorMessage);
     }
 
+    [Fact(DisplayName = "Designer download endpoint accepts only packages the builder wrote")]
+    [Trait("Category", "Contract")]
+    public void IsBuiltPackagePath_AcceptsOnlyNupkgUnderOutputRoot()
+    {
+        var root = NuGetPackageBuilderService.PackageOutputRoot;
+
+        Assert.True(NuGetPackageBuilderService.IsBuiltPackagePath(Path.Combine(root, "abc123", "BlazorDataOrchestrator.Job.1.0.0.nupkg")));
+
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(null));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(""));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(Path.Combine(root, "abc123", "appsettings.Development.json")));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(Path.Combine(root, "..", "evil.nupkg")));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(Path.Combine(root, "abc123", "..", "..", "..", "secrets.nupkg")));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(root + "Evil" + Path.DirectorySeparatorChar + "x.nupkg"));
+        Assert.False(NuGetPackageBuilderService.IsBuiltPackagePath(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
+    }
+
     private const string SecretSettings = """
         {
           // Comments are allowed, as in ASP.NET configuration.

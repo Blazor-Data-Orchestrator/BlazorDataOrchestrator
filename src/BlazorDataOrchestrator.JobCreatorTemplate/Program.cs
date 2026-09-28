@@ -180,7 +180,7 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             // Endpoint for downloading NuGet packages
             app.MapGet("/api/download-package", async (string path) =>
             {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                if (!NuGetPackageBuilderService.IsBuiltPackagePath(path) || !File.Exists(path))
                 {
                     return Results.NotFound("Package not found.");
                 }

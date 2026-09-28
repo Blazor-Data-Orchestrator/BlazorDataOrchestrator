@@ -2,6 +2,9 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
+using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -218,6 +221,12 @@ public class ProjectCreatorService
                 continue;
             }
 
+            // The package manifest only feeds the .csproj; the designer regenerates it from the project.
+            if (safeFileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var targetDirectory = Path.Combine(projectDirectory, "Code", GetLanguageSubFolder(safeFileName));
             Directory.CreateDirectory(targetDirectory);
 
@@ -230,6 +239,118 @@ public class ProjectCreatorService
         {
             PointConfigurationAtJob(Path.Combine(projectDirectory, "Code", "configuration.json"), jobId);
         }
+
+        var projectFile = Directory.EnumerateFiles(projectDirectory, "*.csproj").First();
+        var added = AddJobPackageReferences(projectFile, CollectJobDependencies(codeFiles));
+        foreach (var dependency in added)
+        {
+            _logger.LogInformation("Added job package reference {Dependency} to {ProjectFile}", dependency, projectFile);
+        }
+    }
+
+    /// <summary>
+    /// Reads the job's NuGet dependencies from the package manifest and dependencies.json; the manifest wins on conflicts.
+    /// </summary>
+    internal static List<PackageDependency> CollectJobDependencies(IReadOnlyDictionary<string, string>? codeFiles)
+    {
+        var dependencies = new List<PackageDependency>();
+        if (codeFiles == null)
+        {
+            return dependencies;
+        }
+
+        void Add(string? id, string? version)
+        {
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version)
+                || dependencies.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            dependencies.Add(new PackageDependency { Id = id.Trim(), Version = version.Trim() });
+        }
+
+        foreach (var (name, content) in codeFiles.Where(f => f.Key.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                foreach (var element in XDocument.Parse(content).Descendants().Where(e => e.Name.LocalName == "dependency"))
+                {
+                    Add(element.Attribute("id")?.Value, element.Attribute("version")?.Value);
+                }
+            }
+            catch (System.Xml.XmlException)
+            {
+            }
+        }
+
+        var dependenciesJson = codeFiles.FirstOrDefault(f => Path.GetFileName(f.Key).Equals("dependencies.json", StringComparison.OrdinalIgnoreCase)).Value;
+        if (!string.IsNullOrWhiteSpace(dependenciesJson))
+        {
+            try
+            {
+                var config = JsonSerializer.Deserialize<DependenciesConfig>(dependenciesJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                foreach (var dependency in config?.Dependencies ?? new List<PackageDependency>())
+                {
+                    Add(dependency.Id, dependency.Version);
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return dependencies;
+    }
+
+    /// <summary>
+    /// Adds a PackageReference for each job dependency the designer project does not already supply.
+    /// </summary>
+    internal static List<PackageDependency> AddJobPackageReferences(string projectFile, IEnumerable<PackageDependency> dependencies)
+    {
+        var document = XDocument.Load(projectFile, LoadOptions.PreserveWhitespace);
+        var project = document.Root!;
+        var ns = project.Name.Namespace;
+
+        var existing = new HashSet<string>(
+            project.Descendants(ns + "PackageReference")
+                .Select(r => r.Attribute("Include")?.Value)
+                .Where(id => !string.IsNullOrEmpty(id))!,
+            StringComparer.OrdinalIgnoreCase);
+
+        // Host packages come from the designer's own references at the platform version;
+        // pinning a job's (possibly older) version would fail restore with NU1605.
+        var added = dependencies
+            .Where(d => !existing.Contains(d.Id))
+            .Where(d => !d.Version.Contains('*'))
+            .Where(d => !NuGetPackageBuilderService.DefaultDependencies.Any(h => h.Id.Equals(d.Id, StringComparison.OrdinalIgnoreCase)))
+            .Where(d => !d.Id.StartsWith("BlazorDataOrchestrator.", StringComparison.OrdinalIgnoreCase))
+            .Where(d => !NuGetPackageBuilderService.DesignerHostPackagePrefixes.Any(p =>
+                d.Id.StartsWith(p, StringComparison.OrdinalIgnoreCase) || d.Id.Equals(p, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (added.Count == 0)
+        {
+            return added;
+        }
+
+        var itemGroup = new XElement(ns + "ItemGroup", new XAttribute("Label", "Job dependencies"));
+        foreach (var dependency in added)
+        {
+            itemGroup.Add("\n    ", new XElement(ns + "PackageReference",
+                new XAttribute("Include", dependency.Id),
+                new XAttribute("Version", dependency.Version)));
+        }
+        itemGroup.Add("\n  ");
+
+        project.Add("  ", itemGroup, "\n\n");
+
+        using (var writer = System.Xml.XmlWriter.Create(projectFile, new System.Xml.XmlWriterSettings { OmitXmlDeclaration = true, Encoding = new UTF8Encoding(false) }))
+        {
+            document.Save(writer);
+        }
+
+        return added;
     }
 
     /// <summary>
