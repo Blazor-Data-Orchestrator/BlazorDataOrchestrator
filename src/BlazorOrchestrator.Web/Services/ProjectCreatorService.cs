@@ -1,5 +1,10 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Xml.Linq;
+using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services;
 
 namespace BlazorOrchestrator.Web.Services;
 
@@ -66,7 +71,7 @@ public class ProjectCreatorService
             _logger.LogInformation("Creating project '{ProjectName}' at: {OutputPath}", projectName, outputDirectory);
 
             // Extract the zip file
-            ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
+            ExtractTemplateNormalized(templateZipPath, outputDirectory);
 
             // Replace all instances of "JobCreatorTemplate" with the new project name
             await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
@@ -169,7 +174,8 @@ public class ProjectCreatorService
 
     public async Task<ProjectCreationResult> CreateProjectWithCodeAsync(
         string projectName,
-        Dictionary<string, string> codeFiles)
+        Dictionary<string, string> codeFiles,
+        int jobId = 0)
     {
         // 1. Use existing method to create the project on disk
         var result = await CreateProjectAsync(projectName);
@@ -180,7 +186,15 @@ public class ProjectCreatorService
         }
 
         // 2. Inject code files into the project's Code/ subdirectory
-        InjectCodeFiles(result.OutputPath, projectName, codeFiles);
+        try
+        {
+            InjectCodeFiles(result.OutputPath, codeFiles, jobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to inject code into project '{ProjectName}'", projectName);
+            return new ProjectCreationResult { Success = false, ErrorMessage = ex.Message };
+        }
 
         return result;
     }
@@ -189,20 +203,26 @@ public class ProjectCreatorService
     /// Writes the job's code files into the extracted project's Code/ folder, routing each file
     /// into the language subfolder (CodeCSharp / CodePython) the template expects.
     /// </summary>
-    private void InjectCodeFiles(string outputDirectory, string projectName, Dictionary<string, string>? codeFiles)
+    private void InjectCodeFiles(string outputDirectory, Dictionary<string, string>? codeFiles, int jobId)
     {
-        if (codeFiles == null || codeFiles.Count == 0)
+        if ((codeFiles == null || codeFiles.Count == 0) && jobId <= 0)
         {
             return;
         }
 
-        var projectDirectory = ResolveProjectDirectory(outputDirectory, projectName);
+        var projectDirectory = ResolveProjectDirectory(outputDirectory);
 
-        foreach (var (fileName, fileContent) in codeFiles)
+        foreach (var (fileName, fileContent) in codeFiles ?? new Dictionary<string, string>())
         {
             // Guard against path traversal from package entry names
             var safeFileName = Path.GetFileName(fileName);
             if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                continue;
+            }
+
+            // The package manifest only feeds the .csproj; the designer regenerates it from the project.
+            if (safeFileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -214,23 +234,192 @@ public class ProjectCreatorService
             File.WriteAllText(filePath, fileContent);
             _logger.LogInformation("Injected code file: {FilePath}", filePath);
         }
+
+        if (jobId > 0)
+        {
+            PointConfigurationAtJob(Path.Combine(projectDirectory, "Code", "configuration.json"), jobId);
+        }
+
+        var projectFile = Directory.EnumerateFiles(projectDirectory, "*.csproj").First();
+        var added = AddJobPackageReferences(projectFile, CollectJobDependencies(codeFiles));
+        foreach (var dependency in added)
+        {
+            _logger.LogInformation("Added job package reference {Dependency} to {ProjectFile}", dependency, projectFile);
+        }
     }
 
-    private string ResolveProjectDirectory(string outputDirectory, string projectName)
+    /// <summary>
+    /// Reads the job's NuGet dependencies from the package manifest and dependencies.json; the manifest wins on conflicts.
+    /// </summary>
+    internal static List<PackageDependency> CollectJobDependencies(IReadOnlyDictionary<string, string>? codeFiles)
+    {
+        var dependencies = new List<PackageDependency>();
+        if (codeFiles == null)
+        {
+            return dependencies;
+        }
+
+        void Add(string? id, string? version)
+        {
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version)
+                || dependencies.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            dependencies.Add(new PackageDependency { Id = id.Trim(), Version = version.Trim() });
+        }
+
+        foreach (var (name, content) in codeFiles.Where(f => f.Key.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                foreach (var element in XDocument.Parse(content).Descendants().Where(e => e.Name.LocalName == "dependency"))
+                {
+                    Add(element.Attribute("id")?.Value, element.Attribute("version")?.Value);
+                }
+            }
+            catch (System.Xml.XmlException)
+            {
+            }
+        }
+
+        var dependenciesJson = codeFiles.FirstOrDefault(f => Path.GetFileName(f.Key).Equals("dependencies.json", StringComparison.OrdinalIgnoreCase)).Value;
+        if (!string.IsNullOrWhiteSpace(dependenciesJson))
+        {
+            try
+            {
+                var config = JsonSerializer.Deserialize<DependenciesConfig>(dependenciesJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                foreach (var dependency in config?.Dependencies ?? new List<PackageDependency>())
+                {
+                    Add(dependency.Id, dependency.Version);
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return dependencies;
+    }
+
+    /// <summary>
+    /// Adds a PackageReference for each job dependency the designer project does not already supply.
+    /// </summary>
+    internal static List<PackageDependency> AddJobPackageReferences(string projectFile, IEnumerable<PackageDependency> dependencies)
+    {
+        var document = XDocument.Load(projectFile, LoadOptions.PreserveWhitespace);
+        var project = document.Root!;
+        var ns = project.Name.Namespace;
+
+        var existing = new HashSet<string>(
+            project.Descendants(ns + "PackageReference")
+                .Select(r => r.Attribute("Include")?.Value)
+                .Where(id => !string.IsNullOrEmpty(id))!,
+            StringComparer.OrdinalIgnoreCase);
+
+        // Host packages come from the designer's own references at the platform version;
+        // pinning a job's (possibly older) version would fail restore with NU1605.
+        var added = dependencies
+            .Where(d => !existing.Contains(d.Id))
+            .Where(d => !d.Version.Contains('*'))
+            .Where(d => !NuGetPackageBuilderService.DefaultDependencies.Any(h => h.Id.Equals(d.Id, StringComparison.OrdinalIgnoreCase)))
+            .Where(d => !d.Id.StartsWith("BlazorDataOrchestrator.", StringComparison.OrdinalIgnoreCase))
+            .Where(d => !NuGetPackageBuilderService.DesignerHostPackagePrefixes.Any(p =>
+                d.Id.StartsWith(p, StringComparison.OrdinalIgnoreCase) || d.Id.Equals(p, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (added.Count == 0)
+        {
+            return added;
+        }
+
+        var itemGroup = new XElement(ns + "ItemGroup", new XAttribute("Label", "Job dependencies"));
+        foreach (var dependency in added)
+        {
+            itemGroup.Add("\n    ", new XElement(ns + "PackageReference",
+                new XAttribute("Include", dependency.Id),
+                new XAttribute("Version", dependency.Version)));
+        }
+        itemGroup.Add("\n  ");
+
+        project.Add("  ", itemGroup, "\n\n");
+
+        using (var writer = System.Xml.XmlWriter.Create(projectFile, new System.Xml.XmlWriterSettings { OmitXmlDeclaration = true, Encoding = new UTF8Encoding(false) }))
+        {
+            document.Save(writer);
+        }
+
+        return added;
+    }
+
+    /// <summary>
+    /// Makes the designer reuse the platform job instead of the job that last uploaded the package.
+    /// </summary>
+    private static void PointConfigurationAtJob(string configurationPath, int jobId)
+    {
+        JsonObject? configuration = null;
+        if (File.Exists(configurationPath))
+        {
+            try { configuration = JsonNode.Parse(File.ReadAllText(configurationPath)) as JsonObject; }
+            catch (JsonException) { }
+        }
+
+        configuration ??= new JsonObject { ["SelectedLanguage"] = "csharp" };
+        configuration["LastJobId"] = jobId;
+        configuration["LastJobInstanceId"] = 0;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
+        File.WriteAllText(configurationPath, configuration.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string ResolveProjectDirectory(string outputDirectory)
     {
         // The template zip nests the project under "BlazorDataOrchestrator.{projectName}" after renaming,
         // so locate it by its .csproj rather than assuming the folder name.
-        var projectDirectory = Directory
+        return Directory
             .EnumerateDirectories(outputDirectory)
-            .FirstOrDefault(d => Directory.EnumerateFiles(d, "*.csproj").Any());
+            .FirstOrDefault(d => Directory.EnumerateFiles(d, "*.csproj").Any())
+            ?? throw new InvalidOperationException(
+                $"The template did not extract to a project folder under '{outputDirectory}'. " +
+                "The template zip may be corrupt or use unsupported path separators.");
+    }
 
-        if (projectDirectory == null)
+    /// <summary>
+    /// Extracts a template zip, treating '\' in entry names as a folder separator so zips written by
+    /// Windows PowerShell 5.1 extract correctly on Linux. Entries that resolve outside the output
+    /// directory are rejected (zip-slip guard).
+    /// </summary>
+    internal static void ExtractTemplateNormalized(string zipPath, string outputDirectory)
+    {
+        var root = Path.GetFullPath(outputDirectory);
+        var rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
         {
-            projectDirectory = Path.Combine(outputDirectory, $"BlazorDataOrchestrator.{projectName}");
-            _logger.LogWarning("Could not locate the extracted project folder under {OutputDirectory}; falling back to {ProjectDirectory}", outputDirectory, projectDirectory);
-        }
+            var name = entry.FullName.Replace('\\', '/');
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
 
-        return projectDirectory;
+            var destination = Path.GetFullPath(Path.Combine(root, name));
+            if (!destination.StartsWith(rootWithSeparator, comparison))
+            {
+                throw new InvalidDataException($"Template zip entry '{entry.FullName}' resolves outside the output directory.");
+            }
+
+            if (name.EndsWith('/'))
+            {
+                Directory.CreateDirectory(destination);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            entry.ExtractToFile(destination, overwrite: false);
+        }
     }
 
     private static string GetLanguageSubFolder(string fileName)
@@ -256,7 +445,8 @@ public class ProjectCreatorService
 
     public async Task<byte[]> CreateProjectZipAsync(
         string projectName,
-        Dictionary<string, string> codeFiles)
+        Dictionary<string, string> codeFiles,
+        int jobId = 0)
     {
         var tempParent = Path.Combine(Path.GetTempPath(), $"bdo-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempParent);
@@ -273,10 +463,10 @@ public class ProjectCreatorService
             var outputDirectory = Path.Combine(tempParent, projectName);
             Directory.CreateDirectory(outputDirectory);
 
-            ZipFile.ExtractToDirectory(templateZipPath, outputDirectory);
+            ExtractTemplateNormalized(templateZipPath, outputDirectory);
             await ReplaceInFilesAndNamesAsync(outputDirectory, "JobCreatorTemplate", projectName);
 
-            InjectCodeFiles(outputDirectory, projectName, codeFiles);
+            InjectCodeFiles(outputDirectory, codeFiles, jobId);
 
             var zipFilePath = Path.Combine(tempParent, $"{projectName}.zip");
             ZipFile.CreateFromDirectory(outputDirectory, zipFilePath, CompressionLevel.Optimal, includeBaseDirectory: true);

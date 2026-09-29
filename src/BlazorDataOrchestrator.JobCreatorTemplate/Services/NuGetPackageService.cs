@@ -22,6 +22,30 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
         }
 
         /// <summary>
+        /// Warnings from the last extraction about job dependencies older than a version the project already requires.
+        /// </summary>
+        public IReadOnlyList<string> LastDependencyWarnings { get; private set; } = Array.Empty<string>();
+
+        private List<string> FindDependencyDowngrades(List<PackageDependency> dependencies)
+        {
+            var assetsFile = Path.Combine(_environment.ContentRootPath, "obj", "project.assets.json");
+            if (!File.Exists(assetsFile))
+            {
+                return new List<string>();
+            }
+
+            try
+            {
+                return DependencyConflictChecker.FindDowngrades(File.ReadAllText(assetsFile), dependencies);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not check {AssetsFile} for package downgrades", assetsFile);
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
         /// Extracts all NuGet package references from the project file and updates dependencies.json.
         /// </summary>
         /// <returns>The list of extracted dependencies.</returns>
@@ -60,6 +84,12 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate.Services
                 foreach (var dep in dependencies)
                 {
                     _logger.LogInformation("Extracted package dependency: {Id} v{Version}", dep.Id, dep.Version);
+                }
+
+                LastDependencyWarnings = FindDependencyDowngrades(dependencies);
+                foreach (var warning in LastDependencyWarnings)
+                {
+                    _logger.LogWarning("{Warning}", warning);
                 }
 
                 return dependencies;

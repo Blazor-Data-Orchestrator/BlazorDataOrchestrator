@@ -1425,12 +1425,13 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
     /// <returns>List of file names.</returns>
     public List<string> GetFileListForLanguage(string language)
     {
-        return language.ToLower() switch
-        {
-            "csharp" or "cs" => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" },
-            "python" or "py" => new List<string> { "main.py", "requirements.txt", "appsettings.json", "appsettings.Production.json" },
-            _ => new List<string> { "main.cs", "appsettings.json", "appsettings.Production.json", "BlazorDataOrchestrator.Job.nuspec" }
-        };
+        var isPython = language.Equals("python", StringComparison.OrdinalIgnoreCase)
+                    || language.Equals("py", StringComparison.OrdinalIgnoreCase);
+        var files = new List<string> { isPython ? "main.py" : "main.cs" };
+        if (isPython) files.Add("requirements.txt");
+        files.AddRange(JobEnvironments.AllFileNames);
+        if (!isPython) files.Add("BlazorDataOrchestrator.Job.nuspec");
+        return files;
     }
 
     /// <summary>

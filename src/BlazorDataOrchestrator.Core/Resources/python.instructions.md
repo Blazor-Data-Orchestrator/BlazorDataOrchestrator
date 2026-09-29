@@ -31,7 +31,8 @@ def execute_job(
     job_agent_id: int, 
     job_id: int, 
     job_instance_id: int, 
-    job_schedule_id: int
+    job_schedule_id: int,
+    web_api_parameter: str = ""
 ) -> list[str]:
     # Your logic here
     return []
@@ -40,6 +41,7 @@ def execute_job(
 ### Dependencies & Context
 
 * **Return Type:** The function must return a `list[str]` containing log messages.
+* **Webhook parameter:** `web_api_parameter` receives the webhook's `webAPIParameter` value, or `""` when the job is not started by a webhook. It is optional; jobs declaring only the first five parameters still run.
 * **Input:** `app_settings` is passed as a raw JSON string. You must parse this to retrieve connection strings (`blazororchestratordb` and `tables`).
 * **Environment:** The code runs in a Python environment where `pyodbc` (for SQL Server) and `azure.data.tables` (for Table Storage) may or may not be available. You must handle imports gracefully using `try-except` blocks.
 * **Logging:** Logs must be printed to `stdout` (for the UI console) and persisted to the database/table storage using the `JobLogger` helper class pattern shown in the reference implementation.
@@ -173,7 +175,7 @@ class JobLogger:
             self.connection.close()
 
 
-def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int) -> list[str]:
+def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_id: int, job_schedule_id: int, web_api_parameter: str = "") -> list[str]:
     """
     Execute the job with the given parameters.
     
@@ -183,6 +185,7 @@ def execute_job(app_settings: str, job_agent_id: int, job_id: int, job_instance_
         job_id: The ID of the job
         job_instance_id: The ID of this specific job instance
         job_schedule_id: The ID of the job schedule
+        web_api_parameter: The webhook's webAPIParameter value, or "" when not started by a webhook
     """
     logs = []
     

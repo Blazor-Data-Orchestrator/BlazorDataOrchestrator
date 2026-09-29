@@ -32,9 +32,25 @@ try {
     # naive recursive copy fail with DirectoryNotFoundException.
     New-Item -ItemType Directory -Path $templateDir -Force | Out-Null
     $dirsToRemove = @('bin', 'obj', 'Properties', '.vs')
-    robocopy $SourceDir $templateDir /E /XD $dirsToRemove /NFL /NDL /NJH /NJS /NP | Out-Null
-    if ($LASTEXITCODE -ge 8) {
-        throw "robocopy failed copying template (exit code $LASTEXITCODE)"
+    if (Get-Command robocopy -ErrorAction SilentlyContinue) {
+        robocopy $SourceDir $templateDir /E /XD $dirsToRemove /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            throw "robocopy failed copying template (exit code $LASTEXITCODE)"
+        }
+    }
+    else {
+        # Non-Windows hosts (pwsh on Linux CI) have no robocopy; MAX_PATH is not a concern there.
+        $sourceRoot = (Get-Item -LiteralPath $SourceDir).FullName.TrimEnd('\', '/')
+        Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force | ForEach-Object {
+            $relative = $_.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
+            $segments = $relative -split '[\\/]'
+            if ($segments.Count -gt 1 -and ($segments[0..($segments.Count - 2)] | Where-Object { $dirsToRemove -contains $_ })) {
+                return
+            }
+            $destination = Join-Path $templateDir $relative
+            New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+        }
     }
 
     # Remove __pycache__ directories anywhere in the tree
@@ -48,7 +64,10 @@ try {
     $filesToRemove = @(
         '*.csproj.user',
         '*.suo',
-        'execution_errors.log'
+        'execution_errors.log',
+        # Written by designer Python runs; holds fully resolved connection strings.
+        'resolved.appsettings.json',
+        'runner.py'
     )
     foreach ($pattern in $filesToRemove) {
         Get-ChildItem -Path $templateDir -Filter $pattern -Recurse -ErrorAction SilentlyContinue |
@@ -118,7 +137,10 @@ try {
         Where-Object { $_.Name -ne 'appsettings.Development.json' } |
         ForEach-Object {
             $content = Get-Content $_.FullName -Raw
-            if ($content -match 'UseDevelopmentStorage=true' -or $content -match '127\.0\.0\.1,14330') {
+            if ($content -match 'UseDevelopmentStorage=true' -or
+                $content -match '127\.0\.0\.1,14330' -or
+                $content -match '127\.0\.0\.1:1010[0-2]' -or
+                $content -match 'devstoreaccount1') {
                 throw "$($_.Name) contains local placeholder connection strings. Only appsettings.Development.json may."
             }
         }
@@ -134,8 +156,34 @@ try {
         Remove-Item $OutputZip -Force
     }
 
-    # Create the zip
-    Compress-Archive -Path "$stagingDir\*" -DestinationPath $OutputZip -Force
+    # Create the zip with explicit forward-slash entry names. Compress-Archive under Windows
+    # PowerShell 5.1 writes '\', which Linux extraction treats as part of the file name.
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $stagingRoot = (Get-Item -LiteralPath $stagingDir).FullName.TrimEnd('\', '/')
+    $zip = [System.IO.Compression.ZipFile]::Open($OutputZip, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -LiteralPath $stagingRoot -Recurse -File -Force | ForEach-Object {
+            # Path.GetRelativePath is not available on .NET Framework (Windows PowerShell 5.1).
+            $rel = $_.FullName.Substring($stagingRoot.Length).TrimStart('\', '/').Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zip, $_.FullName, $rel, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
+
+    $verify = [System.IO.Compression.ZipFile]::OpenRead($OutputZip)
+    try {
+        $bad = $verify.Entries | Where-Object { $_.FullName.Contains('\') } | Select-Object -First 1
+        if ($bad) {
+            throw "Template zip entry uses a backslash path separator: $($bad.FullName)"
+        }
+        Write-Host "  Verified $($verify.Entries.Count) entries use forward-slash paths"
+    }
+    finally {
+        $verify.Dispose()
+    }
 
     Write-Host "Created template zip: $OutputZip"
 }

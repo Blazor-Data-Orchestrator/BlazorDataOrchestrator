@@ -165,35 +165,10 @@ public class CodeExecutorService
 
                     if (resolution.Success && resolution.AssemblyPaths.Count > 0)
                     {
-                        // Skip any resolved assembly whose simple name matches an
-                        // assembly already loaded by the host. Referencing both causes
-                        // duplicate-type errors (CS0433/CS0121) at compile time.
-                        var hostAssemblyNames = new HashSet<string>(
-                            AppDomain.CurrentDomain.GetAssemblies()
-                                .Select(a => a.GetName().Name)
-                                .Where(n => !string.IsNullOrEmpty(n))!,
-                            StringComparer.OrdinalIgnoreCase);
-
                         result.Logs.Add($"Resolved {resolution.AssemblyPaths.Count} assemblies from NuGet packages:");
                         foreach (var assemblyPath in resolution.AssemblyPaths)
                         {
-                            var simpleName = Path.GetFileNameWithoutExtension(assemblyPath);
-                            if (hostAssemblyNames.Contains(simpleName))
-                            {
-                                result.Logs.Add($"  ~ Skipping {Path.GetFileName(assemblyPath)} (already provided by host)");
-                                continue;
-                            }
-
-                            try
-                            {
-                                evaluator.ReferenceAssembly(assemblyPath);
-                                resolvedAssemblyPaths.Add(assemblyPath);
-                                result.Logs.Add($"  + {Path.GetFileName(assemblyPath)}");
-                            }
-                            catch (Exception ex)
-                            {
-                                result.Logs.Add($"  ! Failed to load {Path.GetFileName(assemblyPath)}: {ex.Message}");
-                            }
+                            ReferenceNuGetAssembly(evaluator, assemblyPath, resolvedAssemblyPaths, result.Logs);
                         }
                     }
                     else if (!resolution.Success)
@@ -215,12 +190,10 @@ public class CodeExecutorService
                 return result;
             }
 
-            // Add common references
-            evaluator.ReferenceAssembly(typeof(System.Text.Json.JsonSerializer).Assembly);
-            evaluator.ReferenceAssemblyOf<Microsoft.EntityFrameworkCore.DbContext>();
-
-            // Add reference to BlazorDataOrchestrator.Core
-            evaluator.ReferenceAssemblyOf<JobManager>();
+            foreach (var common in JobCompilationReferences.Common)
+            {
+                evaluator.ReferenceAssembly(common);
+            }
 
             result.Logs.Add("Compiling C# code...");
 
@@ -399,6 +372,66 @@ public class CodeExecutorService
     }
 
     /// <summary>
+    /// Adds one NuGet-resolved assembly to the compilation and to the runtime resolve list.
+    /// </summary>
+    private static void ReferenceNuGetAssembly(IEvaluator evaluator, string assemblyPath,
+        List<string> resolvedAssemblyPaths, List<string> logs)
+    {
+        var fileName = Path.GetFileName(assemblyPath);
+        var simpleName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+        try
+        {
+            // Referencing both the host copy and the NuGet copy causes CS0433/CS0121.
+            if (HostAssemblyCatalog.IsHostProvided(simpleName))
+            {
+                // The host copy may not be loaded yet, and CS-Script only sees what is referenced or loaded.
+                evaluator.ReferenceAssembly(Assembly.Load(new AssemblyName(simpleName)));
+                logs.Add($"  ~ Skipping {fileName} (already provided by host)");
+                return;
+            }
+
+            // Default-context loads cannot be undone, so an earlier job (even a failed one) may already hold it.
+            var loaded = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a =>
+                !a.IsDynamic &&
+                System.Runtime.Loader.AssemblyLoadContext.GetLoadContext(a) == System.Runtime.Loader.AssemblyLoadContext.Default &&
+                string.Equals(a.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase));
+
+            if (loaded == null)
+            {
+                evaluator.ReferenceAssembly(assemblyPath);
+                resolvedAssemblyPaths.Add(assemblyPath);
+                logs.Add($"  + {fileName}");
+                return;
+            }
+
+            var location = string.IsNullOrEmpty(loaded.Location) ? assemblyPath : loaded.Location;
+            var loadedVersion = loaded.GetName().Version;
+            Version? requestedVersion = null;
+            try { requestedVersion = AssemblyName.GetAssemblyName(assemblyPath).Version; } catch { }
+
+            evaluator.ReferenceAssembly(location);
+            resolvedAssemblyPaths.Add(location);
+
+            if (string.Equals(location, assemblyPath, StringComparison.OrdinalIgnoreCase) ||
+                requestedVersion == null || requestedVersion == loadedVersion)
+            {
+                logs.Add($"  = Reusing {fileName} (loaded by an earlier job)");
+            }
+            else
+            {
+                logs.Add($"  ! Version conflict for {simpleName}: this job requests {requestedVersion}, " +
+                    $"but an earlier job loaded {loadedVersion} from '{location}'. Using {loadedVersion}. " +
+                    $"Restart the agent to load {requestedVersion}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logs.Add($"  ! Failed to load {fileName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Compiles C# code using Roslyn in-memory compilation.
     /// Used in Azure Container Apps to avoid CS-Script's file-system assembly probing
     /// issues (Bad IL format errors), and for any multi-file job, which CS-Script's
@@ -437,8 +470,16 @@ public class CodeExecutorService
         {
             if (!existingPaths.Contains(path) && File.Exists(path))
             {
-                try { references.Add(MetadataReference.CreateFromFile(path)); }
+                try { references.Add(MetadataReference.CreateFromFile(path)); existingPaths.Add(path); }
                 catch { }
+            }
+        }
+
+        foreach (var common in JobCompilationReferences.Common)
+        {
+            if (!string.IsNullOrEmpty(common.Location) && existingPaths.Add(common.Location))
+            {
+                references.Add(MetadataReference.CreateFromFile(common.Location));
             }
         }
 
@@ -492,6 +533,9 @@ public class CodeExecutorService
         var result = new CodeExecutionResult();
         result.StartTime = DateTime.UtcNow;
 
+        // Returned values travel through a file, not stdout, so printed-and-returned lines are not logged twice.
+        var resultFilePath = Path.Combine(Path.GetTempPath(), $"bdo-py-result-{Guid.NewGuid():N}.json");
+
         try
         {
             // Find the CodePython folder
@@ -536,11 +580,13 @@ public class CodeExecutorService
             result.Logs.Add("Executing Python code...");
 
             // Execute Python
-            var pythonPath = FindPythonExecutable();
+            var pythonPath = FindPythonExecutable(out var pythonFailure);
             if (pythonPath == null)
             {
                 result.Success = false;
-                result.ErrorMessage = "Python executable not found. Ensure Python is installed and in PATH.";
+                result.ErrorMessage = pythonFailure == PythonLocatorFailure.WindowsStoreStubOnly
+                    ? $"Python executable not found ({pythonFailure}). {PythonLocator.WindowsStoreStubGuidance}"
+                    : $"Python executable not found ({pythonFailure}). Ensure Python 3 is installed and in PATH.";
                 return result;
             }
 
@@ -560,17 +606,24 @@ public class CodeExecutorService
             psi.Environment["BLAZOR_ORCHESTRATOR_JOB_ID"] = context.JobId.ToString();
             psi.Environment["BLAZOR_ORCHESTRATOR_JOB_INSTANCE_ID"] = context.JobInstanceId.ToString();
             psi.Environment["BLAZOR_ORCHESTRATOR_JOB_SCHEDULE_ID"] = context.JobScheduleId.ToString();
+            psi.Environment["BLAZOR_ORCHESTRATOR_WEB_API_PARAMETER"] = context.WebAPIParameter ?? string.Empty;
+            psi.Environment["BLAZOR_ORCHESTRATOR_RESULT_FILE"] = resultFilePath;
 
             using var process = new Process { StartInfo = psi };
             var outputBuilder = new StringBuilder();
             var errorBuilder = new StringBuilder();
+            var stdoutLines = new List<string>();
 
             process.OutputDataReceived += (s, e) =>
             {
                 if (e.Data != null)
                 {
-                    outputBuilder.AppendLine(e.Data);
-                    result.Logs.Add(e.Data);
+                    lock (stdoutLines)
+                    {
+                        outputBuilder.AppendLine(e.Data);
+                        stdoutLines.Add(e.Data);
+                        result.Logs.Add(e.Data);
+                    }
                 }
             };
 
@@ -578,7 +631,10 @@ public class CodeExecutorService
             {
                 if (e.Data != null)
                 {
-                    errorBuilder.AppendLine(e.Data);
+                    lock (errorBuilder)
+                    {
+                        errorBuilder.AppendLine(e.Data);
+                    }
                 }
             };
 
@@ -597,6 +653,9 @@ public class CodeExecutorService
                 return result;
             }
 
+            // The timed overload does not wait for the async output handlers to drain.
+            process.WaitForExit();
+
             // Clean up runner script
             try { File.Delete(runnerPath); } catch { }
 
@@ -612,6 +671,7 @@ public class CodeExecutorService
             }
             else
             {
+                MergeReturnedPythonLogs(resultFilePath, stdoutLines, result.Logs);
                 result.Success = true;
                 result.Logs.Add("Python job execution completed successfully.");
             }
@@ -625,6 +685,7 @@ public class CodeExecutorService
         }
         finally
         {
+            try { File.Delete(resultFilePath); } catch { }
             result.EndTime = DateTime.UtcNow;
         }
 
@@ -653,7 +714,7 @@ public class CodeExecutorService
     /// </summary>
     private async Task InstallPythonDependenciesAsync(string requirementsPath, List<string> logs)
     {
-        var pythonPath = FindPythonExecutable();
+        var pythonPath = FindPythonExecutable(out _);
         if (pythonPath == null)
         {
             logs.Add("Warning: Python not found, skipping dependency installation.");
@@ -691,16 +752,12 @@ public class CodeExecutorService
     private string CreatePythonRunnerScript(string mainPyPath, JobExecutionContext context)
     {
         var mainModule = Path.GetFileNameWithoutExtension(mainPyPath);
-        var appSettingsEscaped = context.AppSettingsJson
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r");
 
         return $@"
 import sys
 import os
 import json
+import inspect
 
 # Add the code directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -713,9 +770,10 @@ app_settings = os.environ.get('BLAZOR_ORCHESTRATOR_APP_SETTINGS', '{{}}')
 job_id = int(os.environ.get('BLAZOR_ORCHESTRATOR_JOB_ID', '0'))
 job_instance_id = int(os.environ.get('BLAZOR_ORCHESTRATOR_JOB_INSTANCE_ID', '0'))
 job_schedule_id = int(os.environ.get('BLAZOR_ORCHESTRATOR_JOB_SCHEDULE_ID', '0'))
+web_api_parameter = os.environ.get('BLAZOR_ORCHESTRATOR_WEB_API_PARAMETER', '')
+result_file = os.environ.get('BLAZOR_ORCHESTRATOR_RESULT_FILE', '')
 
-# Call the execute_job function
-result = {mainModule}.execute_job(
+kwargs = dict(
     app_settings=app_settings,
     job_agent_id=0,
     job_id=job_id,
@@ -723,85 +781,70 @@ result = {mainModule}.execute_job(
     job_schedule_id=job_schedule_id
 )
 
-# Print results
-if result:
-    for log in result:
-        print(log)
+# Older jobs declare only five parameters; pass web_api_parameter only when accepted.
+params = inspect.signature({mainModule}.execute_job).parameters
+if 'web_api_parameter' in params or any(p.kind == p.VAR_KEYWORD for p in params.values()):
+    kwargs['web_api_parameter'] = web_api_parameter
+
+result = {mainModule}.execute_job(**kwargs)
+
+# Returned values go to the result file; the host merges them with the captured stdout.
+if result_file:
+    with open(result_file, 'w', encoding='utf-8') as f:
+        json.dump(result if result is not None else [], f, default=str)
 ";
     }
 
     /// <summary>
-    /// Finds the Python executable on the system.
-    /// Uses platform-appropriate candidates, including Docker container paths.
+    /// Appends the job's returned log items that were not already printed to stdout.
     /// </summary>
-    private string? FindPythonExecutable()
+    internal static void MergeReturnedPythonLogs(string resultFilePath, IReadOnlyList<string> stdoutLines, List<string> logs)
     {
-        // Platform-appropriate ordered candidates
-        string[] candidates;
-        if (System.Runtime.InteropServices.RuntimeInformation
-                .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+        if (!File.Exists(resultFilePath))
         {
-            candidates = new[]
-            {
-                "python",
-                "python3",
-                "py",
-                @"C:\Python313\python.exe",
-                @"C:\Python312\python.exe",
-                @"C:\Python311\python.exe",
-                @"C:\Python310\python.exe",
-                @"C:\Python39\python.exe",
-                @"C:\Program Files\Python313\python.exe",
-                @"C:\Program Files\Python312\python.exe",
-                @"C:\Program Files\Python311\python.exe",
-                @"C:\Program Files\Python310\python.exe",
-            };
-        }
-        else
-        {
-            // Linux / Container — check the symlink we create in the Dockerfile first
-            candidates = new[]
-            {
-                "/usr/bin/python3",
-                "/usr/local/bin/python3",
-                "/usr/bin/python",
-                "/usr/local/bin/python",
-                "python3",
-                "python",
-            };
+            logs.Add("Warning: Python job did not produce a result file; returned values were not captured.");
+            return;
         }
 
-        foreach (var candidate in candidates)
+        System.Text.Json.JsonElement root;
+        try
         {
-            try
+            root = System.Text.Json.JsonDocument.Parse(File.ReadAllText(resultFilePath)).RootElement.Clone();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            logs.Add($"Warning: Python job result is not valid JSON and was ignored: {ex.Message}");
+            return;
+        }
+
+        if (root.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            logs.Add($"Warning: execute_job returned {root.ValueKind} instead of a list; the value was ignored.");
+            return;
+        }
+
+        foreach (var item in root.EnumerateArray())
+        {
+            var text = item.ValueKind == System.Text.Json.JsonValueKind.String ? item.GetString() : item.GetRawText();
+            if (string.IsNullOrEmpty(text))
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = candidate,
-                    Arguments = "--version",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-                var output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-
-                if (process.ExitCode == 0)
-                {
-                    return candidate;
-                }
+                continue;
             }
-            catch
+
+            // The suffix check covers the template's "[timestamp] [level] message" print format.
+            if (!stdoutLines.Any(line => line == text || line.EndsWith(text, StringComparison.Ordinal)))
             {
-                // Try next candidate
+                logs.Add(text);
             }
         }
+    }
 
-        return null;
+    /// <summary>
+    /// Finds a real Python 3 executable on the system.
+    /// </summary>
+    private static string? FindPythonExecutable(out PythonLocatorFailure reason)
+    {
+        return PythonLocator.TryLocate(out var path, out reason) ? path : null;
     }
 
     /// <summary>

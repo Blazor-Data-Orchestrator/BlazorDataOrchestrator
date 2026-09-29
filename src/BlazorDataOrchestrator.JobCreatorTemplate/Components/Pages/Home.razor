@@ -25,11 +25,19 @@
 @inject NuGetPackageService PackageService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
-@inject JobManager InjectedJobManager
 @inject CopilotHealthService CopilotHealth
+@inject StorageHealthService StorageHealth
 @inject BlazorDataOrchestrator.Core.Services.TimeDisplayService TimeDisplayService
 
 <PageTitle>Job Creator</PageTitle>
+
+@if (StorageHealth.IsReachable == false)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" AllowClose="false"
+                 Style="margin: 16px 16px 0 16px;">
+        Storage emulator not reachable at @StorageHealth.Endpoint. Start the platform with <code>aspire run</code> first.
+    </RadzenAlert>
+}
 
 <RadzenCard class="rz-shadow-3" Style="padding: 0; margin: 16px; height: calc(100vh - 112px); border-radius: 16px; overflow: hidden; background: #ffffff;">
     <RadzenStack Gap="0" Style="height: 100%;">
@@ -208,7 +216,7 @@
 @* Saving Overlay *@
 @if (isSaving && !isExecuting)
 {
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 900;">
         <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
             <RadzenStack AlignItems="AlignItems.Center" Gap="20">
                 <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
@@ -222,7 +230,7 @@
 @* Calling AI Overlay *@
 @if (isCallingAI)
 {
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 900;">
         <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
             <RadzenStack AlignItems="AlignItems.Center" Gap="20">
                 <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
@@ -236,7 +244,7 @@
 @* Creating Package Overlay *@
 @if (isCreatingPackage)
 {
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 900;">
         <RadzenCard Style="padding: 40px 60px; border-radius: 16px; text-align: center; background: #ffffff;">
             <RadzenStack AlignItems="AlignItems.Center" Gap="20">
                 <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Large" />
@@ -317,8 +325,13 @@
             Directory.CreateDirectory(GetCodeFolderPath("python"));
         }
 
-        // Initialize JobManager if connection strings are available
-        InitializeJobManager();
+        // Initialize JobManager if connection strings are available. Its constructor calls storage
+        // synchronously and retries for about a minute, so never build it against unreachable storage.
+        await StorageHealth.Completion;
+        if (StorageHealth.IsReachable == true)
+        {
+            InitializeJobManager();
+        }
 
         // Load configuration and files
         LoadConfiguration();
@@ -574,6 +587,10 @@
                 
                 // Extract dependencies first
                 await PackageService.ExtractAndSaveDependenciesFromProjectAsync();
+                foreach (var warning in PackageService.LastDependencyWarnings)
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {warning}\n";
+                }
                 
                 // Create package as stream
                 var packageResult = await PackageService.CreatePackageAsStreamAsync(
@@ -613,13 +630,13 @@
 
             // 3. Create Job Instance
             int jobInstanceId = 0;
-            var activeJobManager = jobManager ?? InjectedJobManager;
+            var activeJobManager = jobManager;
             if (activeJobManager != null)
             {
                 try
                 {
                     string jobName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "DesignerJob";
-                    jobInstanceId = await activeJobManager.CreateDesignerJobInstanceAsync(jobName);
+                    jobInstanceId = await activeJobManager.CreateDesignerJobInstanceAsync(jobName, currentJobId);
                     currentJobInstanceId = jobInstanceId;
                     
                     // Resolve and update currentJobId from the newly created instance
@@ -695,6 +712,7 @@
 
                     var runnerScript = @"
 import sys
+import inspect
 import main
 import traceback
 
@@ -708,63 +726,86 @@ job_instance_id = int(sys.argv[2])
 try:
     with open(app_settings_path, 'r') as f:
         app_settings = f.read()
-        
-    main.execute_job(app_settings, -1, -1, job_instance_id, -1, '')
+
+    kwargs = dict(app_settings=app_settings, job_agent_id=-1, job_id=-1,
+                  job_instance_id=job_instance_id, job_schedule_id=-1)
+    # Older jobs declare only five parameters; pass web_api_parameter only when accepted.
+    params = inspect.signature(main.execute_job).parameters
+    if 'web_api_parameter' in params or any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        kwargs['web_api_parameter'] = ''
+    main.execute_job(**kwargs)
 except Exception as e:
     print(f'Error executing job: {e}')
     traceback.print_exc()
 ";
                     var pythonCodePath = GetCodeFolderPath("python");
                     var runnerPath = Path.Combine(pythonCodePath, "runner.py");
-                    await File.WriteAllTextAsync(runnerPath, runnerScript);
 
                     // The runner takes a file path, so persist the resolved settings alongside it
                     var appSettingsFile = Path.Combine(pythonCodePath, "resolved.appsettings.json");
-                    await File.WriteAllTextAsync(appSettingsFile, appSettingsContent);
 
-                    try
+                    if (!PythonLocator.TryLocate(out var pythonExe, out var pythonFailure))
                     {
-                        var startInfo = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = "python",
-                            Arguments = $"\"{runnerPath}\" \"{appSettingsFile}\" {currentJobInstanceId}",
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            UseShellExecute = false,
-                            CreateNoWindow = true,
-                            WorkingDirectory = pythonCodePath
-                        };
-
-                        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
-                        process.Start();
-
-                        var output = await process.StandardOutput.ReadToEndAsync();
-                        var error = await process.StandardError.ReadToEndAsync();
-
-                        await process.WaitForExitAsync();
-                        if (_disposed) return;
-
-                        if (!string.IsNullOrEmpty(output))
-                        {
-                            results.Add(output);
-                            logOutput += output + "\n";
-                        }
-
-                        if (!string.IsNullOrEmpty(error))
-                        {
-                            results.Add("ERROR:\n" + error);
-                            logOutput += "ERROR:\n" + error + "\n";
-                        }
+                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Python not found ({pythonFailure}). Skipping execution.\n";
+                        isExecuting = false;
+                        StateHasChanged();
+                        await ShowPythonNotFoundAsync(pythonFailure, "The job was not run.");
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Error launching python: {ex.Message}\n";
-                    }
-                    finally
-                    {
-                        if (File.Exists(runnerPath))
+                        try
                         {
-                            File.Delete(runnerPath);
+                            await File.WriteAllTextAsync(runnerPath, runnerScript);
+                            await File.WriteAllTextAsync(appSettingsFile, appSettingsContent);
+
+                            var startInfo = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = pythonExe!,
+                                Arguments = $"\"{runnerPath}\" \"{appSettingsFile}\" {currentJobInstanceId}",
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                WorkingDirectory = pythonCodePath
+                            };
+
+                            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                            process.Start();
+
+                            var output = await process.StandardOutput.ReadToEndAsync();
+                            var error = await process.StandardError.ReadToEndAsync();
+
+                            await process.WaitForExitAsync();
+                            if (_disposed) return;
+
+                            if (!string.IsNullOrEmpty(output))
+                            {
+                                results.Add(output);
+                                logOutput += output + "\n";
+                            }
+
+                            if (!string.IsNullOrEmpty(error))
+                            {
+                                results.Add("ERROR:\n" + error);
+                                logOutput += "ERROR:\n" + error + "\n";
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error launching python: {ex.Message}\n";
+                        }
+                        finally
+                        {
+                            if (File.Exists(runnerPath))
+                            {
+                                File.Delete(runnerPath);
+                            }
+
+                            // Holds fully resolved connection strings; it must never be left where the packager can pick it up.
+                            if (File.Exists(appSettingsFile))
+                            {
+                                File.Delete(appSettingsFile);
+                            }
                         }
                     }
                 }
@@ -872,6 +913,10 @@ except Exception as e:
             
             var dependencies = await PackageService.ExtractAndSaveDependenciesFromProjectAsync();
             logOutput += $"[{DateTime.Now:HH:mm:ss}] Found {dependencies.Count} dependencies to include.\n";
+            foreach (var warning in PackageService.LastDependencyWarnings)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Warning: {warning}\n";
+            }
             StateHasChanged();
 
             // Generate a unique version based on timestamp
@@ -1237,87 +1282,92 @@ except Exception as e:
                         logOutput = $"[{DateTime.Now:HH:mm:ss}] Compiling Python via CLI...\n";
                         if (!_disposed) StateHasChanged();
 
-                        try
+                        // The Microsoft Store alias starts successfully and exits 9009, which would otherwise
+                        // be reported as a syntax error.
+                        if (!PythonLocator.TryLocate(out var pythonExe, out var pythonFailure))
                         {
-                            var startInfo = new System.Diagnostics.ProcessStartInfo
-                            {
-                                FileName = "python",
-                                Arguments = "-c \"import sys; compile(sys.stdin.read(), 'main.py', 'exec')\"",
-                                RedirectStandardInput = true,
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-
-                            using var process = new System.Diagnostics.Process { StartInfo = startInfo };
-                            process.Start();
-
-                            var errorTask = process.StandardError.ReadToEndAsync();
-                            
+                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found ({pythonFailure}). Skipping syntax check.\n";
+                            await HideSavingOverlayAsync();
+                            await ShowPythonNotFoundAsync(pythonFailure, "The file will be saved without syntax validation.");
+                            if (!_disposed) StateHasChanged();
+                        }
+                        else
+                        {
                             try
                             {
-                                using (var writer = process.StandardInput)
+                                var startInfo = new System.Diagnostics.ProcessStartInfo
                                 {
-                                    await writer.WriteAsync(code);
+                                    FileName = pythonExe!,
+                                    Arguments = "-c \"import sys; compile(sys.stdin.read(), 'main.py', 'exec')\"",
+                                    RedirectStandardInput = true,
+                                    RedirectStandardOutput = true,
+                                    RedirectStandardError = true,
+                                    UseShellExecute = false,
+                                    CreateNoWindow = true
+                                };
+
+                                using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+                                process.Start();
+
+                                var errorTask = process.StandardError.ReadToEndAsync();
+
+                                try
+                                {
+                                    using (var writer = process.StandardInput)
+                                    {
+                                        await writer.WriteAsync(code);
+                                    }
+                                }
+                                catch (System.IO.IOException)
+                                {
+                                    // Pipe was closed
+                                }
+
+                                var error = await errorTask;
+
+                                var exited = process.WaitForExit(5000);
+                                if (!exited)
+                                {
+                                    process.Kill();
+                                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
+                                    if (!_disposed) StateHasChanged();
+                                }
+                                else if (process.ExitCode != 0)
+                                {
+                                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
+
+                                    // If Copilot is available, offer AI-assisted fix suggestions
+                                    if (CopilotHealth.IsReady)
+                                    {
+                                        logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending errors to Copilot for fix suggestions...\n";
+                                        if (!_disposed) StateHasChanged();
+
+                                        _ = SendCompilationErrorsToCopilotAsync(code, new List<string> { error });
+                                    }
+
+                                    await HideSavingOverlayAsync();
+                                    await DialogService.Alert($"Compilation Failed:\n{error}", "Build Error");
+                                    if (!_disposed) StateHasChanged();
+                                    return false;
+                                }
+                                else
+                                {
+                                    logOutput = $"[{DateTime.Now:HH:mm:ss}] Python compilation succeeded.\n";
                                 }
                             }
-                            catch (System.IO.IOException)
+                            catch (System.ComponentModel.Win32Exception)
                             {
-                                // Pipe was closed
-                            }
-
-                            var error = await errorTask;
-                            
-                            var exited = process.WaitForExit(5000);
-                            if (!exited)
-                            {
-                                process.Kill();
-                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python syntax check timed out. Skipping validation.\n";
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found. Skipping syntax check.\n";
+                                await HideSavingOverlayAsync();
+                                await ShowPythonNotFoundAsync(PythonLocatorFailure.NotInstalled, "The file will be saved without syntax validation.");
                                 if (!_disposed) StateHasChanged();
                             }
-                            else if (process.ExitCode != 0)
+                            catch (Exception ex)
                             {
-                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Compilation Failed:\n{error}\n";
-
-                                // If Copilot is available, offer AI-assisted fix suggestions
-                                if (CopilotHealth.IsReady)
-                                {
-                                    logOutput += $"[{DateTime.Now:HH:mm:ss}] Sending errors to Copilot for fix suggestions...\n";
-                                    if (!_disposed) StateHasChanged();
-
-                                    _ = SendCompilationErrorsToCopilotAsync(code, new List<string> { error });
-                                }
-
-                                await HideSavingOverlayAsync();
-                                await DialogService.Alert($"Compilation Failed:\n{error}", "Build Error");
+                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
                                 if (!_disposed) StateHasChanged();
                                 return false;
                             }
-                            else
-                            {
-                                logOutput = $"[{DateTime.Now:HH:mm:ss}] Python compilation succeeded.\n";
-                            }
-                        }
-                        catch (System.ComponentModel.Win32Exception)
-                        {
-                            logOutput = $"[{DateTime.Now:HH:mm:ss}] Python not found. Skipping syntax check.\n";
-                            await HideSavingOverlayAsync();
-                            await DialogService.Alert(
-                                "Python is not installed or not found in your system PATH.\n\n" +
-                                "To resolve this:\n" +
-                                "1. Download Python from https://www.python.org/downloads/\n" +
-                                "2. During installation, check 'Add Python to PATH'\n" +
-                                "3. Restart your computer after installation\n\n" +
-                                "The file will be saved without syntax validation.", 
-                                "Python Not Found");
-                            if (!_disposed) StateHasChanged();
-                        }
-                        catch (Exception ex)
-                        {
-                             logOutput = $"[{DateTime.Now:HH:mm:ss}] Error during compilation check: {ex.Message}\n";
-                             if (!_disposed) StateHasChanged();
-                             return false;
                         }
                     }
 
@@ -1344,6 +1394,23 @@ except Exception as e:
         isSaving = false;
         if (!_disposed) StateHasChanged();
         await Task.Delay(1); // Allow UI to remove the saving overlay before showing a dialog
+    }
+
+    private async Task ShowPythonNotFoundAsync(PythonLocatorFailure reason, string consequence)
+    {
+        var storeStub = reason == PythonLocatorFailure.WindowsStoreStubOnly
+            ? PythonLocator.WindowsStoreStubGuidance + "\n\n"
+            : string.Empty;
+
+        await DialogService.Alert(
+            "Python is not installed or not found in your system PATH.\n\n" +
+            storeStub +
+            "To resolve this:\n" +
+            "1. Download Python from https://www.python.org/downloads/\n" +
+            "2. During installation, check 'Add Python to PATH'\n" +
+            "3. Restart your computer after installation\n\n" +
+            consequence,
+            "Python Not Found");
     }
 
     /// <summary>
@@ -1499,6 +1566,15 @@ except Exception as e:
             if (File.Exists(dllPath) && loadedPaths.Add(dllPath))
             {
                 references.Add(MetadataReference.CreateFromFile(dllPath));
+            }
+        }
+
+        // The same references the Agent compiles with, so a job cannot compile here and fail there.
+        foreach (var common in JobCompilationReferences.Common)
+        {
+            if (!string.IsNullOrEmpty(common.Location) && loadedPaths.Add(common.Location))
+            {
+                references.Add(MetadataReference.CreateFromFile(common.Location));
             }
         }
 

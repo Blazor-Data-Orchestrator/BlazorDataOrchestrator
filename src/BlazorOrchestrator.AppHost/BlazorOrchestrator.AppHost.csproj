@@ -23,6 +23,10 @@
     <ProjectReference Include="..\BlazorOrchestrator.Agent\BlazorOrchestrator.Agent.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Linked, not referenced: the AppHost must not take a dependency on Core. -->
+    <Compile Include="..\BlazorDataOrchestrator.Core\Configuration\LocalDevEndpoints.cs" Link="Shared\LocalDevEndpoints.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

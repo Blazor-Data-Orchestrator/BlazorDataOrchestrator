@@ -221,6 +221,7 @@ public class JobService
     public async Task<List<JobInstance>> GetJobInstancesAsync(int jobId)
     {
         return await _dbContext.JobInstances
+            .AsNoTracking()
             .Include(i => i.JobSchedule)
             .Where(i => i.JobSchedule.JobId == jobId)
             .OrderByDescending(i => i.CreatedDate)

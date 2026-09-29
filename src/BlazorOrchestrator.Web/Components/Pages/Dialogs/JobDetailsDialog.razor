@@ -28,6 +28,7 @@
 @inject ProjectCreatorService ProjectCreatorService
 @inject BlazorOrchestrator.Web.Services.Community.ICommunitySettingsService CommunitySettings
 @inject BlazorOrchestrator.Web.Services.Community.CommunitySignInCoordinator CommunitySignIn
+@implements IDisposable
 @inject ILogger<JobDetailsDialog> _logger
 
 @if (IsLoading)
@@ -706,6 +707,54 @@ Content-Type: application/json
         StateHasChanged();
     }
 
+    private CancellationTokenSource? logPollCts;
+
+    private void StartLogPolling(int jobInstanceId)
+    {
+        logPollCts?.Cancel();
+        logPollCts?.Dispose();
+        logPollCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var token = logPollCts.Token;
+        var jobId = JobId;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+                var lastCount = 0;
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    // Table-storage only, so polling never races the circuit's shared DbContext.
+                    var instanceLogs = await JobManager.GetLogsForJobInstanceAsync(jobId, jobInstanceId);
+                    var finished = instanceLogs.Any(IsTerminalRunLog);
+                    if (instanceLogs.Count != lastCount || finished)
+                    {
+                        lastCount = instanceLogs.Count;
+                        await InvokeAsync(RefreshLogs);
+                    }
+                    if (finished) break;
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Log polling stopped for job {JobId} instance {JobInstanceId}", jobId, jobInstanceId);
+            }
+        });
+    }
+
+    // Mirrors the final entries JobManager.ProcessJobInstanceAsync writes.
+    private static bool IsTerminalRunLog(JobLogEntry log) =>
+        log.Action == "ProcessJobInstance" && log.Details is { } details &&
+        (details.StartsWith("Job completed successfully") || details.StartsWith("Job failed:") || details.StartsWith("Error:"));
+
+    public void Dispose()
+    {
+        logPollCts?.Cancel();
+        logPollCts?.Dispose();
+    }
+
     private async Task SaveJob()
     {
         if (Job == null) return;
@@ -1009,7 +1058,7 @@ Content-Type: application/json
 
             if (IsRunningLocally)
             {
-                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles);
+                var result = await ProjectCreatorService.CreateProjectWithCodeAsync(projectName, codeFiles, JobId);
 
                 if (!result.Success)
                 {
@@ -1021,7 +1070,7 @@ Content-Type: application/json
             }
             else
             {
-                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles);
+                var zipBytes = await ProjectCreatorService.CreateProjectZipAsync(projectName, codeFiles, JobId);
                 using var streamRef = new DotNetStreamReference(new MemoryStream(zipBytes));
                 await JSRuntime.InvokeVoidAsync("downloadFileFromStream", $"{projectName}.zip", streamRef);
                 await ShowVSSolutionDownloadDialog(projectName);
@@ -1044,7 +1093,6 @@ Content-Type: application/json
         {
             if (entry.FullName.StartsWith("[Content_Types]") ||
                 entry.FullName.StartsWith("_rels/") ||
-                entry.FullName.EndsWith(".nuspec") ||
                 string.IsNullOrEmpty(entry.Name))
                 continue;
 
@@ -1181,6 +1229,7 @@ Content-Type: application/json
             
             // Refresh logs to show the new instance
             await LoadLogs();
+            StartLogPolling(jobInstanceId);
         }
         catch (Exception ex)
         {
@@ -1307,11 +1356,7 @@ Content-Type: application/json
         // Log language switch
         if (Job != null)
         {
-            _ = Task.Run(async () =>
-            {
-                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, oldMainFile, oldLanguage, "LanguageSwitch", oldCode, null, $"Switched from {oldLanguage} to {codeLanguage}"); }
-                catch { }
-            });
+            LogCodeChangeInBackground(Job.Id, oldMainFile, oldLanguage, "LanguageSwitch", oldCode, null, $"Switched from {oldLanguage} to {codeLanguage}");
         }
         
         // Reset loaded package state - we're starting fresh with new language
@@ -1605,11 +1650,7 @@ Content-Type: application/json
                 // Log baseline snapshot
                 if (!string.IsNullOrEmpty(currentJobCode) && !string.IsNullOrEmpty(selectedCodeFile))
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, selectedCodeFile, codeLanguage, "Load", currentJobCode, null, "Code loaded from package"); }
-                        catch { }
-                    });
+                    LogCodeChangeInBackground(Job.Id, selectedCodeFile, codeLanguage, "Load", currentJobCode, null, "Code loaded from package");
                 }
             }
             else
@@ -1888,12 +1929,7 @@ Content-Type: application/json
             
             if (!compilationResult.Success)
             {
-                // Log failed compilation
-                _ = Task.Run(async () =>
-                {
-                    try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, mainFileName, codeLanguage, "CompileFailed", mainCode, previousMainCode, $"Compilation failed: {compilationResult.Errors.Count} error(s)"); }
-                    catch { }
-                });
+                LogCodeChangeInBackground(Job.Id, mainFileName, codeLanguage, "CompileFailed", mainCode, previousMainCode, $"Compilation failed: {compilationResult.Errors.Count} error(s)");
 
                 // Show compilation errors in popup dialog
                 await ShowCompilationErrorsDialog(compilationResult.Errors);
@@ -1911,12 +1947,7 @@ Content-Type: application/json
             // Mark that we've saved, so next load will get this version
             hasLoadedPackageFiles = false;
 
-            // Log successful compilation
-            _ = Task.Run(async () =>
-            {
-                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, mainFileName, codeLanguage, "CompileSuccess", mainCode, previousMainCode, "Compiled and saved successfully"); }
-                catch { }
-            });
+            LogCodeChangeInBackground(Job.Id, mainFileName, codeLanguage, "CompileSuccess", mainCode, previousMainCode, "Compiled and saved successfully");
             
             NotificationService.Notify(NotificationSeverity.Success, "Success", 
                 "Code compiled and saved successfully!");
@@ -2056,6 +2087,7 @@ Content-Type: application/json
             // Switch to Logs tab and refresh
             SelectedTabIndex = 3; // Logs tab index
             await RefreshLogs();
+            StartLogPolling(jobInstanceId);
         }
         catch (Exception ex)
         {
@@ -2219,11 +2251,7 @@ Content-Type: application/json
         // Log AI fix
         if (Job != null && !string.IsNullOrEmpty(selectedCodeFile))
         {
-            _ = Task.Run(async () =>
-            {
-                try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, selectedCodeFile, codeLanguage, "AIFix", code, previousCode, "AI fix applied"); }
-                catch { }
-            });
+            LogCodeChangeInBackground(Job.Id, selectedCodeFile, codeLanguage, "AIFix", code, previousCode, "AI fix applied");
         }
 
         NotificationService.Notify(NotificationSeverity.Success, "Code Applied", 
@@ -2250,6 +2278,25 @@ Content-Type: application/json
     }
 
     // Change History Methods
+    private void LogCodeChangeInBackground(int jobId, string fileName, string language, string changeType,
+        string content, string? previousContent, string? summary)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await CodeChangeLog.LogCodeChangeAsync(jobId, fileName, language, changeType, content, previousContent, summary);
+                var count = await CodeChangeLog.GetChangeCountAsync(jobId);
+                await InvokeAsync(() =>
+                {
+                    changeHistoryCount = count;
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        });
+    }
+
     private async Task LoadChangeHistory()
     {
         if (Job == null) return;
@@ -2365,12 +2412,7 @@ Content-Type: application/json
             await jobCodeEditor.UpdateCodeAsync(content);
         }
 
-        // Log the restore
-        _ = Task.Run(async () =>
-        {
-            try { await CodeChangeLog.LogCodeChangeAsync(Job.Id, change.FileName, change.Language ?? codeLanguage, "Restore", content, previousCode, $"Restored from snapshot {change.CreatedDate:yyyy-MM-dd HH:mm}"); }
-            catch { }
-        });
+        LogCodeChangeInBackground(Job.Id, change.FileName, change.Language ?? codeLanguage, "Restore", content, previousCode, $"Restored from snapshot {change.CreatedDate:yyyy-MM-dd HH:mm}");
 
         NotificationService.Notify(NotificationSeverity.Success, "Restored", "Code restored from history snapshot. Save & Compile to apply.");
         StateHasChanged();

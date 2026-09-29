@@ -44,13 +44,17 @@ The Aspire AppHost orchestrates all services automatically:
 
 | Resource | Type | Description |
 |----------|------|-------------|
-| `sqlServer` | Container | SQL Server with persistent volume, port 1433 |
-| `storage` | Container | Azurite emulator with Blob (10000), Queue (10001), and Table (10002) |
+| `sqlServer` | Container | SQL Server with persistent volume, fixed host port 14330 |
+| `storage` | Container | Azurite emulator with Blob (10100), Queue (10101), and Table (10102) |
 | `webapp` | Project | Blazor Server web application |
 | `scheduler` | Project | Background scheduling service |
 | `agent` | Project | Job execution worker |
 
 All connection strings and service references are injected automatically by Aspire — no manual configuration is needed for local development.
+
+The Azurite ports are fixed and deliberately **not** the standard 10000–10002, so projects downloaded with **Download as VS Solution** reach the same storage as the platform even when an older standalone Azurite is still running. Stopping that old Azurite is optional. If 10100–10102 are already taken on your machine, Aspire reports a port conflict at startup.
+
+> **Podman:** the Podman machine must be **rootless** (`podman machine set --rootful=false`). With a rootful machine, published ports are not forwarded to Windows. A storage container left over from before this change (fixed on 10000–10002) can still carry the `storage.dev.internal` alias on the Aspire network, which makes the agent reach either container at random. Remove it with `podman rm -f <container>`, or detach it with `podman network disconnect <aspire-network> <container>`.
 
 ![Description](images/start-without-debugging.png)
 
