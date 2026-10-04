@@ -1,6 +1,7 @@
 @using Radzen
 @using Radzen.Blazor
 @using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Services.AI
 @using BlazorDataOrchestrator.Core.Models
 @inject BlazorDataOrchestrator.Core.Services.IAIChatService ChatService
 @inject AISettingsService SettingsService
@@ -17,6 +18,7 @@
                 <RadzenIcon Icon="smart_toy" Style="font-size: 24px;" />
                 <RadzenText TextStyle="TextStyle.H6" Style="color: white; margin: 0;">AI Code Assistant</RadzenText>
                 <RadzenBadge Text="@Language.ToUpperInvariant()" BadgeStyle="BadgeStyle.Light" />
+                <span class="active-file-chip" title="File open in the editor">Active: @EditorContext.ActiveFileName</span>
             </RadzenStack>
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4">
                 <RadzenButton Icon="settings" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
@@ -27,6 +29,17 @@
                               Click="@OnCloseClick" title="Close" />
             </RadzenStack>
         </RadzenStack>
+
+        @if (!EditorContext.ActiveIsPrimary)
+        {
+            <div class="active-file-hint">
+                <RadzenIcon Icon="info" Style="font-size: 16px;" />
+                <span>
+                    <strong>@EditorContext.ActiveFileName</strong> is open in the editor. Code changes will be applied to
+                    <strong>@EditorContext.PrimaryCodeFileName</strong>.
+                </span>
+            </div>
+        }
 
         @if (showSettings)
         {
@@ -101,25 +114,50 @@
 
         } @* end else !showSettings *@
 
-        @* Footer with Apply Code Button *@
-        @if (HasPendingCodeUpdate)
+        @* Footer with proposed file updates *@
+        @if (pendingResult is not null)
         {
-            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-                         JustifyContent="JustifyContent.SpaceBetween"
-                         Style="padding: 12px 16px; background: #e8f5e9; border-top: 1px solid #c8e6c9;">
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="8">
-                    <RadzenIcon Icon="code" Style="color: #2e7d32;" />
-                    <RadzenText TextStyle="TextStyle.Body2" Style="color: #2e7d32;">
-                        AI generated new code ready to apply
+            <div class="ai-apply-footer @(pendingResult.HasApplicableUpdates ? "ai-apply-ok" : "ai-apply-blocked")">
+                <div class="ai-apply-details">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0 0 4px 0; font-weight: 600;">
+                        @(pendingResult.HasApplicableUpdates ? "AI proposed changes ready to apply" : "AI proposed changes cannot be applied")
                     </RadzenText>
-                </RadzenStack>
-                <RadzenStack Orientation="Orientation.Horizontal" Gap="8">
-                    <RadzenButton Text="Apply to Editor" Icon="check" ButtonStyle="ButtonStyle.Success"
-                                  Size="ButtonSize.Small" Click="@ApplyCodeToEditor" />
+                    @foreach (var update in pendingResult.Updates)
+                    {
+                        <div class="ai-apply-file">
+                            <RadzenIcon Icon="@(update.IsValid ? "check_circle" : "error")"
+                                        Style="@($"font-size: 18px; color: {(update.IsValid ? "#2e7d32" : "#c62828")};")" />
+                            <strong>@update.FileName</strong>
+                            @foreach (var error in update.Validation.Errors)
+                            {
+                                <span class="ai-apply-error">@error</span>
+                            }
+                        </div>
+                        @foreach (var warning in update.Validation.Warnings)
+                        {
+                            <div class="ai-apply-warning">@warning</div>
+                        }
+                    }
+                    @foreach (var warning in pendingResult.Warnings)
+                    {
+                        <div class="ai-apply-warning">@warning</div>
+                    }
+                </div>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="8" AlignItems="AlignItems.Center">
+                    @if (pendingResult.HasApplicableUpdates)
+                    {
+                        <RadzenButton Text="@ApplyButtonText" Icon="check" ButtonStyle="ButtonStyle.Success"
+                                      Size="ButtonSize.Small" Click="@ApplyUpdatesToEditor" />
+                    }
+                    @if (pendingResult.InvalidUpdates.Count > 0 || pendingResult.Warnings.Count > 0)
+                    {
+                        <RadzenButton Text="Ask AI to fix" Icon="build" ButtonStyle="ButtonStyle.Warning"
+                                      Size="ButtonSize.Small" Click="@AskAIToFix" Disabled="@IsCallingAI" />
+                    }
                     <RadzenButton Text="Dismiss" ButtonStyle="ButtonStyle.Light"
                                   Size="ButtonSize.Small" Click="@DismissPendingCode" />
                 </RadzenStack>
-            </RadzenStack>
+            </div>
         }
     </div>
 </div>
@@ -328,14 +366,85 @@
         background: #f5f5f5;
         cursor: not-allowed;
     }
+
+    .active-file-chip {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        white-space: nowrap;
+    }
+
+    .active-file-hint {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        background: #e3f2fd;
+        color: #0d47a1;
+        font-size: 13px;
+        border-bottom: 1px solid #bbdefb;
+    }
+
+    .ai-apply-footer {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-top: 1px solid #c8e6c9;
+        border-radius: 0 0 12px 12px;
+    }
+
+    .ai-apply-footer.ai-apply-ok {
+        background: #e8f5e9;
+        color: #1b5e20;
+    }
+
+    .ai-apply-footer.ai-apply-blocked {
+        background: #ffebee;
+        border-top-color: #ffcdd2;
+        color: #b71c1c;
+    }
+
+    .ai-apply-details {
+        flex: 1;
+        min-width: 0;
+        max-height: 160px;
+        overflow-y: auto;
+        font-size: 13px;
+    }
+
+    .ai-apply-file {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 2px 0;
+    }
+
+    .ai-apply-error {
+        color: #c62828;
+    }
+
+    .ai-apply-warning {
+        color: #8d6e00;
+        margin: 2px 0 2px 24px;
+        font-size: 12px;
+    }
 </style>
 
 @code {
-    [Parameter] public string CurrentCode { get; set; } = "";
-    [Parameter] public string NuspecContent { get; set; } = "";
-    [Parameter] public string Language { get; set; } = "csharp";
+    /// <summary>
+    /// What the user has open: the active file, the primary code file (main.cs / main.py), and all job files.
+    /// </summary>
+    [Parameter, EditorRequired] public AIEditorContext EditorContext { get; set; } = AIEditorContext.ForSingleFile("csharp", "");
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback<string> OnCodeApply { get; set; }
+    /// <summary>
+    /// Raised with the validated file updates when the user clicks Apply. Every update names its target file.
+    /// </summary>
+    [Parameter] public EventCallback<IReadOnlyList<ProposedFileUpdate>> OnFileUpdatesApply { get; set; }
     /// <summary>
     /// When set, this prompt is automatically sent as soon as the dialog opens.
     /// The value is cleared after the first send so it does not re-fire on re-render.
@@ -347,17 +456,23 @@
     private string sessionId = Guid.NewGuid().ToString();
     private string currentInput = "";
     private bool IsCallingAI = false;
-    private bool HasPendingCodeUpdate = false;
-    private string? pendingCode = null;
+    private AIResponseParseResult? pendingResult;
     private bool initialPromptSent = false;
 
-    private const string CodeBeginMarker = "###UPDATED CODE BEGIN###";
-    private const string CodeEndMarker = "###UPDATED CODE END###";
+    private string Language => EditorContext.Language;
+
+    private string ApplyButtonText
+    {
+        get
+        {
+            var valid = pendingResult?.ValidUpdates ?? [];
+            return valid.Count == 1 ? $"Apply to {valid[0].FileName}" : $"Apply {valid.Count} files";
+        }
+    }
 
     protected override void OnInitialized()
     {
-        ChatService.SetLanguage(Language);
-        ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
+        ChatService.SetEditorContext(EditorContext);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -374,20 +489,7 @@
 
     protected override void OnParametersSet()
     {
-        ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
-        ChatService.SetLanguage(Language);
-    }
-
-    private string BuildEditorContextWithNuspec()
-    {
-        var contextCode = CurrentCode;
-        if (!string.IsNullOrWhiteSpace(NuspecContent) && Language == "csharp")
-        {
-            contextCode += "\n\n// === Current .nuspec content ===\n"
-                         + "// (Update the dependencies section if adding new NuGet packages)\n"
-                         + NuspecContent;
-        }
-        return contextCode;
+        ChatService.SetEditorContext(EditorContext);
     }
 
     private async Task OnInputKeyDown(KeyboardEventArgs e)
@@ -429,9 +531,10 @@
 
         try
         {
-            // Ensure the ChatService has the latest code context
-            ChatService.SetCurrentEditorCode(BuildEditorContextWithNuspec());
-            ChatService.SetLanguage(Language);
+            // Ensure the ChatService has the latest editor context
+            var requestContext = EditorContext;
+            ChatService.SetEditorContext(requestContext);
+            pendingResult = null;
 
             var responseBuilder = new System.Text.StringBuilder();
             var lastRenderTime = DateTime.UtcNow;
@@ -456,8 +559,8 @@
             assistantMessage.Content = responseBuilder.ToString();
             assistantMessage.IsStreaming = false;
             
-            // Check for code markers in the complete response
-            CheckForCodeUpdate(assistantMessage.Content);
+            // Find file updates in the complete response and validate them for their target file type
+            CheckForFileUpdates(assistantMessage.Content, requestContext);
         }
         catch (Exception ex)
         {
@@ -471,92 +574,10 @@
         }
     }
 
-    private void CheckForCodeUpdate(string response)
+    private void CheckForFileUpdates(string response, AIEditorContext requestContext)
     {
-        // Normalize line endings for reliable matching
-        var normalized = response.Replace("\r\n", "\n").Replace("\r", "\n");
-
-        // Primary detection: explicit code markers
-        if (normalized.Contains(CodeBeginMarker) && normalized.Contains(CodeEndMarker))
-        {
-            pendingCode = ExtractCodeFromResponse(normalized);
-            HasPendingCodeUpdate = !string.IsNullOrEmpty(pendingCode);
-            StateHasChanged();
-            return;
-        }
-
-        // Fallback detection: look for a fenced code block that looks like a complete
-        // code file (e.g. starts with using/import, or is substantial enough).
-        var fallbackCode = ExtractFallbackCodeBlock(normalized);
-        if (!string.IsNullOrEmpty(fallbackCode))
-        {
-            pendingCode = fallbackCode;
-            HasPendingCodeUpdate = true;
-            StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// Extracts code from a fenced code block when markers are absent.
-    /// Only returns code if the block looks like a complete/substantial code file.
-    /// </summary>
-    private string? ExtractFallbackCodeBlock(string response)
-    {
-        // Try closed code block first
-        var match = System.Text.RegularExpressions.Regex.Match(
-            response,
-            @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]*?)```");
-
-        if (!match.Success)
-        {
-            // Try unclosed code block (response may have been truncated by token limit)
-            match = System.Text.RegularExpressions.Regex.Match(
-                response,
-                @"```[ \t]*(?:csharp|cs|python|py)[ \t]*\n([\s\S]+)$");
-        }
-
-        if (!match.Success)
-            return null;
-
-        var code = match.Groups[1].Value.Trim();
-
-        // Only treat it as an applicable code block if it looks like a complete file
-        // (has a class/function definition or is substantial enough)
-        bool looksLikeCompleteCode =
-            code.Contains("class ") ||
-            code.Contains("def ") ||
-            code.Contains("public static") ||
-            code.Contains("namespace ") ||
-            code.Split('\n').Length >= 10;
-
-        return looksLikeCompleteCode ? code : null;
-    }
-
-    private string? ExtractCodeFromResponse(string response)
-    {
-        // Normalize line endings
-        response = response.Replace("\r\n", "\n").Replace("\r", "\n");
-
-        var beginIndex = response.IndexOf(CodeBeginMarker);
-        var endIndex = response.IndexOf(CodeEndMarker);
-
-        if (beginIndex >= 0 && endIndex > beginIndex)
-        {
-            var codeStart = beginIndex + CodeBeginMarker.Length;
-            var code = response.Substring(codeStart, endIndex - codeStart);
-            
-            // Clean up the code — strip surrounding fenced code block markers
-            code = code.Trim();
-            // Remove opening fence: ```lang
-            code = System.Text.RegularExpressions.Regex.Replace(
-                code, @"^```[ \t]*\w*[ \t]*\n?", "", System.Text.RegularExpressions.RegexOptions.None);
-            // Remove closing fence: ```
-            code = System.Text.RegularExpressions.Regex.Replace(
-                code, @"\n?```\s*$", "", System.Text.RegularExpressions.RegexOptions.None);
-            
-            return code.Trim();
-        }
-        return null;
+        var result = AIResponseFileUpdateParser.Parse(response, requestContext);
+        pendingResult = result.Updates.Count > 0 || result.Warnings.Count > 0 ? result : null;
     }
 
     private string FormatMessage(string content)
@@ -621,39 +642,68 @@
     }
 
     /// <summary>
-    /// Strips ###UPDATED CODE BEGIN### / ###UPDATED CODE END### markers from the message
-    /// for display, leaving only the explanation text and the code block inside.
+    /// Strips the file update markers from the message for display, leaving the explanation text,
+    /// a bold label for each named file, and the code blocks.
     /// </summary>
-    private string StripCodeMarkersForDisplay(string content)
+    private static string StripCodeMarkersForDisplay(string content)
     {
         if (string.IsNullOrEmpty(content))
             return content;
 
-        // Remove the marker lines themselves (they may appear on their own lines)
-        content = content.Replace(CodeBeginMarker, "");
-        content = content.Replace(CodeEndMarker, "");
-
-        // Clean up any blank lines left behind by marker removal
-        content = System.Text.RegularExpressions.Regex.Replace(content, @"\n{3,}", "\n\n");
-
-        return content.Trim();
+        return AIResponseFileUpdateParser.StripMarkersForDisplay(content).Trim();
     }
 
-    private async Task ApplyCodeToEditor()
+    private async Task ApplyUpdatesToEditor()
     {
-        if (!string.IsNullOrEmpty(pendingCode))
+        var updates = pendingResult?.ValidUpdates ?? [];
+        if (updates.Count == 0)
         {
-            await OnCodeApply.InvokeAsync(pendingCode);
-            HasPendingCodeUpdate = false;
-            pendingCode = null;
-            NotificationService.Notify(NotificationSeverity.Success, "Success", "Code applied to editor.");
+            return;
         }
+
+        pendingResult = null;
+        await OnFileUpdatesApply.InvokeAsync(updates);
+    }
+
+    private async Task AskAIToFix()
+    {
+        if (pendingResult is null || IsCallingAI)
+        {
+            return;
+        }
+
+        var problems = new System.Text.StringBuilder();
+        foreach (var update in pendingResult.InvalidUpdates)
+        {
+            foreach (var error in update.Validation.Errors)
+            {
+                problems.AppendLine($"- {update.FileName}: {error}");
+            }
+        }
+        foreach (var update in pendingResult.ValidUpdates)
+        {
+            foreach (var warning in update.Validation.Warnings)
+            {
+                problems.AppendLine($"- {update.FileName}: {warning}");
+            }
+        }
+        foreach (var warning in pendingResult.Warnings)
+        {
+            problems.AppendLine($"- {warning}");
+        }
+
+        currentInput =
+            "Your previous response could not be applied because of these problems:\n" +
+            problems +
+            $"\nReturn corrected, complete files. Put code for {EditorContext.PrimaryCodeFileName} inside ###UPDATED CODE BEGIN### / ###UPDATED CODE END###, " +
+            "put any other file inside ###UPDATED FILE BEGIN: <file name>### / ###UPDATED FILE END###, " +
+            "never put code in .json files, and make every .json file strictly valid JSON.";
+        await SendMessage();
     }
 
     private void DismissPendingCode()
     {
-        HasPendingCodeUpdate = false;
-        pendingCode = null;
+        pendingResult = null;
     }
 
     private async Task OnCloseClick()
@@ -672,8 +722,7 @@
         ChatService.ClearSession(sessionId);
         sessionId = Guid.NewGuid().ToString();
         Messages.Clear();
-        HasPendingCodeUpdate = false;
-        pendingCode = null;
+        pendingResult = null;
         StateHasChanged();
         NotificationService.Notify(NotificationSeverity.Info, "Cleared", "Conversation history cleared.");
     }

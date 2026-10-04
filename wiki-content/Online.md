@@ -136,10 +136,14 @@ The AI Code Assistant is available in **Code Edit** mode. Click the **AI** butto
 
 ### Capabilities
 
-- **Context-aware** — The AI receives your current editor code, so it understands what you are working on.
+- **Context-aware** — The AI receives the file open in the editor *and* the job's main code file (`main.cs` or `main.py`), clearly labeled, so it knows which file holds the job code even when a settings file is open.
+- **Project rules built in** — The AI is always given the project's coding skill (`.github/skills/coding-a-job-csharp/SKILL.md` or `.github/skills/coding-a-job-python/SKILL.md`), so generated jobs follow the required `ExecuteJob` / `execute_job` signatures, NuGet/requirements conventions, and appsettings rules.
 - **Code suggestions** — Ask the AI for help with code logic, debugging, or refactoring.
-- **Code block application** — AI responses containing code blocks include a button to apply the code directly to your editor.
+- **File-aware apply** — Every proposed change names its target file. Code changes are always applied to `main.cs` / `main.py` — if `appsettings.json` is open when you ask for a code change, the code goes to the main code file and the editor switches to it. Settings changes are only applied to `.json` files when you ask for them.
+- **Validation before apply** — Proposed changes are checked for their file type before they can be applied: code can never be written into a `.json` file, and every `.json` file must be strictly valid JSON (double quotes, no comments, no trailing commas). If a change fails validation, **Ask AI to fix** sends the problems back to the AI.
 - **Streaming** — Responses stream in real-time for immediate feedback.
+
+> **Save & Compile** and **Run Job Now** also refuse to package a job while any `.json` file is invalid, and open the offending file so you can fix it.
 
 ### Configuration
 

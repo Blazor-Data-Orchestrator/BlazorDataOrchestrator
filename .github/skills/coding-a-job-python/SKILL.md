@@ -1,4 +1,83 @@
+---
+name: coding-a-job-python
+description: Rules for writing Blazor Data Orchestrator Python jobs (main.py, appsettings files, requirements.txt), including file targeting and strict JSON rules.
+---
+
+<!-- This file is injected verbatim into the web AI Code Assistant and the JobCreatorTemplate AI chat. Keep it accurate; contradictions here become AI bugs. -->
+
 # Blazor Data Orchestrator Python Instructions
+
+## 0. File Targeting and File-Type Rules (READ FIRST)
+
+Every request includes an **Editor Context** that lists the job's files and marks:
+
+* the **ACTIVE file**: the file currently open in the editor, and
+* the **PRIMARY code file**: `main.py`, where all Python job code lives.
+
+The ACTIVE file is **not** automatically the file you should change. Decide the target from the user's request.
+
+### Where each kind of content belongs
+
+| Content | Allowed file(s) |
+|---|---|
+| Python code (functions, classes, imports, `# ADD TO REQUIREMENTS.txt:` headers) | `main.py` (or another `.py` file listed in the Editor Context) |
+| Runtime configuration (connection strings, API keys, feature flags) | `appsettings.json`, `appsettings.Development.json`, `appsettings.Staging.json`, `appsettings.Production.json` |
+| Python package list | `requirements.txt` (one `package==version` per line, no code) |
+
+### Hard rules
+
+1. **NEVER** write Python code, or code of any kind, into a `.json` or `.txt` file.
+2. If the user asks to change code, logic, behavior, error handling, logging, or packages, change **`main.py`**, even when the ACTIVE file is a `.json` file.
+3. Change a `.json` file **only** when the user explicitly asks to change settings or configuration.
+4. Every `.json` file you output **must be strictly valid JSON (RFC 8259)**:
+   * a single root object `{ ... }`
+   * property names and string values in **double quotes**
+   * **no** comments (`//`, `/* */`, or `#`)
+   * **no** trailing commas
+   * **no** code, markdown, or ellipses (`...`)
+   * escape backslashes and quotes inside strings (`"C:\\temp"`, `"say \"hi\""`)
+5. In appsettings files, keep the reserved connection strings `blobs`, `queues`, `tables`, and `blazororchestratordb` **present and blank** (`""`). Never delete them.
+6. Start from the current content of the file shown in the Editor Context and keep every existing setting and line unless the user asked to remove it. Always return the **complete** content of every file you change. Never return a diff, a fragment, or placeholders such as `# ... existing code ...`.
+7. Only use file names that appear in the Editor Context. Do not invent new files.
+
+### Output format
+
+* **Python code for `main.py`**: wrap the full file in `###UPDATED CODE BEGIN###` and `###UPDATED CODE END###`. These markers **always** mean `main.py`, whatever file is ACTIVE.
+* **Any other file**: wrap the full file in `###UPDATED FILE BEGIN: <file name>###` and `###UPDATED FILE END###`, using the exact file name from the Editor Context.
+* **`requirements.txt`**: use `###UPDATED FILE BEGIN: requirements.txt###`.
+* Put a fenced code block with the correct language (`python`, `json`, `text`) **inside** each marker pair.
+* Emit one block per changed file. Do not emit a block for a file you did not change.
+
+Example: the user asks for a new API key setting **and** code that reads it:
+
+###UPDATED CODE BEGIN###
+```python
+# full main.py here
+```
+###UPDATED CODE END###
+
+###UPDATED FILE BEGIN: appsettings.json###
+```json
+{
+  "ConnectionStrings": {
+    "blobs": "",
+    "queues": "",
+    "tables": "",
+    "blazororchestratordb": ""
+  },
+  "WeatherApi": {
+    "ApiKey": ""
+  }
+}
+```
+###UPDATED FILE END###
+
+### Self-check before you respond
+
+* [ ] Is all Python code inside `###UPDATED CODE BEGIN###` (main.py) or a `.py` file block?
+* [ ] Did I avoid putting any code in a `.json` or `.txt` file?
+* [ ] Would every `.json` block pass a strict JSON parser?
+* [ ] Did I return complete files only for the files I changed?
 
 ## Python Dependencies
 
@@ -46,6 +125,32 @@ Do not change the code in Home.razor.
 * **Input:** `app_settings` is passed as a raw JSON string. You must parse this to retrieve connection strings (`blazororchestratordb` and `tables`).
 * **Environment:** The code runs in a Python environment where `pyodbc` (for SQL Server) and `azure.data.tables` (for Table Storage) may or may not be available. You must handle imports gracefully using `try-except` blocks.
 * **Logging:** Logs must be printed to `stdout` (for the UI console) and persisted to the database/table storage using the `JobLogger` helper class pattern shown in the reference implementation.
+
+## 1b. AppSettings Files
+
+A job has exactly these four configuration files, using the dotted naming convention:
+
+- `appsettings.json` — shared base
+- `appsettings.Development.json`
+- `appsettings.Staging.json`
+- `appsettings.Production.json`
+
+Never use `appsettingsProduction.json` or `appsettingsStaging.json`; those names are no longer recognised.
+
+Every appsettings file must be strictly valid JSON (see section 0). Leave the four reserved connection strings **blank** — the executing host always overwrites them:
+
+```json
+{
+  "ConnectionStrings": {
+    "blobs": "",
+    "queues": "",
+    "tables": "",
+    "blazororchestratordb": ""
+  }
+}
+```
+
+All other settings (API keys, feature flags, custom connection strings) are used exactly as packaged.
 
 ## 2. Reference Implementation
 

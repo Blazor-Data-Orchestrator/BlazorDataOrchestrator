@@ -7,6 +7,7 @@ using Microsoft.Extensions.AI;
 using System.ComponentModel;
 using Radzen.Blazor;
 using BlazorDataOrchestrator.Core.Services;
+using BlazorDataOrchestrator.Core.Services.AI;
 using BlazorDataOrchestrator.Core.Models;
 using CoreIAIChatService = BlazorDataOrchestrator.Core.Services.IAIChatService;
 using ConversationSession = BlazorDataOrchestrator.Core.Models.ConversationSession;
@@ -27,16 +28,16 @@ public class CopilotChatService : CoreIAIChatService, Radzen.IAIChatService
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<CopilotChatService> _logger;
-    private readonly EmbeddedInstructionsProvider _embeddedInstructionsProvider;
+    private readonly IInstructionsProvider _instructionsProvider;
     private readonly CopilotHealthService _copilotHealth;
 
-    // Editor state exposed to custom tools
-    private string _currentEditorCode = "";
-    private string _currentLanguage = "csharp";
-    private string _currentFileName = "Program.cs";
+    // Editor state exposed to custom tools and the prompt. Null until the page provides it.
+    private AIEditorContext? _editorContext;
     private string? _pendingCodeUpdate;
-    private string? _cachedInstructions;
-    private string? _cachedInstructionsLanguage;
+
+    // The job language each Copilot session was created with; a session's system prompt
+    // (and therefore its skill) is fixed at creation, so a language change needs a new session.
+    private readonly ConcurrentDictionary<string, string> _copilotSessionLanguages = new();
 
     private const string BaseSystemPrompt = @"You are a helpful code assistant specializing in Python and C# development. 
 You help developers with:
@@ -44,51 +45,57 @@ You help developers with:
 - Explaining programming concepts
 - Best practices and code optimization
 - Understanding libraries and frameworks
-Keep responses concise and focused on the code task at hand.";
+Keep responses concise and focused on the code task at hand.
+
+## Response Formatting Rules
+- When providing code snippets or examples, ALWAYS wrap them in markdown fenced code blocks using triple backticks with the language identifier (e.g. ```csharp or ```python).
+- When the response is a code update, you MUST surround the full PRIMARY code file with the markers ###UPDATED CODE BEGIN### and ###UPDATED CODE END### so the system can apply it.
+- Place the fenced code block INSIDE the markers.
+- NEVER return code outside of fenced code blocks.";
 
     public CopilotChatService(
         CopilotClient client,
         IConfiguration configuration,
         IWebHostEnvironment environment,
         ILogger<CopilotChatService> logger,
-        EmbeddedInstructionsProvider embeddedInstructionsProvider,
+        IInstructionsProvider instructionsProvider,
         CopilotHealthService copilotHealth)
     {
         _client = client;
         _configuration = configuration;
         _environment = environment;
         _logger = logger;
-        _embeddedInstructionsProvider = embeddedInstructionsProvider;
+        _instructionsProvider = instructionsProvider;
         _copilotHealth = copilotHealth;
+    }
+
+    private AIEditorContext EditorContext =>
+        _editorContext ?? AIEditorContext.ForSingleFile(GetSelectedLanguage(), "");
+
+    /// <summary>
+    /// Sets the editor context (active file, primary code file, available files) included in AI requests.
+    /// </summary>
+    public void SetEditorContext(AIEditorContext context)
+    {
+        _editorContext = context;
     }
 
     /// <summary>
     /// Sets the current code from the editor to be included in AI requests.
     /// </summary>
+    [Obsolete("Use SetEditorContext.")]
     public void SetCurrentEditorCode(string code)
     {
-        _currentEditorCode = code ?? "";
+        _editorContext = AIEditorContext.ForSingleFile(EditorContext.Language, code);
     }
 
     /// <summary>
     /// Sets the current programming language context.
     /// </summary>
+    [Obsolete("Use SetEditorContext.")]
     public void SetLanguage(string language)
     {
-        if (_cachedInstructionsLanguage != language)
-        {
-            _cachedInstructions = null;
-            _cachedInstructionsLanguage = language;
-        }
-        _currentLanguage = language ?? "csharp";
-    }
-
-    /// <summary>
-    /// Sets the current file name for tool context.
-    /// </summary>
-    public void SetCurrentFileName(string fileName)
-    {
-        _currentFileName = fileName ?? "Program.cs";
+        _editorContext = AIEditorContext.ForSingleFile(language, EditorContext.PrimaryCodeContent);
     }
 
     /// <summary>
@@ -117,122 +124,24 @@ Keep responses concise and focused on the code task at hand.";
     }
 
     /// <summary>
-    /// Loads the custom instructions for the selected language using a fallback chain:
-    /// 1. Local Resources/ folder (allows runtime overrides)
-    /// 2. EmbeddedInstructionsProvider (always available in the assembly)
-    /// 3. .github/skills/ relative path (development convenience)
+    /// Builds the system prompt: base rules, file targeting rules, and the project SKILL.md
+    /// (embedded in this assembly) for the current job language.
     /// </summary>
-    private async Task<string> GetLanguageInstructionsAsync()
+    internal string BuildSystemPrompt()
     {
-        var selectedLanguage = GetSelectedLanguage();
-
-        if (_cachedInstructions != null && _cachedInstructionsLanguage == selectedLanguage)
+        var language = EditorContext.Language;
+        var info = _instructionsProvider.GetInfo(language);
+        if (!info.Found || info.Length == 0)
         {
-            return _cachedInstructions;
+            _logger.LogWarning("No AI skill content for {Language}; the prompt contains base rules only.", language);
+        }
+        else
+        {
+            _logger.LogInformation("System prompt includes AI skill {Resource} ({Chars} chars, sha256 {Sha})",
+                info.ResourceName, info.Length, info.Sha256);
         }
 
-        string fileName = selectedLanguage switch
-        {
-            "python" => "python.instructions.md",
-            _ => "csharp.instructions.md"
-        };
-
-        // 1. Try local Resources folder under ContentRootPath (allows runtime overrides)
-        try
-        {
-            var localPath = Path.Combine(_environment.ContentRootPath, "Resources", fileName);
-            if (File.Exists(localPath))
-            {
-                _cachedInstructions = await File.ReadAllTextAsync(localPath);
-                _cachedInstructionsLanguage = selectedLanguage;
-                _logger.LogInformation("Loaded {Language} instructions from local Resources ({Lines} lines, {Chars} chars)",
-                    selectedLanguage,
-                    _cachedInstructions.Split('\n').Length,
-                    _cachedInstructions.Length);
-                return _cachedInstructions;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to read instructions from local Resources folder");
-        }
-
-        // 2. Try embedded resource (always available regardless of deployment layout)
-        try
-        {
-            var embedded = _embeddedInstructionsProvider.GetInstructionsForLanguage(selectedLanguage);
-            if (!string.IsNullOrWhiteSpace(embedded))
-            {
-                _cachedInstructions = embedded;
-                _cachedInstructionsLanguage = selectedLanguage;
-                _logger.LogInformation("Loaded {Language} instructions from embedded resources ({Lines} lines, {Chars} chars)",
-                    selectedLanguage,
-                    _cachedInstructions.Split('\n').Length,
-                    _cachedInstructions.Length);
-                return _cachedInstructions;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to read instructions from embedded resources");
-        }
-
-        // 3. Try .github/skills/ relative path (development convenience)
-        try
-        {
-            var githubPath = Path.Combine(_environment.ContentRootPath, "..", "..", ".github", "skills", fileName);
-            if (File.Exists(githubPath))
-            {
-                _cachedInstructions = await File.ReadAllTextAsync(githubPath);
-                _cachedInstructionsLanguage = selectedLanguage;
-                _logger.LogInformation("Loaded {Language} instructions from .github/skills ({Lines} lines, {Chars} chars)",
-                    selectedLanguage,
-                    _cachedInstructions.Split('\n').Length,
-                    _cachedInstructions.Length);
-                return _cachedInstructions;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to read instructions from .github/skills path");
-        }
-
-        // 4. Nothing found
-        _logger.LogWarning("No instructions found for {Language} in any location", selectedLanguage);
-        _cachedInstructions = "";
-        _cachedInstructionsLanguage = selectedLanguage;
-        return _cachedInstructions;
-    }
-
-    /// <summary>
-    /// Builds the dynamic system prompt with language-specific instructions.
-    /// </summary>
-    private async Task<string> BuildSystemPromptAsync(bool isNewSession)
-    {
-        var promptBuilder = new StringBuilder();
-        promptBuilder.AppendLine(BaseSystemPrompt);
-
-        if (isNewSession)
-        {
-            var instructions = await GetLanguageInstructionsAsync();
-            if (!string.IsNullOrWhiteSpace(instructions))
-            {
-                promptBuilder.AppendLine();
-                promptBuilder.AppendLine("## Custom Instructions for Code Generation");
-                promptBuilder.AppendLine(instructions);
-                _logger.LogInformation(
-                    "System prompt includes {Language} instructions ({Lines} lines, {Chars} chars)",
-                    _cachedInstructionsLanguage ?? "unknown",
-                    instructions.Split('\n').Length,
-                    instructions.Length);
-            }
-            else
-            {
-                _logger.LogWarning("New session created without language-specific instructions");
-            }
-        }
-
-        return promptBuilder.ToString();
+        return AIPromptComposer.Compose(BaseSystemPrompt, _instructionsProvider, language);
     }
 
     /// <summary>
@@ -243,20 +152,24 @@ Keep responses concise and focused on the code task at hand.";
         var getEditorCode = AIFunctionFactory.Create(
             ([Description("No parameters needed")] string? _ = null) =>
             {
+                var context = EditorContext;
                 return new
                 {
-                    code = _currentEditorCode,
-                    fileName = _currentFileName,
-                    language = _currentLanguage
+                    code = context.ActiveFileContent,
+                    fileName = context.ActiveFileName,
+                    language = context.Language,
+                    primaryCodeFileName = context.PrimaryCodeFileName,
+                    primaryCode = context.PrimaryCodeContent,
+                    files = context.AvailableFiles
                 };
             },
             "get_editor_code",
-            "Returns the current code open in the user's editor");
+            "Returns the file open in the user's editor (which may be a .json settings file) and the PRIMARY code file (main.cs or main.py) where job code belongs");
 
         var getSelectedLanguage = AIFunctionFactory.Create(
             ([Description("No parameters needed")] string? _ = null) =>
             {
-                return new { language = _currentLanguage };
+                return new { language = EditorContext.Language };
             },
             "get_selected_language",
             "Returns the currently selected programming language");
@@ -284,40 +197,61 @@ Keep responses concise and focused on the code task at hand.";
             "Lists available files in the current code folder");
 
         var applyCode = AIFunctionFactory.Create(
-            ([Description("The complete updated code to apply")] string code) =>
+            ([Description("The complete updated content of the PRIMARY code file (main.cs or main.py)")] string code) =>
             {
                 _pendingCodeUpdate = code;
-                return new { success = true };
+                return new { success = true, appliedTo = EditorContext.PrimaryCodeFileName };
             },
             "apply_code_to_editor",
-            "Applies updated code to the editor, replacing the current content");
+            "Replaces the PRIMARY code file (main.cs or main.py) with the complete updated code. Never use this for .json or other non-code files");
 
         return new List<AIFunction> { getEditorCode, getSelectedLanguage, getFileList, applyCode };
     }
 
     /// <summary>
-    /// Gets or creates a CopilotSession for the given session ID.
+    /// Gets or creates a CopilotSession for the given session ID. A session whose job language
+    /// differs from the current one is replaced so the matching SKILL.md is in its system prompt.
     /// </summary>
-    private async Task<CopilotSession> GetOrCreateCopilotSessionAsync(string sessionId, string systemPrompt)
+    private async Task<CopilotSession> GetOrCreateCopilotSessionAsync(string sessionId, Func<string> systemPromptFactory)
     {
+        var language = EditorContext.Language;
         if (_copilotSessions.TryGetValue(sessionId, out var existingSession))
         {
-            return existingSession;
+            if (!_copilotSessionLanguages.TryGetValue(sessionId, out var sessionLanguage) ||
+                string.Equals(sessionLanguage, language, StringComparison.OrdinalIgnoreCase))
+            {
+                return existingSession;
+            }
+
+            _logger.LogInformation("Job language changed from {Old} to {New}; starting a new Copilot session", sessionLanguage, language);
+            _copilotSessions.TryRemove(sessionId, out _);
+            try
+            {
+                await existingSession.DisposeAsync();
+                await _client.DeleteSessionAsync(sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error removing Copilot session {SessionId} after a language change", sessionId);
+            }
+        }
+        else
+        {
+            try
+            {
+                // Try to resume an existing session first
+                var session = await _client.ResumeSessionAsync(sessionId, new ResumeSessionConfig());
+                _copilotSessions[sessionId] = session;
+                _copilotSessionLanguages[sessionId] = language;
+                return session;
+            }
+            catch
+            {
+                // Session doesn't exist, create a new one
+            }
         }
 
         var model = _configuration.GetValue<string>("Copilot:Model") ?? "gpt-4.1";
-
-        try
-        {
-            // Try to resume an existing session first
-            var session = await _client.ResumeSessionAsync(sessionId, new ResumeSessionConfig());
-            _copilotSessions[sessionId] = session;
-            return session;
-        }
-        catch
-        {
-            // Session doesn't exist, create a new one
-        }
 
         var newSession = await _client.CreateSessionAsync(new SessionConfig
         {
@@ -327,7 +261,7 @@ Keep responses concise and focused on the code task at hand.";
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
-                Content = systemPrompt
+                Content = systemPromptFactory()
             },
             Tools = CreateTools().Cast<AIFunctionDeclaration>().ToList(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
@@ -335,6 +269,7 @@ Keep responses concise and focused on the code task at hand.";
         });
 
         _copilotSessions[sessionId] = newSession;
+        _copilotSessionLanguages[sessionId] = language;
         return newSession;
     }
 
@@ -396,19 +331,11 @@ Keep responses concise and focused on the code task at hand.";
                 return;
             }
 
-            // Build the prompt with editor context
-            var promptBuilder = new StringBuilder();
-            if (!string.IsNullOrWhiteSpace(_currentEditorCode))
-            {
-                promptBuilder.AppendLine("## Current Code in Editor:");
-                promptBuilder.AppendLine("```");
-                promptBuilder.AppendLine(_currentEditorCode);
-                promptBuilder.AppendLine("```");
-                promptBuilder.AppendLine();
-                promptBuilder.AppendLine("## User Request:");
-            }
-            promptBuilder.AppendLine(userInput);
-            var fullPrompt = promptBuilder.ToString();
+            // Build the prompt with the labeled editor context (active file vs. primary code file)
+            var context = EditorContext;
+            var fullPrompt = string.IsNullOrWhiteSpace(context.ActiveFileContent) && string.IsNullOrWhiteSpace(context.PrimaryCodeContent)
+                ? userInput
+                : EditorContextFormatter.Format(context, userInput);
 
             // Ensure the client is started
             bool clientConnected;
@@ -432,16 +359,15 @@ Keep responses concise and focused on the code task at hand.";
                 }
             }
 
-            // Build the system prompt
-            bool isNewSession = !session.Messages.Any(m => !m.IsUser);
-            var dynamicSystemPrompt = systemPrompt ?? await BuildSystemPromptAsync(isNewSession);
+            // The system prompt (with the SKILL.md) is only used when a Copilot session is created
+            Func<string> systemPromptFactory = () => systemPrompt ?? BuildSystemPrompt();
 
             CopilotSession copilotSession;
             try
             {
                 copilotSession = await GetOrCreateCopilotSessionAsync(
                     sessionId ?? session.Id,
-                    dynamicSystemPrompt);
+                    systemPromptFactory);
             }
             catch (Exception ex)
             {
@@ -569,6 +495,7 @@ Keep responses concise and focused on the code task at hand.";
         }
 
         // Also clean up the Copilot session
+        _copilotSessionLanguages.TryRemove(sessionId, out _);
         if (_copilotSessions.TryRemove(sessionId, out var copilotSession))
         {
             try
@@ -596,6 +523,7 @@ Keep responses concise and focused on the code task at hand.";
         foreach (var sid in oldSessions)
         {
             _sessions.TryRemove(sid, out _);
+            _copilotSessionLanguages.TryRemove(sid, out _);
             if (_copilotSessions.TryRemove(sid, out var copilotSession))
             {
                 try
@@ -622,6 +550,7 @@ Keep responses concise and focused on the code task at hand.";
             catch { }
         }
         _copilotSessions.Clear();
+        _copilotSessionLanguages.Clear();
     }
 
     // Explicit interface implementations for Radzen.IAIChatService

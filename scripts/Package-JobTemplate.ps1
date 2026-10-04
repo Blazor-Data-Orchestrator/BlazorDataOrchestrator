@@ -87,6 +87,19 @@ try {
         }
     }
 
+    # Stage the AI skill files so the extracted template can embed them without the repo's .github folder.
+    $skillsSource = Join-Path $PSScriptRoot '..\.github\skills'
+    foreach ($skill in @('coding-a-job-csharp', 'coding-a-job-python')) {
+        $skillSource = Join-Path $skillsSource "$skill\SKILL.md"
+        if (-not (Test-Path $skillSource)) {
+            throw "Missing AI skill file: $skillSource"
+        }
+        $skillDestDir = Join-Path $templateDir "Skills\$skill"
+        New-Item -ItemType Directory -Path $skillDestDir -Force | Out-Null
+        Copy-Item -LiteralPath $skillSource -Destination (Join-Path $skillDestDir 'SKILL.md') -Force
+        Write-Host "  Included Skills/$skill/SKILL.md"
+    }
+
     # Patch the ProjectReference in the staged .csproj so it resolves correctly
     # In the extracted layout the project is one level deeper (inside a subfolder of the output dir),
     # so the relative path to BlazorDataOrchestrator.Core needs an extra "../"

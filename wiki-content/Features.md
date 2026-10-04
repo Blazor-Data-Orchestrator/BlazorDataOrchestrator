@@ -81,8 +81,8 @@ See the [Online](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestra
 An AI-powered chat dialog assists you while writing job code in the online editor.
 
 - **Backend support** — Works with both OpenAI and Azure OpenAI endpoints, configured via the Administration settings.
-- **Context-aware** — The AI receives the current editor code as context, enabling targeted help and suggestions.
-- **Code block application** — AI responses containing code blocks can be applied directly to the editor with a single click.
+- **Context-aware** — The AI receives the open file and the job's main code file as labeled context, plus the project's coding skill (`SKILL.md`), enabling targeted help that follows the project rules.
+- **File-aware apply** — AI changes name their target file and are validated before they are applied: code always goes to `main.cs` / `main.py`, never into a `.json` file, and `.json` files must be strictly valid JSON.
 - **Streaming responses** — Responses stream in real-time for a responsive chat experience.
 
 ---

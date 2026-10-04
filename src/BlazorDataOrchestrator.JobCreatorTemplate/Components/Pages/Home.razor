@@ -10,6 +10,11 @@
 @using BlazorDataOrchestrator.Core
 @using BlazorDataOrchestrator.Core.Configuration
 @using BlazorDataOrchestrator.Core.Services
+@using BlazorDataOrchestrator.Core.Services.AI
+@using AIEditorContext = BlazorDataOrchestrator.Core.Models.AIEditorContext
+@using AIResponseParseResult = BlazorDataOrchestrator.Core.Models.AIResponseParseResult
+@using ProposedFileUpdate = BlazorDataOrchestrator.Core.Models.ProposedFileUpdate
+@using JobFileKind = BlazorDataOrchestrator.Core.Models.JobFileKind
 @using BlazorDataOrchestrator.JobCreatorTemplate.Services
 @using Microsoft.CodeAnalysis
 @using Microsoft.CodeAnalysis.CSharp
@@ -283,10 +288,9 @@
     private bool CanUndo => undoStack.Count > 0;
     private bool CanRedo => redoStack.Count > 0;
     
-    // Code extraction markers
-    private const string CodeBeginMarker = "###UPDATED CODE BEGIN###";
-    private const string CodeEndMarker = "###UPDATED CODE END###";
-    private string? _pendingCodeUpdate = null;
+    // AI file updates parsed from the last response, applied when the assistant message is added
+    private AIResponseParseResult? _pendingAIResult = null;
+    private AIEditorContext? _lastEditorContext = null;
 
     private List<LanguageOption> languageOptions = new List<LanguageOption>
     {
@@ -980,16 +984,61 @@ except Exception as e:
         isCallingAI = true;
         StateHasChanged();
         
-        // Update the ChatService with the current code from the editor before the AI processes the request
-        if (codeEditor != null)
+        // Give the AI the open file AND the primary code file, labeled, so a request to change code
+        // while appsettings.json is open is never written into appsettings.json.
+        var buffer = codeEditor != null ? await codeEditor.GetCodeAsync() ?? currentCode : currentCode;
+        _lastEditorContext = await BuildEditorContextAsync(buffer);
+        _pendingAIResult = null;
+        ChatService.SetEditorContext(_lastEditorContext);
+    }
+
+    /// <summary>
+    /// Builds the AI editor context from the open file (current editor buffer) and the files on disk.
+    /// </summary>
+    private async Task<AIEditorContext> BuildEditorContextAsync(string buffer)
+    {
+        var primary = AIEditorContext.GetPrimaryFileName(selectedLanguage);
+        var active = string.IsNullOrEmpty(selectedFile) ? primary : selectedFile;
+
+        var primaryContent = buffer;
+        if (!string.Equals(primary, active, StringComparison.OrdinalIgnoreCase))
         {
-            var code = await codeEditor.GetCodeAsync();
-            ChatService.SetCurrentEditorCode(code ?? "");
+            var primaryPath = Path.Combine(CurrentCodeFolderPath, primary);
+            primaryContent = File.Exists(primaryPath) ? await File.ReadAllTextAsync(primaryPath) : "";
         }
-        else
+
+        var files = fileList.ToList();
+        if (!files.Contains(primary, StringComparer.OrdinalIgnoreCase))
         {
-            ChatService.SetCurrentEditorCode(currentCode);
+            files.Insert(0, primary);
         }
+
+        var otherFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            if (string.Equals(file, active, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(file, primary, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var path = Path.Combine(CurrentCodeFolderPath, file);
+            if (File.Exists(path))
+            {
+                otherFiles[file] = await File.ReadAllTextAsync(path);
+            }
+        }
+
+        return new AIEditorContext
+        {
+            Language = selectedLanguage,
+            ActiveFileName = active,
+            ActiveFileContent = buffer ?? "",
+            PrimaryCodeFileName = primary,
+            PrimaryCodeContent = primaryContent ?? "",
+            AvailableFiles = files,
+            OtherFileContents = otherFiles
+        };
     }
     
     private async Task OnChatResponseReceived(string response)
@@ -997,25 +1046,23 @@ except Exception as e:
         // Hide the AI calling overlay
         isCallingAI = false;
         StateHasChanged();
-        
-        // Check if the response contains code markers
-        if (response.Contains(CodeBeginMarker) && response.Contains(CodeEndMarker))
-        {
-            // Extract the code between markers
-            var extractedCode = ExtractCodeFromResponse(response);
-            if (!string.IsNullOrEmpty(extractedCode))
-            {
-                _pendingCodeUpdate = extractedCode;
-            }
-        }
 
-        // Also check for tool-based code updates (apply_code_to_editor)
+        var context = _lastEditorContext ?? await BuildEditorContextAsync(currentCode);
+        // Updates are applied without a confirmation click here, so only explicitly marked
+        // blocks are used; a code snippet in an ordinary answer must never replace a file.
+        var result = AIResponseFileUpdateParser.Parse(response, context, allowFencedFallback: false);
+
+        // Tool-based updates (apply_code_to_editor) always target the primary code file
         var toolUpdate = ChatService.ConsumePendingCodeUpdate();
-        if (!string.IsNullOrEmpty(toolUpdate))
+        if (!string.IsNullOrEmpty(toolUpdate) &&
+            !result.Updates.Any(u => string.Equals(u.FileName, context.PrimaryCodeFileName, StringComparison.OrdinalIgnoreCase)))
         {
-            _pendingCodeUpdate = toolUpdate;
+            var validation = JobFileContentValidator.Validate(context.PrimaryCodeFileName, toolUpdate, context.PrimaryCodeContent, isPrimaryCodeFile: true);
+            var toolFileUpdate = new ProposedFileUpdate(context.PrimaryCodeFileName, toolUpdate, BlazorDataOrchestrator.Core.Models.FileUpdateSource.PrimaryCodeMarkers, validation);
+            result = result with { Updates = result.Updates.Prepend(toolFileUpdate).ToList() };
         }
 
+        _pendingAIResult = result.Updates.Count > 0 || result.Warnings.Count > 0 ? result : null;
         StateHasChanged();
     }
     
@@ -1024,22 +1071,20 @@ except Exception as e:
         // Only process assistant messages (not user messages)
         if (!message.IsUser && message.Content != null)
         {
-            // Check if message contains code markers and strip them
-            if (message.Content.Contains(CodeBeginMarker) || message.Content.Contains(CodeEndMarker))
-            {
-                message.Content = StripCodeMarkersFromMessage(message.Content);
-            }
+            var pending = _pendingAIResult;
+            _pendingAIResult = null;
+
+            // Replace the raw file blocks in the chat with a short summary of what was applied
+            message.Content = StripCodeMarkersFromMessage(message.Content, pending);
             
-            // Apply any pending code update to the editor
-            if (!string.IsNullOrEmpty(_pendingCodeUpdate))
+            // Apply any pending file updates
+            if (pending != null)
             {
-                var codeToApply = _pendingCodeUpdate;
-                _pendingCodeUpdate = null;
                 _ = InvokeAsync(async () =>
                 {
                     try
                     {
-                        await ApplyCodeUpdateAsync(codeToApply);
+                        await ApplyAIFileUpdatesAsync(pending);
                     }
                     catch (Exception ex)
                     {
@@ -1051,64 +1096,139 @@ except Exception as e:
         }
     }
     
-    private string? ExtractCodeFromResponse(string response)
+    /// <summary>
+    /// Removes the UPDATED CODE / UPDATED FILE / NUSPEC blocks from a chat message and adds a summary
+    /// of which files were applied or rejected.
+    /// </summary>
+    private static string StripCodeMarkersFromMessage(string content, AIResponseParseResult? result)
     {
         try
         {
-            var beginIndex = response.IndexOf(CodeBeginMarker);
-            var endIndex = response.IndexOf(CodeEndMarker);
-            
-            if (beginIndex >= 0 && endIndex > beginIndex)
+            var stripped = Regex.Replace(content,
+                @"###(UPDATED CODE BEGIN|UPDATED FILE BEGIN:[^#\r\n]*|NUSPEC BEGIN)###.*?###(UPDATED CODE END|UPDATED FILE END|NUSPEC END)###",
+                string.Empty, RegexOptions.Singleline);
+            if (stripped == content && result is null)
             {
-                var codeStart = beginIndex + CodeBeginMarker.Length;
-                var code = response.Substring(codeStart, endIndex - codeStart).Trim();
-                
-                // Remove markdown code block markers if present
-                code = Regex.Replace(code, @"^```[\w]*\n?", "", RegexOptions.Multiline);
-                code = Regex.Replace(code, @"\n?```$", "", RegexOptions.Multiline);
-                
-                return code.Trim();
+                return content;
             }
-        }
-        catch (Exception ex)
-        {
-            logOutput += $"[{DateTime.Now:HH:mm:ss}] Error extracting code from response: {ex.Message}\n";
-        }
-        return null;
-    }
-    
-    private string StripCodeMarkersFromMessage(string content)
-    {
-        try
-        {
-            var beginIndex = content.IndexOf(CodeBeginMarker);
-            var endIndex = content.IndexOf(CodeEndMarker);
-            
-            if (beginIndex >= 0 && endIndex > beginIndex)
+
+            var summary = new System.Text.StringBuilder(stripped.Trim());
+            if (result != null)
             {
-                // Remove the code block between markers (including markers)
-                var beforeCode = content.Substring(0, beginIndex).TrimEnd();
-                var afterCode = content.Substring(endIndex + CodeEndMarker.Length).TrimStart();
-                
-                // Add a note that code was applied
-                var result = beforeCode;
-                if (!string.IsNullOrEmpty(result))
+                var valid = result.ValidUpdates.Where(u => JobFileTypes.GetKind(u.FileName) != JobFileKind.Nuspec).ToList();
+                if (valid.Count > 0)
                 {
-                    result += "\n\n";
+                    if (summary.Length > 0) summary.Append("\n\n");
+                    summary.Append($"✅ **Changes applied to: {string.Join(", ", valid.Select(u => u.FileName))}.**");
                 }
-                result += "✅ **Code has been applied to the editor.**";
-                if (!string.IsNullOrEmpty(afterCode))
+                foreach (var invalid in result.InvalidUpdates)
                 {
-                    result += "\n\n" + afterCode;
+                    if (summary.Length > 0) summary.Append("\n\n");
+                    summary.Append($"⚠️ **Not applied to {invalid.FileName}:** {string.Join(" ", invalid.Validation.Errors)}");
                 }
-                return result;
+                foreach (var warning in result.Warnings)
+                {
+                    if (summary.Length > 0) summary.Append("\n\n");
+                    summary.Append($"⚠️ {warning}");
+                }
             }
+            return summary.ToString();
         }
         catch
         {
             // Return original content if parsing fails
+            return content;
         }
-        return content;
+    }
+
+    /// <summary>
+    /// Applies validated AI file updates. The primary code file (or the open file) is updated in the
+    /// editor so the user can review and save it; other files are written to disk. When the primary
+    /// code file changes while another file is open, the editor switches to the primary code file.
+    /// </summary>
+    private async Task ApplyAIFileUpdatesAsync(AIResponseParseResult result)
+    {
+        foreach (var invalid in result.InvalidUpdates)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] AI update for {invalid.FileName} was NOT applied: {string.Join(" ", invalid.Validation.Errors)}\n";
+        }
+        foreach (var warning in result.Warnings)
+        {
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] AI warning: {warning}\n";
+        }
+
+        var updates = new List<ProposedFileUpdate>();
+        foreach (var update in result.ValidUpdates)
+        {
+            if (JobFileTypes.GetKind(update.FileName) == JobFileKind.Nuspec)
+            {
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Ignored the .nuspec block; NuGet packages are read from the // NUGET: headers in main.cs.\n";
+                continue;
+            }
+            updates.Add(update);
+        }
+
+        if (updates.Count == 0)
+        {
+            if (!_disposed) StateHasChanged();
+            return;
+        }
+
+        var primary = AIEditorContext.GetPrimaryFileName(selectedLanguage);
+        var editorTarget = updates.FirstOrDefault(u => string.Equals(u.FileName, primary, StringComparison.OrdinalIgnoreCase))
+            ?? updates.FirstOrDefault(u => string.Equals(u.FileName, selectedFile, StringComparison.OrdinalIgnoreCase));
+        var needsSwitch = editorTarget != null && !string.Equals(editorTarget.FileName, selectedFile, StringComparison.OrdinalIgnoreCase);
+
+        // Before switching away from the open file, keep its unsaved edits (unless the AI is replacing it)
+        if (needsSwitch && codeEditor != null && !string.IsNullOrEmpty(selectedFile) &&
+            !updates.Any(u => string.Equals(u.FileName, selectedFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            var openPath = Path.Combine(CurrentCodeFolderPath, selectedFile);
+            var buffer = await codeEditor.GetCodeAsync() ?? "";
+            var onDisk = File.Exists(openPath) ? await File.ReadAllTextAsync(openPath) : "";
+            if (buffer != onDisk)
+            {
+                var bufferValidation = JobFileContentValidator.Validate(selectedFile, buffer, onDisk);
+                if (!bufferValidation.IsValid)
+                {
+                    logOutput += $"[{DateTime.Now:HH:mm:ss}] AI changes were not applied: {selectedFile} has unsaved changes that are invalid ({string.Join(" ", bufferValidation.Errors)}). Fix or reload {selectedFile}, then ask again.\n";
+                    if (!_disposed) StateHasChanged();
+                    return;
+                }
+
+                await File.WriteAllTextAsync(openPath, buffer);
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Saved your unsaved changes to {selectedFile} before switching files.\n";
+            }
+        }
+
+        // Files other than the editor target are complete, validated replacements written straight to disk
+        foreach (var update in updates.Where(u => !ReferenceEquals(u, editorTarget)))
+        {
+            var fileName = Path.GetFileName(update.FileName);
+            await File.WriteAllTextAsync(Path.Combine(CurrentCodeFolderPath, fileName), update.Content);
+            if (!fileList.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+            {
+                fileList.Add(fileName);
+            }
+            logOutput += $"[{DateTime.Now:HH:mm:ss}] AI updated {fileName} on disk.\n";
+        }
+
+        if (editorTarget != null)
+        {
+            if (needsSwitch)
+            {
+                var previous = selectedFile;
+                selectedFile = editorTarget.FileName;
+                await LoadFileContent(editorTarget.FileName);
+                logOutput += $"[{DateTime.Now:HH:mm:ss}] Switched the editor from {previous} to {editorTarget.FileName} to apply the AI code changes.\n";
+            }
+
+            await ApplyCodeUpdateAsync(editorTarget.Content);
+        }
+        else if (!_disposed)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
     }
     
     private async Task ApplyCodeUpdateAsync(string code)
@@ -1740,10 +1860,9 @@ except Exception as e:
                          $"**Current Code ({selectedFile}):**\n```{(selectedLanguage == "python" ? "python" : "csharp")}\n{code}\n```\n\n" +
                          $"Please provide the corrected code.";
 
-            // Update the chat context with the current code
-            ChatService.SetCurrentEditorCode(code);
-            ChatService.SetLanguage(selectedLanguage);
-            ChatService.SetCurrentFileName(selectedFile ?? "main.cs");
+            // Update the chat context with the open file and the primary code file
+            _lastEditorContext = await BuildEditorContextAsync(code);
+            ChatService.SetEditorContext(_lastEditorContext);
 
             // Send to Copilot and collect response
             var responseBuilder = new System.Text.StringBuilder();
