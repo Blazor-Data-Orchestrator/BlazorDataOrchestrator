@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using OpenAI;
 using Azure.AI.OpenAI;
 using BlazorDataOrchestrator.Core.Models;
+using BlazorDataOrchestrator.Core.Services.AI;
 using BlazorDataOrchestrator.Core.Services.Foundry;
 
 // Use aliases to avoid ambiguity
@@ -31,8 +32,7 @@ public class CodeAssistantChatService : IAIChatService
     private string? _clientCreationError;
     private bool _suppressTemperature;
     private bool _suppressTools;
-    private string _currentEditorCode = "";
-    private string _currentLanguage = "csharp";
+    private AIEditorContext _editorContext = AIEditorContext.ForSingleFile("csharp", "");
     
     private const string BaseSystemPrompt = @"You are a helpful code assistant specializing in Python and C# development. 
 You help developers with:
@@ -44,7 +44,7 @@ Keep responses concise and focused on the code task at hand.
 
 ## Response Formatting Rules
 - When providing code snippets or examples, ALWAYS wrap them in markdown fenced code blocks using triple backticks with the language identifier (e.g. ```csharp or ```python).
-- When the response is a code update or a complete/modified version of the user's code, you MUST surround the full code with the markers ###UPDATED CODE BEGIN### and ###UPDATED CODE END### so the system can offer an 'Apply to Editor' action.
+- When the response is a code update or a complete/modified version of the user's code, you MUST surround the full PRIMARY code file with the markers ###UPDATED CODE BEGIN### and ###UPDATED CODE END### so the system can offer an 'Apply to Editor' action.
 - Place the fenced code block INSIDE the markers. Example:
 ###UPDATED CODE BEGIN###
 ```csharp
@@ -66,41 +66,63 @@ Keep responses concise and focused on the code task at hand.
     }
     
     /// <summary>
+    /// Sets the editor context (active file, primary code file, available files) included in AI requests.
+    /// </summary>
+    public void SetEditorContext(AIEditorContext context)
+    {
+        _editorContext = context ?? AIEditorContext.ForSingleFile("csharp", "");
+    }
+
+    /// <summary>
+    /// The current editor context. Exposed for tests and diagnostics.
+    /// </summary>
+    internal AIEditorContext EditorContext => _editorContext;
+    
+    /// <summary>
     /// Sets the current code from the editor to be included in AI requests.
     /// </summary>
+    [Obsolete("Use SetEditorContext.")]
     public void SetCurrentEditorCode(string code)
     {
-        _currentEditorCode = code ?? "";
+        _editorContext = AIEditorContext.ForSingleFile(_editorContext.Language, code);
     }
     
     /// <summary>
     /// Sets the current programming language context.
     /// </summary>
+    [Obsolete("Use SetEditorContext.")]
     public void SetLanguage(string language)
     {
-        _currentLanguage = language ?? "csharp";
+        _editorContext = AIEditorContext.ForSingleFile(language ?? "csharp", _editorContext.PrimaryCodeContent);
     }
     
     /// <summary>
-    /// Builds the dynamic system prompt with language-specific instructions.
+    /// Builds the system prompt: base rules, file targeting rules, and the project SKILL.md for the current language.
     /// </summary>
-    private string BuildSystemPrompt(bool isNewSession)
+    internal string BuildSystemPrompt()
     {
-        var promptBuilder = new System.Text.StringBuilder();
-        promptBuilder.AppendLine(BaseSystemPrompt);
-        
-        // Always include language-specific instructions so the AI consistently
-        // follows the code markers convention and project-specific constraints.
-        var instructions = _instructionsProvider.GetInstructionsForLanguage(_currentLanguage);
-        if (!string.IsNullOrWhiteSpace(instructions))
+        var info = _instructionsProvider.GetInfo(_editorContext.Language);
+        if (!info.Found || info.Length == 0)
         {
-            promptBuilder.AppendLine();
-            promptBuilder.AppendLine("## Custom Instructions for Code Generation");
-            promptBuilder.AppendLine(instructions);
+            _logger?.LogWarning("No AI skill content for {Language}; the prompt contains base rules only.", _editorContext.Language);
         }
-        
-        return promptBuilder.ToString();
+        else
+        {
+            _logger?.LogDebug("Using AI skill {Resource} (sha256 {Sha})", info.ResourceName, info.Sha256);
+        }
+
+        return AIPromptComposer.Compose(BaseSystemPrompt, _instructionsProvider, _editorContext);
     }
+
+    private bool HasEditorContent() =>
+        !string.IsNullOrWhiteSpace(_editorContext.ActiveFileContent) ||
+        !string.IsNullOrWhiteSpace(_editorContext.PrimaryCodeContent);
+
+    /// <summary>
+    /// Prefixes the user's request with the labeled editor context (active file, primary code file, nuspec).
+    /// </summary>
+    internal string BuildUserMessageWithContext(string userRequest) =>
+        EditorContextFormatter.Format(_editorContext, userRequest);
 
     private async Task<IChatClient?> GetOrCreateChatClientAsync()
     {
@@ -226,11 +248,8 @@ Keep responses concise and focused on the code task at hand.
         
         try
         {
-            // Determine if this is a new session (no previous AI responses)
-            bool isNewSession = !session.Messages.Any(m => !m.IsUser);
-            
             // Build conversation history for context
-            var dynamicSystemPrompt = systemPrompt ?? BuildSystemPrompt(isNewSession);
+            var dynamicSystemPrompt = systemPrompt ?? BuildSystemPrompt();
             var messages = new List<Microsoft.Extensions.AI.ChatMessage>
             {
                 new(ChatRole.System, dynamicSystemPrompt)
@@ -243,17 +262,10 @@ Keep responses concise and focused on the code task at hand.
             {
                 var msg = recentMessages[i];
                 
-                // For the most recent user message, prepend the current editor code as context
-                if (msg.IsUser && i == recentMessages.Count - 1 && !string.IsNullOrWhiteSpace(_currentEditorCode))
+                // For the most recent user message, prepend the labeled editor context
+                if (msg.IsUser && i == recentMessages.Count - 1 && HasEditorContent())
                 {
-                    var contentWithCode = $@"## Current Code in Editor:
-```
-{_currentEditorCode}
-```
-
-## User Request:
-{msg.Content}";
-                    messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, contentWithCode));
+                    messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, BuildUserMessageWithContext(msg.Content)));
                 }
                 else
                 {

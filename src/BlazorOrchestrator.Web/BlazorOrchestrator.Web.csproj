@@ -14,11 +14,32 @@
     <JobTemplateScript>$(MSBuildProjectDirectory)\..\..\scripts\Package-JobTemplate.ps1</JobTemplateScript>
     <JobTemplatePowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</JobTemplatePowerShell>
     <JobTemplatePowerShell Condition="'$(JobTemplatePowerShell)' == ''">pwsh</JobTemplatePowerShell>
+    <!-- Single source of truth for the AI Code Assistant instructions. -->
+    <AISkillsRoot>$(MSBuildProjectDirectory)\..\..\.github\skills</AISkillsRoot>
   </PropertyGroup>
+
+  <!-- Embed the SKILL.md files so the AI Code Assistant injects them into its system prompt.
+       They are embedded here rather than in Core because the Agent Dockerfile builds Core from
+       the src/ context, which cannot see the repo's .github folder. -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(AISkillsRoot)\coding-a-job-csharp\SKILL.md"
+                      LogicalName="Skills/coding-a-job-csharp/SKILL.md"
+                      Link="Skills\coding-a-job-csharp\SKILL.md" />
+    <EmbeddedResource Include="$(AISkillsRoot)\coding-a-job-python\SKILL.md"
+                      LogicalName="Skills/coding-a-job-python/SKILL.md"
+                      Link="Skills\coding-a-job-python\SKILL.md" />
+  </ItemGroup>
+  <Target Name="EnsureAISkillFiles" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(AISkillsRoot)\coding-a-job-csharp\SKILL.md')"
+           Text="Missing AI skill file: $(AISkillsRoot)\coding-a-job-csharp\SKILL.md" />
+    <Error Condition="!Exists('$(AISkillsRoot)\coding-a-job-python\SKILL.md')"
+           Text="Missing AI skill file: $(AISkillsRoot)\coding-a-job-python\SKILL.md" />
+  </Target>
   <ItemGroup>
     <JobTemplateInputs Include="$(JobTemplateSourceDir)\**\*.*" Exclude="$(JobTemplateSourceDir)\bin\**;$(JobTemplateSourceDir)\obj\**;$(JobTemplateSourceDir)\.vs\**;$(JobTemplateSourceDir)\Properties\**;$(JobTemplateSourceDir)\**\*.csproj.user;$(JobTemplateSourceDir)\**\*.suo;$(JobTemplateSourceDir)\execution_errors.log;$(JobTemplateSourceDir)\Code\**\__pycache__\**" />
     <JobTemplateInputs Include="$(MSBuildProjectDirectory)\JobTemplate\JobCreatorTemplate.slnx.template" />
     <JobTemplateInputs Include="$(JobTemplateScript)" />
+    <JobTemplateInputs Include="$(AISkillsRoot)\**\SKILL.md" />
   </ItemGroup>
   <Target Name="PackageJobTemplate" BeforeTargets="BeforeBuild">
     <PropertyGroup>

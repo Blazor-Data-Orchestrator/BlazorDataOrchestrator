@@ -24,4 +24,14 @@
     <ProjectReference Include="..\BlazorOrchestrator.Testing\BlazorOrchestrator.Testing.csproj" />
   </ItemGroup>
 
+  <!-- The real AI skill files, embedded the same way the host projects embed them. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\.github\skills\coding-a-job-csharp\SKILL.md"
+                      LogicalName="Skills/coding-a-job-csharp/SKILL.md"
+                      Link="Skills\coding-a-job-csharp\SKILL.md" />
+    <EmbeddedResource Include="..\..\.github\skills\coding-a-job-python\SKILL.md"
+                      LogicalName="Skills/coding-a-job-python/SKILL.md"
+                      Link="Skills\coding-a-job-python\SKILL.md" />
+  </ItemGroup>
+
 </Project>

@@ -1,9 +1,88 @@
+---
+name: coding-a-job-csharp
+description: Rules for writing Blazor Data Orchestrator C# jobs (main.cs, appsettings files, .nuspec), including file targeting and strict JSON rules.
+---
+
+<!-- This file is injected verbatim into the web AI Code Assistant and the JobCreatorTemplate AI chat. Keep it accurate; contradictions here become AI bugs. -->
+
 # Blazor Data Orchestrator C# Instructions
 
 You are an AI assistant helping to write code for the **Blazor Data Orchestrator**. When generating code, you must strictly adhere to the project structure, configuration settings, and method signatures defined below.
 
+## 0. File Targeting and File-Type Rules (READ FIRST)
+
+Every request includes an **Editor Context** that lists the job's files and marks:
+
+* the **ACTIVE file**: the file currently open in the editor, and
+* the **PRIMARY code file**: `main.cs`, where all C# job code lives.
+
+The ACTIVE file is **not** automatically the file you should change. Decide the target from the user's request.
+
+### Where each kind of content belongs
+
+| Content | Allowed file(s) |
+|---|---|
+| C# code (classes, methods, `using` directives, `// NUGET:` headers) | `main.cs` (or another `.cs` file listed in the Editor Context) |
+| Runtime configuration (connection strings, API keys, feature flags) | `appsettings.json`, `appsettings.Development.json`, `appsettings.Staging.json`, `appsettings.Production.json` |
+| NuGet package manifest | the `.nuspec` file listed in the Editor Context |
+
+### Hard rules
+
+1. **NEVER** write C# code, or code of any kind, into a `.json`, `.nuspec`, or `.txt` file.
+2. If the user asks to change code, logic, behavior, error handling, logging, or packages, change **`main.cs`**, even when the ACTIVE file is a `.json` file.
+3. Change a `.json` file **only** when the user explicitly asks to change settings or configuration.
+4. Every `.json` file you output **must be strictly valid JSON (RFC 8259)**:
+   * a single root object `{ ... }`
+   * property names and string values in **double quotes**
+   * **no** comments (`//` or `/* */`)
+   * **no** trailing commas
+   * **no** code, markdown, or ellipses (`...`)
+   * escape backslashes and quotes inside strings (`"C:\\temp"`, `"say \"hi\""`)
+5. In appsettings files, keep the reserved connection strings `blobs`, `queues`, `tables`, and `blazororchestratordb` **present and blank** (`""`). Never delete them.
+6. Start from the current content of the file shown in the Editor Context and keep every existing setting and line unless the user asked to remove it. Always return the **complete** content of every file you change. Never return a diff, a fragment, or placeholders such as `// ... existing code ...`.
+7. Only use file names that appear in the Editor Context. Do not invent new files.
+
+### Output format
+
+* **C# code for `main.cs`**: wrap the full file in `###UPDATED CODE BEGIN###` and `###UPDATED CODE END###`. These markers **always** mean `main.cs`, whatever file is ACTIVE.
+* **Any other file**: wrap the full file in `###UPDATED FILE BEGIN: <file name>###` and `###UPDATED FILE END###`, using the exact file name from the Editor Context.
+* **`.nuspec`**: use `###NUSPEC BEGIN###` and `###NUSPEC END###` as described in section 1b.
+* Put a fenced code block with the correct language (`csharp`, `json`, `xml`) **inside** each marker pair.
+* Emit one block per changed file. Do not emit a block for a file you did not change.
+
+Example: the user asks for a new API key setting **and** code that reads it:
+
+###UPDATED CODE BEGIN###
+```csharp
+// full main.cs here
+```
+###UPDATED CODE END###
+
+###UPDATED FILE BEGIN: appsettings.json###
+```json
+{
+  "ConnectionStrings": {
+    "blobs": "",
+    "queues": "",
+    "tables": "",
+    "blazororchestratordb": ""
+  },
+  "WeatherApi": {
+    "ApiKey": ""
+  }
+}
+```
+###UPDATED FILE END###
+
+### Self-check before you respond
+
+* [ ] Is all C# code inside `###UPDATED CODE BEGIN###` (main.cs) or a `.cs` file block?
+* [ ] Did I avoid putting any code in a `.json` file?
+* [ ] Would every `.json` block pass a strict JSON parser?
+* [ ] Did I return complete files only for the files I changed?
+
 ## 1. NuGet Dependencies
-If your solution requires 3rd party libraries (NuGet packages), you MUST indicate them at the very top of the file using the syntax `// REQUIRES NUGET: <PackageId>, <Version>`.
+If your solution requires 3rd party libraries (NuGet packages), you MUST indicate them at the very top of `main.cs` using the syntax `// NUGET: <PackageId>, <Version>`.
 
 * **Do not** assume packages are pre-installed.
 * **Always** specify a stable version.
@@ -115,6 +194,32 @@ Declare `Microsoft.EntityFrameworkCore` and `Microsoft.EntityFrameworkCore.SqlSe
 * The code receives `appSettings` as a raw JSON string. You must parse this to retrieve connection strings.
 * You should assume the presence of `BlazorDataOrchestrator.Core` and `Microsoft.EntityFrameworkCore` namespaces.
 
+## 2b. AppSettings Files
+
+A job has exactly these four configuration files, using the dotted naming convention:
+
+- `appsettings.json` — shared base
+- `appsettings.Development.json`
+- `appsettings.Staging.json`
+- `appsettings.Production.json`
+
+Never use `appsettingsProduction.json` or `appsettingsStaging.json`; those names are no longer recognised.
+
+Every appsettings file must be strictly valid JSON (see section 0). Leave the four reserved connection strings **blank** — the executing host always overwrites them:
+
+```json
+{
+  "ConnectionStrings": {
+    "blobs": "",
+    "queues": "",
+    "tables": "",
+    "blazororchestratordb": ""
+  }
+}
+```
+
+All other settings (API keys, feature flags, custom connection strings) are used exactly as packaged.
+
 ## 3. Reference Implementation
 
 ### Valid C# Code Example
@@ -133,7 +238,7 @@ using BlazorDataOrchestrator.Core.Data;
 
 public class BlazorDataOrchestratorJob
 {
-    public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId)
+    public static async Task<List<string>> ExecuteJob(string appSettings, int jobAgentId, int jobId, int jobInstanceId, int jobScheduleId, string webAPIParameter)
     {
         // List to collect log messages
         var logs = new List<string>();
@@ -370,7 +475,7 @@ private async Task OnRunCode(RadzenSplitButtonItem? item)
         logOutput += $"[{DateTime.Now:HH:mm:ss}] Code retrieved ({currentCode?.Length ?? 0} characters)\n";
 
         // 1. Get AppSettings
-        string appSettingsFileName = environment == "Production" ? "appsettingsProduction.json" : "appsettings.json";
+        string appSettingsFileName = JobEnvironments.GetFileName(environment); // e.g. appsettings.Production.json
         string appSettingsContent = "{}";
         string appSettingsFile = Path.Combine(Environment.ContentRootPath, appSettingsFileName);
         
@@ -447,7 +552,7 @@ private async Task OnRunCode(RadzenSplitButtonItem? item)
             if (selectedLanguage == "csharp")
             {
                 logOutput += $"[{DateTime.Now:HH:mm:ss}] Executing ExecuteJob...\n";
-                results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1);
+                results = await BlazorDataOrchestratorJob.ExecuteJob(appSettingsContent, -1, -1, currentJobInstanceId, -1, "");
             }
             else if (selectedLanguage == "python")
             {

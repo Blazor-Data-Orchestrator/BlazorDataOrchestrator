@@ -68,8 +68,11 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
             // Register Copilot Cookie Service for persisting user preferences
             builder.Services.AddScoped<CopilotCookieService>();
             
-            // Register EmbeddedInstructionsProvider for AI instruction fallback
-            builder.Services.AddSingleton<EmbeddedInstructionsProvider>();
+            // AI skill instructions (SKILL.md embedded in this assembly)
+            builder.Services.AddSingleton<IInstructionsProvider>(sp =>
+                new SkillInstructionsProvider(
+                    typeof(Program).Assembly,
+                    sp.GetService<ILogger<SkillInstructionsProvider>>()));
             
             // Register NuGet Package Service
             builder.Services.AddScoped<NuGetPackageService>();
@@ -132,27 +135,15 @@ namespace BlazorDataOrchestrator.JobCreatorTemplate
                 }
             }
 
-            // Log instruction file availability at startup
-            var instructionsProvider = app.Services.GetRequiredService<EmbeddedInstructionsProvider>();
-            var csharpInstructions = instructionsProvider.GetCSharpInstructions();
-            var pythonInstructions = instructionsProvider.GetPythonInstructions();
-            if (!string.IsNullOrWhiteSpace(csharpInstructions))
+            // Log AI skill availability at startup
+            var instructionsProvider = app.Services.GetRequiredService<IInstructionsProvider>();
+            foreach (var skillLanguage in new[] { "csharp", "python" })
             {
-                logger.LogInformation("Loaded C# instructions ({Lines} lines, {Chars} chars)",
-                    csharpInstructions.Split('\n').Length, csharpInstructions.Length);
-            }
-            else
-            {
-                logger.LogWarning("C# instructions file is missing or empty");
-            }
-            if (!string.IsNullOrWhiteSpace(pythonInstructions))
-            {
-                logger.LogInformation("Loaded Python instructions ({Lines} lines, {Chars} chars)",
-                    pythonInstructions.Split('\n').Length, pythonInstructions.Length);
-            }
-            else
-            {
-                logger.LogWarning("Python instructions file is missing or empty");
+                var info = instructionsProvider.GetInfo(skillLanguage);
+                if (!info.Found || info.Length == 0)
+                {
+                    logger.LogWarning("AI skill {Resource} is missing or empty", info.ResourceName);
+                }
             }
 
             // Ensure cleanup on shutdown

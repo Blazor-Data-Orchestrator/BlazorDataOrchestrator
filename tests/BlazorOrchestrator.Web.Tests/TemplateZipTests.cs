@@ -75,6 +75,31 @@ public class TemplateZipTests
         Assert.Contains(archive.Entries, e => e.FullName == EntryRoot + "BlazorDataOrchestrator.JobCreatorTemplate.csproj");
     }
 
+    [Theory(DisplayName = "The template zip stages the current SKILL.md files for the AI chat")]
+    [Trait("Category", "Contract")]
+    [InlineData("coding-a-job-csharp")]
+    [InlineData("coding-a-job-python")]
+    public void TemplateZip_ContainsCurrentSkillFiles(string skill)
+    {
+        using var archive = ZipFile.OpenRead(TemplateZip);
+        var entry = archive.GetEntry($"{EntryRoot}Skills/{skill}/SKILL.md");
+        Assert.NotNull(entry);
+
+        using var stream = entry!.Open();
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        var onDisk = File.ReadAllBytes(Path.Combine(RepoPaths.Root, ".github", "skills", skill, "SKILL.md"));
+        Assert.True(onDisk.AsSpan().SequenceEqual(buffer.ToArray()), $"Template zip is stale: Skills/{skill}/SKILL.md differs from .github/skills.");
+    }
+
+    [Fact(DisplayName = "The template zip has no stale *.instructions.md copies")]
+    [Trait("Category", "Contract")]
+    public void TemplateZip_ContainsNoInstructionsMd()
+    {
+        using var archive = ZipFile.OpenRead(TemplateZip);
+        Assert.DoesNotContain(archive.Entries, e => e.FullName.EndsWith(".instructions.md", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact(DisplayName = "S5: the template's Development settings use the dedicated Azurite ports")]
     [Trait("Category", "Contract")]
     public void TemplateDevSettings_UseDedicatedAzuritePorts()

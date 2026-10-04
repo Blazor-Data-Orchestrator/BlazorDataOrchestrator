@@ -3,6 +3,10 @@
 @using BlazorOrchestrator.Web.Components.Pages.Dialogs
 @using BlazorDataOrchestrator.Core
 @using BlazorDataOrchestrator.Core.Configuration
+@using BlazorDataOrchestrator.Core.Services.AI
+@using AIEditorContext = BlazorDataOrchestrator.Core.Models.AIEditorContext
+@using ProposedFileUpdate = BlazorDataOrchestrator.Core.Models.ProposedFileUpdate
+@using JobFileKind = BlazorDataOrchestrator.Core.Models.JobFileKind
 @using System.Text.RegularExpressions
 @using System.IO.Compression
 @using Radzen
@@ -474,14 +478,12 @@ Content-Type: application/json
 }
 
 @* AI Chat Dialog *@
-@if (showAIChatDialog)
+@if (showAIChatDialog && aiEditorContext != null)
 {
-    <AIChatDialog CurrentCode="@currentJobCode"
-                  NuspecContent="@GetCurrentNuspecContent()"
-                  Language="@codeLanguage"
+    <AIChatDialog EditorContext="@aiEditorContext"
                   InitialPrompt="@aiChatInitialPrompt"
                   OnClose="@CloseAIChatDialog"
-                  OnCodeApply="@OnAICodeApplied" />
+                  OnFileUpdatesApply="@OnAIFileUpdatesApplied" />
 }
 
 @code {
@@ -559,6 +561,7 @@ Content-Type: application/json
     // AI Chat Dialog State
     private bool showAIChatDialog = false;
     private string? aiChatInitialPrompt;
+    private AIEditorContext? aiEditorContext;
 
     // Code Change History State
     private List<BlazorOrchestrator.Web.Data.Data.JobCodeChangeLog> changeHistory = new();
@@ -1424,35 +1427,7 @@ Content-Type: application/json
         if (string.IsNullOrEmpty(selectedCodeFile)) return;
         
         // Save current code before switching
-        if (jobCodeEditor != null && !string.IsNullOrEmpty(previousSelectedFile))
-        {
-            var code = await jobCodeEditor.GetCodeAsync();
-            
-            // Save to loadedCodeModel if available
-            if (loadedCodeModel != null)
-            {
-                CodeEditorService.SetFileContent(loadedCodeModel, previousSelectedFile, code);
-            }
-            
-            // Also save to file storage
-            FileStorage.SetFile(JobId, previousSelectedFile, code);
-            
-            // If the previous file was a .nuspec, re-parse dependencies
-            if (previousSelectedFile?.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                var parsedDependencies = CodeEditorService.ParseNuSpecDependencies(code);
-                FileStorage.SetDependencies(JobId, parsedDependencies);
-                FileStorage.SetNuspecContent(JobId, code, previousSelectedFile);
-                
-                if (loadedCodeModel != null)
-                {
-                    loadedCodeModel.Dependencies = parsedDependencies;
-                    loadedCodeModel.NuspecContent = code;
-                }
-                
-                Console.WriteLine($"[OnCodeFileChanged] Re-parsed {parsedDependencies.Count} dependencies from edited .nuspec");
-            }
-        }
+        await FlushEditorBufferAsync(previousSelectedFile);
         
         // Load new file content
         string fileContent;
@@ -1795,9 +1770,21 @@ Content-Type: application/json
                 }
             }
             
+            // Every .json file must be strictly valid JSON before anything is packaged
+            if (!await EnsureJsonFilesValidAsync())
+            {
+                return;
+            }
+
             // Get the main code file for compilation
-            var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
-            var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
+            var mainFileName = PrimaryCodeFileName;
+            var mainCode = GetPrimaryCodeForCompilation();
+            if (mainCode is null)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Missing Code",
+                    $"{mainFileName} could not be found. Open {mainFileName} in the editor and try again.");
+                return;
+            }
             
             // --- Auto-parse // NUGET: headers from main.cs into .nuspec ---
             if (codeLanguage == "csharp")
@@ -2032,9 +2019,21 @@ Content-Type: application/json
                     }
                 }
                 
+                // Every .json file must be strictly valid JSON before anything is packaged
+                if (!await EnsureJsonFilesValidAsync())
+                {
+                    return;
+                }
+
                 // Get the main code file for compilation
-                var mainFileName = codeLanguage == "csharp" ? "main.cs" : "main.py";
-                var mainCode = FileStorage.GetFile(JobId, mainFileName) ?? currentJobCode;
+                var mainFileName = PrimaryCodeFileName;
+                var mainCode = GetPrimaryCodeForCompilation();
+                if (mainCode is null)
+                {
+                    NotificationService.Notify(NotificationSeverity.Error, "Missing Code",
+                        $"{mainFileName} could not be found. Open {mainFileName} in the editor and try again.");
+                    return;
+                }
                 
                 // Compile code with dependencies
                 CompilationResult compilationResult;
@@ -2157,11 +2156,10 @@ Content-Type: application/json
 
     private async Task OpenAIChatDialogWithPrompt(string? initialPrompt)
     {
-        // Ensure we have the latest code from the editor
-        if (jobCodeEditor != null)
-        {
-            currentJobCode = await jobCodeEditor.GetCodeAsync() ?? currentJobCode;
-        }
+        // Capture the latest editor buffer and what file is open so the AI never confuses
+        // the active file (e.g. appsettings.json) with the job's code file.
+        aiEditorContext = await BuildAIEditorContextAsync();
+        currentJobCode = aiEditorContext.ActiveFileContent;
         aiChatInitialPrompt = initialPrompt;
         showAIChatDialog = true;
         StateHasChanged();
@@ -2174,88 +2172,271 @@ Content-Type: application/json
         StateHasChanged();
     }
 
-    private async Task OnAICodeApplied(string code)
+    private string PrimaryCodeFileName => AIEditorContext.GetPrimaryFileName(codeLanguage);
+
+    private string? GetNuspecFileNameForJob()
     {
-        // Capture previous content for change logging
-        var previousCode = currentJobCode;
+        if (codeLanguage != "csharp") return null;
 
-        // Check for embedded .nuspec content in the AI response
-        var nuspecMatch = Regex.Match(code,
-            @"###NUSPEC BEGIN###\s*```xml\s*(.*?)\s*```\s*###NUSPEC END###",
-            RegexOptions.Singleline);
+        if (!string.IsNullOrEmpty(loadedCodeModel?.NuspecFileName))
+            return loadedCodeModel.NuspecFileName;
 
-        if (!nuspecMatch.Success)
+        return codeFileList.FirstOrDefault(f => f.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+            ?? AIResponseFileUpdateParser.DefaultNuspecFileName;
+    }
+
+    private async Task<AIEditorContext> BuildAIEditorContextAsync()
+    {
+        var buffer = (jobCodeEditor != null ? await jobCodeEditor.GetCodeAsync() : null) ?? currentJobCode ?? "";
+        var primary = PrimaryCodeFileName;
+        var active = string.IsNullOrEmpty(selectedCodeFile) ? primary : selectedCodeFile;
+
+        string ReadFile(string name) =>
+            string.Equals(name, active, StringComparison.OrdinalIgnoreCase) ? buffer : ReadJobFile(name);
+
+        var nuspecName = GetNuspecFileNameForJob();
+        var nuspecContent = nuspecName is null
+            ? null
+            : string.Equals(nuspecName, active, StringComparison.OrdinalIgnoreCase) ? buffer : GetCurrentNuspecContent();
+
+        // Give the AI the real content of every other job file (e.g. the appsettings files), so an update
+        // to one of them starts from what is there instead of a re-created file that drops settings.
+        var otherFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in codeFileList)
         {
-            // Also try without the fenced code block (plain XML)
-            nuspecMatch = Regex.Match(code,
-                @"###NUSPEC BEGIN###\s*(.*?)\s*###NUSPEC END###",
-                RegexOptions.Singleline);
+            if (string.Equals(file, active, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(file, primary, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(file, nuspecName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var content = ReadJobFile(file);
+            if (!string.IsNullOrEmpty(content))
+            {
+                otherFiles[file] = content;
+            }
         }
 
-        if (nuspecMatch.Success && codeLanguage == "csharp")
+        return new AIEditorContext
         {
-            var nuspecContent = nuspecMatch.Groups[1].Value.Trim();
-            var nuspecFileName = loadedCodeModel?.NuspecFileName
-                ?? "BlazorDataOrchestrator.Job.nuspec";
+            Language = codeLanguage,
+            ActiveFileName = active,
+            ActiveFileContent = buffer,
+            PrimaryCodeFileName = primary,
+            PrimaryCodeContent = ReadFile(primary),
+            AvailableFiles = codeFileList.ToList(),
+            NuspecFileName = nuspecName,
+            NuspecContent = nuspecContent,
+            OtherFileContents = otherFiles
+        };
+    }
 
-            // Store the .nuspec
-            FileStorage.SetFile(JobId, nuspecFileName, nuspecContent);
-            FileStorage.SetNuspecContent(JobId, nuspecContent, nuspecFileName);
+    /// <summary>
+    /// Reads a job file from the loaded package model when available, otherwise from editor file storage.
+    /// </summary>
+    private string ReadJobFile(string fileName)
+    {
+        if (loadedCodeModel != null)
+        {
+            var fromModel = CodeEditorService.GetFileContent(loadedCodeModel, fileName);
+            if (!string.IsNullOrEmpty(fromModel))
+                return fromModel;
+        }
 
-            var parsedDeps = CodeEditorService.ParseNuSpecDependencies(nuspecContent);
-            FileStorage.SetDependencies(JobId, parsedDeps);
+        return FileStorage.GetFile(JobId, fileName) ?? "";
+    }
+
+    /// <summary>
+    /// Writes a job file to both the loaded package model and editor file storage, keeping the
+    /// .nuspec dependency list in sync.
+    /// </summary>
+    private void WriteJobFile(string fileName, string content)
+    {
+        if (loadedCodeModel != null)
+        {
+            CodeEditorService.SetFileContent(loadedCodeModel, fileName, content);
+        }
+        FileStorage.SetFile(JobId, fileName, content);
+
+        if (fileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+        {
+            var parsedDependencies = CodeEditorService.ParseNuSpecDependencies(content);
+            FileStorage.SetDependencies(JobId, parsedDependencies);
+            FileStorage.SetNuspecContent(JobId, content, fileName);
 
             if (loadedCodeModel != null)
             {
-                loadedCodeModel.NuspecContent = nuspecContent;
-                loadedCodeModel.NuspecFileName = nuspecFileName;
-                loadedCodeModel.Dependencies = parsedDeps;
+                loadedCodeModel.Dependencies = parsedDependencies;
+                loadedCodeModel.NuspecContent = content;
+                loadedCodeModel.NuspecFileName = fileName;
             }
-
-            // Ensure .nuspec appears in the file dropdown
-            if (!codeFileList.Contains(nuspecFileName))
-            {
-                codeFileList.Add(nuspecFileName);
-            }
-
-            // Remove the nuspec block from the code applied to the editor
-            code = Regex.Replace(code,
-                @"###NUSPEC BEGIN###.*?###NUSPEC END###",
-                "", RegexOptions.Singleline).Trim();
-
-            Console.WriteLine($"[OnAICodeApplied] Extracted .nuspec with {parsedDeps.Count} dependencies from AI response");
         }
+    }
 
-        // Apply the cleaned code to the editor
-        currentJobCode = code;
-        
+    /// <summary>Saves the editor buffer into <paramref name="fileName"/> (the file the buffer belongs to).</summary>
+    private async Task FlushEditorBufferAsync(string? fileName)
+    {
+        if (jobCodeEditor == null || string.IsNullOrEmpty(fileName)) return;
+
+        var code = await jobCodeEditor.GetCodeAsync() ?? string.Empty;
+        WriteJobFile(fileName, code);
+    }
+
+    /// <summary>Loads <paramref name="fileName"/> into the editor and makes it the selected file.</summary>
+    private async Task ShowFileInEditorAsync(string fileName)
+    {
+        currentJobCode = ReadJobFile(fileName);
+        selectedCodeFile = fileName;
+        previousSelectedFile = fileName;
+
+        var state = FileStorage.GetEditorState(JobId) ?? new EditorState();
+        state.SelectedFile = fileName;
+        FileStorage.SetEditorState(JobId, state);
+
         if (jobCodeEditor != null)
         {
-            await jobCodeEditor.UpdateCodeAsync(code);
+            await jobCodeEditor.UpdateCodeAsync(currentJobCode);
+            await jobCodeEditor.UpdateLanguageAsync(GetMonacoLanguageForJob());
         }
-        
-        // Update file storage
-        if (!string.IsNullOrEmpty(selectedCodeFile))
+    }
+
+    /// <summary>
+    /// Returns the primary code file (main.cs / main.py) for compilation. Never falls back to the
+    /// active editor buffer unless the primary file is the one open, so a .json file is never compiled.
+    /// </summary>
+    private string? GetPrimaryCodeForCompilation()
+    {
+        var primary = PrimaryCodeFileName;
+        var stored = FileStorage.GetFile(JobId, primary);
+        if (!string.IsNullOrEmpty(stored))
+            return stored;
+
+        if (string.Equals(selectedCodeFile, primary, StringComparison.OrdinalIgnoreCase))
+            return currentJobCode;
+
+        var fromModel = loadedCodeModel != null ? CodeEditorService.GetFileContent(loadedCodeModel, primary) : null;
+        return string.IsNullOrEmpty(fromModel) ? null : fromModel;
+    }
+
+    /// <summary>
+    /// Verifies that every .json job file is strictly valid JSON (and contains no code). On failure,
+    /// notifies the user and opens the offending file in the editor.
+    /// </summary>
+    private async Task<bool> EnsureJsonFilesValidAsync()
+    {
+        foreach (var file in codeFileList.Where(f => JobFileTypes.GetKind(f) == JobFileKind.Json))
         {
-            FileStorage.SetFile(JobId, selectedCodeFile, code);
-            
-            // Also update loadedCodeModel if available
-            if (loadedCodeModel != null)
+            var stored = FileStorage.GetFile(JobId, file);
+            var content = stored ?? (loadedCodeModel != null ? CodeEditorService.GetFileContent(loadedCodeModel, file) : null);
+            if (content is null)
+                continue;
+
+            var error = string.IsNullOrWhiteSpace(content)
+                ? JobFileContentValidator.GetJsonError(file, content)
+                : JobFileContentValidator.Validate(file, content).Errors.FirstOrDefault();
+            if (error is null)
+                continue;
+
+            NotificationService.Notify(new NotificationMessage
             {
-                CodeEditorService.SetFileContent(loadedCodeModel, selectedCodeFile, code);
+                Severity = NotificationSeverity.Error,
+                Summary = "Invalid JSON",
+                Detail = $"{error} Fix it before saving.",
+                Duration = 15000
+            });
+
+            if (!string.Equals(selectedCodeFile, file, StringComparison.OrdinalIgnoreCase))
+            {
+                await ShowFileInEditorAsync(file);
+                StateHasChanged();
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Applies validated AI file updates to their target files, then shows the primary code file
+    /// when it was changed (switching away from e.g. appsettings.json).
+    /// </summary>
+    private async Task OnAIFileUpdatesApplied(IReadOnlyList<ProposedFileUpdate> updates)
+    {
+        var activeBefore = selectedCodeFile;
+
+        // Keep any unsaved edits to the open file before writing other files
+        await FlushEditorBufferAsync(selectedCodeFile);
+
+        var applied = new List<string>();
+        var rejected = new List<string>();
+        foreach (var update in updates)
+        {
+            var fileName = codeFileList.FirstOrDefault(f => string.Equals(f, update.FileName, StringComparison.OrdinalIgnoreCase));
+            if (fileName is null)
+            {
+                if (codeLanguage == "csharp" && JobFileTypes.GetKind(update.FileName) == JobFileKind.Nuspec)
+                {
+                    fileName = update.FileName;
+                    codeFileList.Add(fileName);
+                }
+                else
+                {
+                    rejected.Add($"{update.FileName} is not a file in this job.");
+                    continue;
+                }
+            }
+
+            // Re-validate as a safety net: nothing that fails its file-type rules is ever written.
+            var previous = ReadJobFile(fileName);
+            var validation = JobFileContentValidator.Validate(
+                fileName, update.Content, previous,
+                isPrimaryCodeFile: string.Equals(fileName, PrimaryCodeFileName, StringComparison.OrdinalIgnoreCase));
+            if (!validation.IsValid)
+            {
+                rejected.Add(string.Join(" ", validation.Errors));
+                continue;
+            }
+
+            WriteJobFile(fileName, update.Content);
+            applied.Add(fileName);
+
+            if (Job != null)
+            {
+                LogCodeChangeInBackground(Job.Id, fileName, codeLanguage, "AIFix", update.Content,
+                    string.IsNullOrEmpty(previous) ? null : previous, "AI fix applied");
             }
         }
-        
-        showAIChatDialog = false;
 
-        // Log AI fix
-        if (Job != null && !string.IsNullOrEmpty(selectedCodeFile))
+        if (applied.Count > 0)
         {
-            LogCodeChangeInBackground(Job.Id, selectedCodeFile, codeLanguage, "AIFix", code, previousCode, "AI fix applied");
+            var fileToShow = applied.FirstOrDefault(f => string.Equals(f, PrimaryCodeFileName, StringComparison.OrdinalIgnoreCase))
+                ?? (applied.Count == 1 ? applied[0] : activeBefore)
+                ?? PrimaryCodeFileName;
+            await ShowFileInEditorAsync(fileToShow);
+
+            showAIChatDialog = false;
+            aiChatInitialPrompt = null;
+
+            var message = $"AI changes applied to {string.Join(", ", applied)}.";
+            if (!string.IsNullOrEmpty(activeBefore) && !string.Equals(activeBefore, fileToShow, StringComparison.OrdinalIgnoreCase))
+            {
+                message += $" Switched the editor from {activeBefore} to {fileToShow}.";
+            }
+            NotificationService.Notify(NotificationSeverity.Success, "Code Applied", message);
         }
 
-        NotificationService.Notify(NotificationSeverity.Success, "Code Applied", 
-            "AI-generated code has been applied to the editor.");
+        if (rejected.Count > 0)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Error,
+                Summary = "AI changes not applied",
+                Detail = string.Join(" ", rejected),
+                Duration = 15000
+            });
+        }
+
         StateHasChanged();
     }
 

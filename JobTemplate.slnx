@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
-    <File Path=".github/skills/csharp.instructions.md" />
-    <File Path=".github/skills/python.instructions.md" />
+    <File Path=".github/skills/coding-a-job-csharp/SKILL.md" />
+    <File Path=".github/skills/coding-a-job-python/SKILL.md" />
   </Folder>
   <Project Path="src/BlazorDataOrchestrator.Core/BlazorDataOrchestrator.Core.csproj" />
   <Project Path="src/BlazorDataOrchestrator.JobCreatorTemplate/BlazorDataOrchestrator.JobCreatorTemplate.csproj" />

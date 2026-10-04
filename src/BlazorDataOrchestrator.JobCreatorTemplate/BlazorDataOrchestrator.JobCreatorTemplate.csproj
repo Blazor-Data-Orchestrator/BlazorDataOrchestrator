@@ -7,10 +7,33 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <!-- AI skill files (single source of truth: the repo's .github/skills). Inside the repo they are
+       linked directly; in an extracted template zip, Package-JobTemplate.ps1 has staged a copy
+       under Skills\ next to this project. -->
+  <PropertyGroup>
+    <RepoAISkillsRoot>$(MSBuildProjectDirectory)\..\..\.github\skills</RepoAISkillsRoot>
+    <LocalAISkillsRoot>$(MSBuildProjectDirectory)\Skills</LocalAISkillsRoot>
+    <AISkillsRoot Condition="Exists('$(RepoAISkillsRoot)\coding-a-job-csharp\SKILL.md')">$(RepoAISkillsRoot)</AISkillsRoot>
+    <AISkillsRoot Condition="'$(AISkillsRoot)' == ''">$(LocalAISkillsRoot)</AISkillsRoot>
+  </PropertyGroup>
+
   <ItemGroup>
-    <EmbeddedResource Include="Resources\csharp.instructions.md" />
-    <EmbeddedResource Include="Resources\python.instructions.md" />
+    <None Remove="Skills\**" />
+    <Content Remove="Skills\**" />
+    <EmbeddedResource Include="$(AISkillsRoot)\coding-a-job-csharp\SKILL.md"
+                      LogicalName="Skills/coding-a-job-csharp/SKILL.md"
+                      Link="Skills\coding-a-job-csharp\SKILL.md" />
+    <EmbeddedResource Include="$(AISkillsRoot)\coding-a-job-python\SKILL.md"
+                      LogicalName="Skills/coding-a-job-python/SKILL.md"
+                      Link="Skills\coding-a-job-python\SKILL.md" />
   </ItemGroup>
+
+  <Target Name="EnsureAISkillFiles" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(AISkillsRoot)\coding-a-job-csharp\SKILL.md')"
+           Text="Missing AI skill file for C#. Expected under $(RepoAISkillsRoot) or $(LocalAISkillsRoot)." />
+    <Error Condition="!Exists('$(AISkillsRoot)\coding-a-job-python\SKILL.md')"
+           Text="Missing AI skill file for Python. Expected under $(RepoAISkillsRoot) or $(LocalAISkillsRoot)." />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Aspire.Azure.Data.Tables" Version="13.5.4" />

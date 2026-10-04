@@ -207,7 +207,10 @@ builder.Services.AddScoped<AIModelCacheService>(sp =>
 });
 
 // Register AI Chat services
-builder.Services.AddSingleton<IInstructionsProvider, EmbeddedInstructionsProvider>();
+builder.Services.AddSingleton<IInstructionsProvider>(sp =>
+    new SkillInstructionsProvider(
+        typeof(Program).Assembly,
+        sp.GetService<ILogger<SkillInstructionsProvider>>()));
 builder.Services.AddScoped<BlazorDataOrchestrator.Core.Services.IAIChatService, CodeAssistantChatService>();
 
 // Register Core services (JobManager, JobStorageService, PackageProcessorService, CodeExecutorService)
