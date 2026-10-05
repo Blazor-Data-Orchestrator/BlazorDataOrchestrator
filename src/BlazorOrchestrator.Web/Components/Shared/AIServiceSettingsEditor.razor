@@ -283,6 +283,10 @@
     private string ApiKeyDisplay { get; set; } = "";
     private bool ApiKeyMasked { get; set; }
 
+    private readonly BlazorOrchestrator.Web.Services.AIKeyEndpointGuard _keyGuard = new();
+    private const string KeyReentryMessage =
+        "The endpoint differs from the saved one. Re-enter the API key before it is sent to this endpoint.";
+
     private CancellationTokenSource? _loadCts;
     private Timer? _debounceTimer;
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
@@ -356,6 +360,7 @@
     {
         Working = Settings ?? await SettingsService.GetSettingsAsync();
         SelectedServiceType = Working.ActiveServiceType;
+        TrustSavedProviders();
 
         // Make sure every provider row is available for switching without a round trip.
         if (Settings is null)
@@ -372,9 +377,18 @@
     {
         Working = await SettingsService.GetSettingsAsync();
         SelectedServiceType = Working.ActiveServiceType;
+        TrustSavedProviders();
         SetApiKeyDisplayFromCurrent();
         await NotifyChangedAsync();
         await LoadModelsAsync(forceRefresh: false);
+    }
+
+    private void TrustSavedProviders()
+    {
+        foreach (var provider in Working.Providers.Values)
+        {
+            _keyGuard.TrustSaved(provider);
+        }
     }
 
     private void SetApiKeyDisplayFromCurrent()
@@ -401,6 +415,7 @@
         if (!Working.Providers.ContainsKey(serviceType))
         {
             Working.Providers[serviceType] = await SettingsService.GetProviderSettingsAsync(serviceType);
+            _keyGuard.TrustSaved(Working.Providers[serviceType]);
         }
 
         TestResult = null;
@@ -444,6 +459,13 @@
 
     private async Task TestConnectionAsync()
     {
+        if (!_keyGuard.CanSendKey(SelectedServiceType, Current))
+        {
+            TestResult = null;
+            Notify(NotificationSeverity.Warning, "Re-enter API key", KeyReentryMessage);
+            return;
+        }
+
         IsTesting = true;
         TestResult = null;
         StateHasChanged();
@@ -476,6 +498,7 @@
         ApiKeyMasked = false;
         ApiKeyDisplay = value;
         Current.ApiKey = value;
+        _keyGuard.TrustUserEnteredKey(value);
 
         await NotifyChangedAsync();
         await ScheduleModelLoadAsync();
@@ -505,6 +528,16 @@
         {
             AvailableModels = new List<string>();
             ModelLoadError = null;
+            IsLoadingModels = false;
+            await RaiseValidationAsync();
+            StateHasChanged();
+            return;
+        }
+
+        if (!_keyGuard.CanSendKey(SelectedServiceType, provider))
+        {
+            AvailableModels = new List<string>();
+            ModelLoadError = KeyReentryMessage;
             IsLoadingModels = false;
             await RaiseValidationAsync();
             StateHasChanged();
@@ -589,6 +622,7 @@
             }
 
             await SettingsService.SaveSettingsAsync(Working);
+            TrustSavedProviders();
             SetApiKeyDisplayFromCurrent();
 
             Notify(NotificationSeverity.Success, "Success", "AI settings saved successfully.");

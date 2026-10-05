@@ -32,19 +32,24 @@ public class SystemStatusService : ISystemStatusService
             var canConnect = await dbContext.Database.CanConnectAsync(cts.Token);
             if (!canConnect)
             {
-                _isConfigured = false;
                 return false;
             }
 
             // Check if tables exist and admin user is present
             var hasUsers = await dbContext.AspNetUsers.AsNoTracking().AnyAsync(cts.Token);
-            _isConfigured = hasUsers;
+            if (hasUsers)
+            {
+                // Only a positive result is cached; negatives are re-checked so recovery is noticed.
+                _isConfigured = true;
+                // Existing installs get the marker on their first healthy check.
+                _ = _serviceProvider.GetRequiredService<InstallMarkerService>().MarkInstalledAsync();
+            }
             return hasUsers;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "System status check failed - system not configured");
-            _isConfigured = false;
+            // Not cached: a transient outage must not pin the app to the setup page.
+            _logger.LogDebug(ex, "System status check failed - treating system as not configured for this request");
             return false;
         }
     }

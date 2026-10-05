@@ -14,20 +14,17 @@ public class WebNuGetPackageService
     private readonly ILogger<WebNuGetPackageService> _logger;
     private readonly JobManager _jobManager;
     private readonly EditorFileStorageService _fileStorage;
-    private readonly IReservedConnectionStringProvider _reservedProvider;
     private readonly JobCodeEditorService _editorService;
 
     public WebNuGetPackageService(
         ILogger<WebNuGetPackageService> logger,
         JobManager jobManager,
         EditorFileStorageService fileStorage,
-        IReservedConnectionStringProvider reservedProvider,
         JobCodeEditorService editorService)
     {
         _logger = logger;
         _jobManager = jobManager;
         _fileStorage = fileStorage;
-        _reservedProvider = reservedProvider;
         _editorService = editorService;
     }
 
@@ -92,8 +89,8 @@ public class WebNuGetPackageService
             await AddEntryAsync(archive, $"{contentBasePath}/configuration.json", configJson);
 
             // Add appsettings files: shared base plus one dotted overlay per environment.
-            // Reserved connection strings are stamped in so the editor shows effective values.
-            var reserved = _reservedProvider.Get();
+            // Reserved connection strings are stored blank; the Agent injects host values at run time.
+            var reserved = ReservedConnectionStrings.Empty;
 
             var baseAppSettings = string.IsNullOrWhiteSpace(codeModel.AppSettings)
                 ? _editorService.GetDefaultAppSettings()

@@ -29,17 +29,12 @@
         new Option { Label = "Azure SQL (Managed Identity)", Value = "managed" }
     };
 
+    private bool HasExistingConnection { get; set; }
+
     protected override void OnInitialized()
     {
-        // Pre-populate with existing connection string from appsettings if available
-        if (string.IsNullOrEmpty(Model.DbConnectionString))
-        {
-            var existingConnectionString = Configuration.GetConnectionString("blazororchestratordb");
-            if (!string.IsNullOrEmpty(existingConnectionString))
-            {
-                Model.DbConnectionString = existingConnectionString;
-            }
-        }
+        // Only report whether a value exists; the value itself is never sent to the browser.
+        HasExistingConnection = !string.IsNullOrEmpty(Configuration.GetConnectionString("blazororchestratordb"));
     }
 
     private async Task SaveConnectionStringToAppSettings()
@@ -176,7 +171,8 @@
             else
             {
                 // Create the database
-                var createCmd = new SqlCommand($"CREATE DATABASE [{databaseName}]", connection);
+                var safeName = "[" + databaseName.Replace("]", "]]") + "]";
+                var createCmd = new SqlCommand($"CREATE DATABASE {safeName}", connection);
                 await createCmd.ExecuteNonQueryAsync();
 
                 CreateDbResultMessage = $"Database '{databaseName}' created successfully!";
@@ -232,6 +228,12 @@
         <div class="row animate__animated animate__fadeIn rz-mb-4">
             <div class="col-md-12">
                 <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">SQL Connection String</RadzenText>
+                @if (HasExistingConnection)
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500">
+                        A connection string is already configured on this host. It is not shown here; enter one only to replace it.
+                    </RadzenText>
+                }
                 <RadzenTextArea @bind-Value="Model.DbConnectionString" Placeholder="Server=myServer;Database=myDB;User Id=myUser;Password=myPassword;TrustServerCertificate=true;..." Style="width: 100%; min-height: 100px;" />
                 <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400">
                     Enter a complete SQL Server connection string including the database name.

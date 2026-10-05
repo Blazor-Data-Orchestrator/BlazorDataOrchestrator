@@ -8,6 +8,7 @@
 @inject IServiceProvider ServiceProvider
 @inject IConfiguration Configuration
 @inject SettingsService SettingsService
+@inject InstallMarkerService InstallMarker
 
 <RadzenDialog />
 <RadzenNotification />
@@ -283,14 +284,21 @@
 
             if (!string.IsNullOrEmpty(Model.AdminUser) && !string.IsNullOrEmpty(Model.AdminEmail))
             {
-                AddLog($"🔍 Checking if user '{Model.AdminUser}' exists...");
-                
-                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var existingUser = await context.AspNetUsers
-                    .FirstOrDefaultAsync(u => u.UserName == Model.AdminUser || u.Email == Model.AdminEmail);
+                AddLog("🔍 Checking that no account exists yet...");
 
-                if (existingUser == null)
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var strategy = context.Database.CreateExecutionStrategy();
+
+                // Serializable so two concurrent wizards cannot both create a first admin.
+                var created = await strategy.ExecuteAsync(async () =>
                 {
+                    await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+
+                    if (await context.AspNetUsers.AnyAsync())
+                    {
+                        return false;
+                    }
+
                     AddLog($"📝 Creating admin user '{Model.AdminUser}'...");
                     
                     var passwordHasher = new PasswordHasher<AspNetUser>();
@@ -330,12 +338,19 @@
                     newUser.Roles.Add(adminRole);
                     context.AspNetUsers.Add(newUser);
                     await context.SaveChangesAsync();
-                    AddLog($"✅ Admin user '{Model.AdminUser}' created with Admin role!");
-                }
-                else
+                    await transaction.CommitAsync();
+                    return true;
+                });
+
+                // Users now exist either way, so the anonymous wizard must stay closed from here on.
+                await InstallMarker.MarkInstalledAsync();
+
+                if (!created)
                 {
-                    AddLog($"✅ Admin user '{Model.AdminUser}' already exists.");
+                    throw new InvalidOperationException("An administrator already exists. Installation aborted.");
                 }
+
+                AddLog($"✅ Admin user '{Model.AdminUser}' created with Admin role!");
             }
             else
             {

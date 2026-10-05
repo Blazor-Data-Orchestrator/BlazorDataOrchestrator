@@ -16,7 +16,7 @@
 @inject AuthenticationSettingsService AuthenticationSettingsService
 @inject AuthenticationSettings AuthSettings
 @inject ExternalAuthOptionsStore ExternalAuthStore
-@attribute [Authorize(Roles = "Admin,ViewOnly")]
+@attribute [Authorize(Roles = "Admin")]
 
 <PageTitle>Administration</PageTitle>
 
@@ -273,6 +273,7 @@
                     <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Style="margin-bottom: 1rem;">
                         <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
                             Configure optional external authentication providers. Users must have an existing local account with a matching email address to sign in with an external provider.
+                            For Microsoft accounts the match uses the sign-in name (user principal name), not the mail attribute; for Google the email must be verified by Google.
                         </RadzenText>
                     </RadzenAlert>
 
@@ -307,8 +308,8 @@
                                     <RadzenTextBox @bind-Value="@MicrosoftClientSecret"
                                                    Style="width: 100%; max-width: 500px;"
                                                    Name="MicrosoftClientSecret"
-                                                   Placeholder="Client secret value"
-                                                   type="password" />
+                                                   Placeholder="@(MicrosoftHasSecret ? SecretSetPlaceholder : "Client secret value")"
+                                                   type="password" autocomplete="new-password" />
                                 </RadzenStack>
 
                                 <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
@@ -340,8 +341,8 @@
                                     <RadzenTextBox @bind-Value="@GoogleClientSecret"
                                                    Style="width: 100%; max-width: 500px;"
                                                    Name="GoogleClientSecret"
-                                                   Placeholder="Client secret"
-                                                   type="password" />
+                                                   Placeholder="@(GoogleHasSecret ? SecretSetPlaceholder : "Client secret")"
+                                                   type="password" autocomplete="new-password" />
                                 </RadzenStack>
 
                                 <RadzenText TextStyle="TextStyle.Caption" Style="color: #6b7280;">
@@ -416,6 +417,11 @@
     private bool GoogleEnabled { get; set; }
     private string GoogleClientId { get; set; } = "";
     private string GoogleClientSecret { get; set; } = "";
+
+    // Stored secrets never reach the browser; a blank field on save keeps the stored value.
+    private const string SecretSetPlaceholder = "A secret is saved. Leave blank to keep it.";
+    private bool MicrosoftHasSecret { get; set; }
+    private bool GoogleHasSecret { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -502,12 +508,14 @@
             var microsoftConfig = await AuthenticationSettingsService.GetMicrosoftConfigAsync();
             MicrosoftEnabled = microsoftConfig.Enabled;
             MicrosoftClientId = microsoftConfig.ClientId;
-            MicrosoftClientSecret = microsoftConfig.ClientSecret;
+            MicrosoftHasSecret = !string.IsNullOrEmpty(microsoftConfig.ClientSecret);
+            MicrosoftClientSecret = string.Empty;
 
             var googleConfig = await AuthenticationSettingsService.GetGoogleConfigAsync();
             GoogleEnabled = googleConfig.Enabled;
             GoogleClientId = googleConfig.ClientId;
-            GoogleClientSecret = googleConfig.ClientSecret;
+            GoogleHasSecret = !string.IsNullOrEmpty(googleConfig.ClientSecret);
+            GoogleClientSecret = string.Empty;
         }
         catch (Exception ex)
         {
@@ -527,11 +535,14 @@
 
         try
         {
+            var storedMicrosoft = await AuthenticationSettingsService.GetMicrosoftConfigAsync();
+            var storedGoogle = await AuthenticationSettingsService.GetGoogleConfigAsync();
+
             var microsoftConfig = new BlazorOrchestrator.Web.Models.AuthProviderConfig
             {
                 Enabled = MicrosoftEnabled,
                 ClientId = MicrosoftClientId,
-                ClientSecret = MicrosoftClientSecret
+                ClientSecret = string.IsNullOrWhiteSpace(MicrosoftClientSecret) ? storedMicrosoft.ClientSecret : MicrosoftClientSecret
             };
             await AuthenticationSettingsService.SaveMicrosoftConfigAsync(microsoftConfig);
 
@@ -539,7 +550,7 @@
             {
                 Enabled = GoogleEnabled,
                 ClientId = GoogleClientId,
-                ClientSecret = GoogleClientSecret
+                ClientSecret = string.IsNullOrWhiteSpace(GoogleClientSecret) ? storedGoogle.ClientSecret : GoogleClientSecret
             };
             await AuthenticationSettingsService.SaveGoogleConfigAsync(googleConfig);
 
@@ -550,6 +561,11 @@
 
             // Update the singleton immediately so login page buttons reflect the change
             AuthSettings.Refresh(microsoftConfig.IsFullyConfigured, googleConfig.IsFullyConfigured);
+
+            MicrosoftHasSecret = !string.IsNullOrEmpty(microsoftConfig.ClientSecret);
+            GoogleHasSecret = !string.IsNullOrEmpty(googleConfig.ClientSecret);
+            MicrosoftClientSecret = string.Empty;
+            GoogleClientSecret = string.Empty;
 
             NotificationService.Notify(NotificationSeverity.Success, "Success",
                 "Authentication settings saved. External login changes apply immediately.");

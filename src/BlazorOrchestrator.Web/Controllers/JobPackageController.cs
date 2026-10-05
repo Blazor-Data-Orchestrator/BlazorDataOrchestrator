@@ -8,7 +8,7 @@ namespace BlazorOrchestrator.Web.Controllers;
 /// API controller for handling job package downloads.
 /// </summary>
 [ApiController]
-[AllowAnonymous]
+[Authorize(Roles = "Admin")]
 [Route("api/job-package")]
 public class JobPackageController : ControllerBase
 {

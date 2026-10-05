@@ -4,6 +4,8 @@ Review date: 2026-10-03. The full assessment, including diagrams, vulnerable cod
 
 Secrets stored in `appsettings*.json`, `launchSettings.json` and other configuration files are an accepted risk for this private repository and are not reported.
 
+**Status (2026-10-04):** SEC-001 to SEC-005 (Critical and High) are fixed and tested. SEC-006 to SEC-025 are open and left for later. SQL and storage credentials were **not** rotated, by owner decision. See "Remediation Status" in [docs/SecurityReview.md](docs/SecurityReview.md).
+
 ## Totals
 
 | Severity | Count |

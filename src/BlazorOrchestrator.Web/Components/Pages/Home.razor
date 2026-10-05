@@ -28,6 +28,7 @@
 @inject JobCodeEditorService CodeEditorService
 @inject BlazorOrchestrator.Web.Services.Community.ICommunitySettingsService CommunitySettings
 @inject BlazorOrchestrator.Web.Services.Community.CommunitySignInCoordinator CommunitySignIn
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -164,6 +165,13 @@ else
 
                                 @* Action buttons *@
                                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                    @if (!IsAdmin)
+                                    {
+                                        <RadzenButton Text="View" Icon="visibility" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                                      Style="border-color: #d1d5db; color: #374151;" Click="@(() => OpenJobDetailsDialog(job.Id))" />
+                                    }
+                                    else
+                                    {
                                     <RadzenButton Text="Edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
                                                   Style="border-color: #d1d5db; color: #374151;" Click="@(() => OpenJobDetailsDialog(job.Id))" />
                                     <RadzenButton Text="Schedule" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Size="ButtonSize.Small"
@@ -195,6 +203,7 @@ else
                                                           Click="@(() => OpenPublishToCommunityDialog(job.Id, job.Name))" />
                                         }
                                     }
+                                    }
                                     <span style="flex: 1;"></span>
                                     <RadzenButton Text="View Logs" ButtonStyle="ButtonStyle.Info" Variant="Variant.Text" Size="ButtonSize.Small"
                                                   Style="color: #6b7280; font-weight: 400; text-decoration: none;" Click="@(() => OpenLogsDialog(job.Id, job.Name))" />
@@ -205,6 +214,8 @@ else
                 }
 
                 @* Quick Create Job card *@
+                @if (IsAdmin)
+                {
                 <RadzenColumn Size="12" SizeMD="6">
                     <div @onclick="OpenCreateJobDialog"
                          @onkeydown="HandleQuickCreateKeyDown"
@@ -220,6 +231,7 @@ else
                         </RadzenStack>
                     </div>
                 </RadzenColumn>
+                }
             </RadzenRow>
         }
     </RadzenStack>
@@ -235,6 +247,16 @@ else
 
     private bool IsRunningLocally => new Uri(NavigationManager.BaseUri).IsLoopback;
 
+    // ViewOnly is strictly read-only; every state-changing handler checks this.
+    private bool IsAdmin { get; set; }
+
+    private bool EnsureAdmin()
+    {
+        if (IsAdmin) return true;
+        NotificationService.Notify(NotificationSeverity.Error, "Forbidden", "Administrator role required.");
+        return false;
+    }
+
     private bool IsLoading { get; set; } = true;
     private bool isLoading { get; set; } = true;
     private string GitHubVersion { get; set; } = "";
@@ -249,6 +271,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        IsAdmin = (await AuthStateProvider.GetAuthenticationStateAsync()).User.IsInRole("Admin");
         IsLoading = false;
 
         _ = InvokeAsync(async () =>
@@ -612,6 +635,8 @@ else
 
     private async Task OpenPublishToCommunityDialog(int jobId, string jobName)
     {
+        if (!EnsureAdmin()) return;
+
         var outcome = await CommunitySignIn.EnsureSignedInAsync();
         if (!outcome.Succeeded)
         {
@@ -641,7 +666,8 @@ else
     private async Task OpenJobDetailsDialog(int jobId)
     {
         var job = AllJobs.FirstOrDefault(j => j.Id == jobId);
-        var title = job != null ? $"Edit Job - {job.Name}" : "Edit Job";
+        var verb = IsAdmin ? "Edit Job" : "View Job";
+        var title = job != null ? $"{verb} - {job.Name}" : verb;
 
         await DialogService.OpenAsync<JobDetailsDialog>(title,
             new Dictionary<string, object?>
@@ -663,6 +689,8 @@ else
 
     private async Task OpenJobScheduleDialog(int jobId)
     {
+        if (!EnsureAdmin()) return;
+
         var job = AllJobs.FirstOrDefault(j => j.Id == jobId);
         var title = job != null ? $"Schedule - {job.Name}" : "Schedule Job";
 
@@ -794,6 +822,8 @@ else
 
     private async Task OpenCreateJobDialog()
     {
+        if (!EnsureAdmin()) return;
+
         newJobName = string.Empty;
 
         var result = await DialogService.OpenAsync<CreateJobDialog>("Create New Job",
@@ -809,6 +839,8 @@ else
 
     private async Task OnJobCreatedWithGroups((string JobName, IEnumerable<int> JobGroupIds, string Environment) data)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             // Get default organization (or first available)
@@ -883,6 +915,8 @@ else
 
     private async Task OpenCreateProjectDialog()
     {
+        if (!EnsureAdmin()) return;
+
         // Check if running on localhost
         var uri = new Uri(NavigationManager.BaseUri);
         if (!uri.IsLoopback)
@@ -1029,6 +1063,8 @@ else
 
     private async Task DownloadJobPackage(int jobId)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             var downloadUrl = $"/api/job-package/{jobId}/download";
@@ -1042,6 +1078,8 @@ else
 
     private async Task CreateVSSolutionFromJob(int jobId, string jobName)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             var projectName = SanitizeProjectName(jobName);
@@ -1214,6 +1252,8 @@ else
 
     private async Task RunJobNow(JobViewModel job)
     {
+        if (!EnsureAdmin()) return;
+
         // Get the actual job from the database to check if it has code file
         var fullJob = await JobService.GetJobByIdAsync(job.Id);
         if (fullJob == null)

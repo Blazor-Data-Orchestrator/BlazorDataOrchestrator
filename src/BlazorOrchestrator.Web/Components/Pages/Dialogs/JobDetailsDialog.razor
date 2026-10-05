@@ -13,6 +13,8 @@
 @using Radzen.Blazor
 @using SimpleBlazorMonaco
 @using MonacoRazor
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
 @inject JobService JobService
 @inject JobGroupService JobGroupService
 @inject JobQueueService JobQueueService
@@ -62,25 +64,34 @@ else
                     @* Details Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
-                            <RadzenButton Text="@(IsRunningJob ? "Running..." : "Run Job Now")" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
-                                          Size="ButtonSize.Small" Click="@RunJobNow" Disabled="@IsRunningJob" />
+                            @if (IsAdmin)
+                            {
+                                <RadzenButton Text="@(IsRunningJob ? "Running..." : "Run Job Now")" Icon="play_arrow" ButtonStyle="ButtonStyle.Primary" 
+                                              Size="ButtonSize.Small" Click="@RunJobNow" Disabled="@IsRunningJob" />
+                            }
+                            else
+                            {
+                                <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Size="AlertSize.ExtraSmall" Style="margin: 0;">
+                                    Read-only view. The Administrator role is required to change or run this job.
+                                </RadzenAlert>
+                            }
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                                 <RadzenLabel Text="Enabled" Component="Enabled" Style="font-weight: 500;" />
-                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" />
+                                <RadzenCheckBox @bind-Value="@Job.JobEnabled" Name="Enabled" Disabled="@(!IsAdmin)" />
                             </RadzenStack>
                         </RadzenStack>
 
                         <RadzenStack Gap="1rem">
                             <RadzenStack Gap="0.5rem" Style="max-width: 400px;">
                                 <RadzenLabel Text="Base Job Name" Component="JobName" Style="font-weight: 500;" />
-                                <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" />
+                                <RadzenTextBox @bind-Value="@Job.JobName" Name="JobName" Style="width: 100%;" ReadOnly="@(!IsAdmin)" />
                             </RadzenStack>
 
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
                                 <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Environment" Component="Environment" Style="font-weight: 500;" />
                                     <RadzenDropDown @bind-Value="@Job.JobEnvironment" Data="@Environments" 
-                                                    Name="Environment" Style="width: 100%;" />
+                                                    Name="Environment" Style="width: 100%;" Disabled="@(!IsAdmin)" />
                                 </RadzenStack>
 
                                 <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
@@ -88,15 +99,15 @@ else
                                     <RadzenDropDown @bind-Value="@selectedJobGroupId" Data="@AvailableJobGroups" 
                                                     TextProperty="JobGroupName" ValueProperty="Id"
                                                     AllowClear="false" Placeholder="Default"
-                                                    Name="JobGroup" Style="width: 100%;" />
+                                                    Name="JobGroup" Style="width: 100%;" Disabled="@(!IsAdmin)" />
                                 </RadzenStack>
 
                                 <RadzenStack Gap="0.5rem" Style="flex: 1; min-width: 180px;">
                                     <RadzenLabel Text="Job Queue" Component="JobQueue" Style="font-weight: 500;" />
-                                    <RadzenDropDown @bind-Value="@Job.JobQueue" Data="@AvailableJobQueues" 
-                                                    TextProperty="QueueName" ValueProperty="Id"
-                                                    AllowClear="false" Placeholder="default"
-                                                    Name="JobQueue" Style="width: 100%;" />
+                                    <RadzenDropDown @bind-Value="@selectedJobQueueId" Data="@JobQueueOptions" 
+                                                    TextProperty="Name" ValueProperty="Id"
+                                                    AllowClear="false"
+                                                    Name="JobQueue" Style="width: 100%;" Disabled="@(!IsAdmin)" />
                                 </RadzenStack>
                             </RadzenStack>
                         </RadzenStack>
@@ -106,14 +117,17 @@ else
                 <RadzenTabsItem Text="Schedule" Icon="schedule">
                     @* Schedule Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenButton Text="Add New Job Schedule" Icon="add" ButtonStyle="ButtonStyle.Success" 
-                                      Size="ButtonSize.Small" Click="@OpenAddScheduleDialog" Style="align-self: flex-start;" />
+                        @if (IsAdmin)
+                        {
+                            <RadzenButton Text="Add New Job Schedule" Icon="add" ButtonStyle="ButtonStyle.Success" 
+                                          Size="ButtonSize.Small" Click="@OpenAddScheduleDialog" Style="align-self: flex-start;" />
+                        }
 
                         <RadzenDataGrid @ref="ScheduleGrid" Data="@Schedules" TItem="JobSchedule" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
                                         AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="JobSchedule" Width="60px" Title="">
+                                <RadzenDataGridColumn TItem="JobSchedule" Width="60px" Title="" Visible="@IsAdmin">
                                     <Template Context="schedule">
                                         <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.ExtraSmall"
                                                       Click="@(() => OpenEditScheduleDialog(schedule))" />
@@ -143,14 +157,17 @@ else
                 <RadzenTabsItem Text="Parameters" Icon="tune">
                     @* Parameters Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
-                        <RadzenButton Text="Add New Job Parameter" Icon="add" ButtonStyle="ButtonStyle.Success" 
-                                      Size="ButtonSize.Small" Click="@OpenAddParameterDialog" Style="align-self: flex-start;" />
+                        @if (IsAdmin)
+                        {
+                            <RadzenButton Text="Add New Job Parameter" Icon="add" ButtonStyle="ButtonStyle.Success" 
+                                          Size="ButtonSize.Small" Click="@OpenAddParameterDialog" Style="align-self: flex-start;" />
+                        }
 
                         <RadzenDataGrid @ref="ParameterGrid" Data="@Parameters" TItem="JobDatum" 
                                         AllowPaging="true" PageSize="5" PagerHorizontalAlign="HorizontalAlign.Center"
                                         AllowSorting="true" AllowColumnResize="true" Style="height: auto;" Density="Density.Compact">
                             <Columns>
-                                <RadzenDataGridColumn TItem="JobDatum" Width="80px" Title="">
+                                <RadzenDataGridColumn TItem="JobDatum" Width="80px" Title="" Visible="@IsAdmin">
                                     <Template Context="param">
                                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
                                             <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.ExtraSmall"
@@ -203,10 +220,18 @@ else
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" AlignItems="AlignItems.Center">
                             <RadzenLabel Text="Enable Webhook" Style="font-weight: 500;" />
-                            <RadzenSwitch Value="@IsWebhookEnabled" Change="@OnWebhookToggle" />
+                            <RadzenSwitch Value="@IsWebhookEnabled" Change="@OnWebhookToggle" Disabled="@(!IsAdmin)" />
                         </RadzenStack>
 
-                        @if (IsWebhookEnabled && !string.IsNullOrEmpty(Job.WebhookGuid))
+                        @if (!IsAdmin)
+                        {
+                            @* The webhook GUID is a bearer secret that triggers the job, so only Admins see it. *@
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                @(IsWebhookEnabled ? "A webhook is enabled for this job." : "No webhook is enabled for this job.")
+                                The webhook URL is visible to administrators only.
+                            </RadzenAlert>
+                        }
+                        else if (IsWebhookEnabled && !string.IsNullOrEmpty(Job.WebhookGuid))
                         {
                             <RadzenStack Gap="0.5rem">
                                 <RadzenText TextStyle="TextStyle.Subtitle2" Style="font-weight: 600;">Webhook URL</RadzenText>
@@ -247,6 +272,39 @@ Content-Type: application/json
                 </RadzenTabsItem>
 
                 <RadzenTabsItem Text="Code" Icon="code">
+                    @if (!IsAdmin)
+                    {
+                        @* Read-only view that never touches the shared editor buffer. *@
+                        <RadzenStack Gap="1rem" Style="padding: 1rem 0;">
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                Read-only view. The Administrator role is required to edit, upload, download or run job code. Settings files are not shown.
+                            </RadzenAlert>
+                            @if (readOnlyFiles == null)
+                            {
+                                <RadzenButton Text="View Code" Icon="visibility" ButtonStyle="ButtonStyle.Info" Size="ButtonSize.Small"
+                                              Click="@LoadReadOnlyCodeAsync" IsBusy="@isLoadingReadOnlyCode" Disabled="@(!hasPackage)"
+                                              Style="align-self: flex-start;" />
+                                @if (!hasPackage)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body2">No code package has been uploaded for this job.</RadzenText>
+                                }
+                            }
+                            else if (readOnlyFiles.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">The code package contains no viewable files.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                    <RadzenLabel Text="File:" Style="font-weight: 500;" />
+                                    <RadzenDropDown @bind-Value="@selectedReadOnlyFile" Data="@readOnlyFiles.Keys" Style="min-width: 220px;" AllowClear="false" />
+                                </RadzenStack>
+                                <pre style="height: 400px; overflow: auto; margin: 0; padding: 0.75rem; border: 1px solid #e8e8e8; border-radius: 8px; background: #f8f9fa; font-size: 0.8rem;">@(selectedReadOnlyFile != null && readOnlyFiles.TryGetValue(selectedReadOnlyFile, out var readOnlyContent) ? readOnlyContent : "")</pre>
+                            }
+                        </RadzenStack>
+                    }
+                    else
+                    {
                     @* Code Editor Tab Content *@
                     <RadzenStack Gap="1rem" Style="padding: 1rem 0; height: 500px;">
                         @* Row 1: Mode Toggle *@
@@ -462,16 +520,27 @@ Content-Type: application/json
                             </RadzenAlert>
                         }
                     </RadzenStack>
+                    }
                 </RadzenTabsItem>
             </Tabs>
         </RadzenTabs>
 
         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" Style="margin-top: 0.5rem;">
-            <RadzenButton Text="Delete Job" Icon="delete" ButtonStyle="ButtonStyle.Danger" 
-                          Variant="Variant.Outlined" Size="ButtonSize.Small" Click="@DeleteJob" />
+            @if (IsAdmin)
+            {
+                <RadzenButton Text="Delete Job" Icon="delete" ButtonStyle="ButtonStyle.Danger" 
+                              Variant="Variant.Outlined" Size="ButtonSize.Small" Click="@DeleteJob" />
+            }
+            else
+            {
+                <span></span>
+            }
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@OnCloseClick" />
-                <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Success" Click="@SaveJob" />
+                <RadzenButton Text="@(IsAdmin ? "Cancel" : "Close")" ButtonStyle="ButtonStyle.Light" Click="@OnCloseClick" />
+                @if (IsAdmin)
+                {
+                    <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Success" Click="@SaveJob" />
+                }
             </RadzenStack>
         </RadzenStack>
     </RadzenStack>
@@ -514,6 +583,28 @@ Content-Type: application/json
 
     // Job Queues
     private List<JobQueue> AvailableJobQueues { get; set; } = new();
+    private List<QueueOption> JobQueueOptions { get; set; } = new();
+    private int selectedJobQueueId;
+
+    // Sentinel for "no queue row": Job.JobQueue is null and the job runs on the built-in default queue.
+    private const int BuiltInDefaultQueueId = 0;
+
+    private record QueueOption(int Id, string Name);
+
+    // ViewOnly is strictly read-only; every state-changing handler checks this.
+    private bool IsAdmin { get; set; }
+
+    private bool EnsureAdmin()
+    {
+        if (IsAdmin) return true;
+        NotificationService.Notify(NotificationSeverity.Error, "Forbidden", "Administrator role required.");
+        return false;
+    }
+
+    // Read-only code view for non-Admins
+    private Dictionary<string, string>? readOnlyFiles;
+    private string? selectedReadOnlyFile;
+    private bool isLoadingReadOnlyCode;
 
     private bool IsLoading { get; set; } = true;
     private bool hasPackage;
@@ -600,6 +691,7 @@ Content-Type: application/json
 
     protected override async Task OnInitializedAsync()
     {
+        IsAdmin = (await AuthStateProvider.GetAuthenticationStateAsync()).User.IsInRole("Admin");
         SelectedTabIndex = InitialTabIndex;
         await LoadCommunitySettingsAsync();
         await LoadJobData();
@@ -650,6 +742,15 @@ Content-Type: application/json
                         q.QueueName?.Equals("default", StringComparison.OrdinalIgnoreCase) == true);
                     Job.JobQueue = defaultQueue?.Id;
                 }
+
+                JobQueueOptions = AvailableJobQueues
+                    .Select(q => new QueueOption(q.Id, q.QueueName ?? $"Queue {q.Id}"))
+                    .ToList();
+                if (!AvailableJobQueues.Any(q => q.QueueName?.Equals("default", StringComparison.OrdinalIgnoreCase) == true))
+                {
+                    JobQueueOptions.Insert(0, new QueueOption(BuiltInDefaultQueueId, "default"));
+                }
+                selectedJobQueueId = Job.JobQueue ?? BuiltInDefaultQueueId;
             }
         }
         catch (Exception ex)
@@ -760,10 +861,11 @@ Content-Type: application/json
 
     private async Task SaveJob()
     {
-        if (Job == null) return;
+        if (Job == null || !EnsureAdmin()) return;
 
         try
         {
+            Job.JobQueue = selectedJobQueueId == BuiltInDefaultQueueId ? null : selectedJobQueueId;
             await JobService.UpdateJobAsync(Job);
             
             // Update job group assignment
@@ -774,6 +876,7 @@ Content-Type: application/json
             
             NotificationService.Notify(NotificationSeverity.Success, "Success", "Job saved successfully.");
             await OnJobSaved.InvokeAsync();
+            await OnClose.InvokeAsync();
         }
         catch (Exception ex)
         {
@@ -783,6 +886,8 @@ Content-Type: application/json
 
     private async Task DeleteJob()
     {
+        if (!EnsureAdmin()) return;
+
         var confirmed = await DialogService.Confirm(
             "Are you sure you want to delete this job? This action cannot be undone.",
             "Confirm Delete",
@@ -831,6 +936,8 @@ Content-Type: application/json
 
     private async Task OpenScheduleDialog(JobSchedule schedule, string title)
     {
+        if (!EnsureAdmin()) return;
+
         var result = await DialogService.OpenAsync<EditJobScheduleDialog>(title,
             new Dictionary<string, object?>
             {
@@ -844,6 +951,8 @@ Content-Type: application/json
 
     private async Task OnScheduleSaved(JobSchedule schedule)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             if (schedule.Id == 0)
@@ -869,6 +978,8 @@ Content-Type: application/json
 
     private async Task OnScheduleDeleted(int scheduleId)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             await JobService.DeleteJobScheduleAsync(scheduleId);
@@ -896,6 +1007,8 @@ Content-Type: application/json
 
     private async Task OpenParameterDialog(JobDatum parameter, string title)
     {
+        if (!EnsureAdmin()) return;
+
         var result = await DialogService.OpenAsync<AddParameterDialog>(title,
             new Dictionary<string, object?>
             {
@@ -908,6 +1021,8 @@ Content-Type: application/json
 
     private async Task OnParameterSaved(JobDatum parameter)
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             if (parameter.Id == 0)
@@ -933,6 +1048,8 @@ Content-Type: application/json
 
     private async Task DeleteParameter(int parameterId)
     {
+        if (!EnsureAdmin()) return;
+
         var confirmed = await DialogService.Confirm(
             "Are you sure you want to delete this parameter?",
             "Confirm Delete",
@@ -965,7 +1082,7 @@ Content-Type: application/json
 
     private async Task UploadCodeFile()
     {
-        if (SelectedFile == null || Job == null) return;
+        if (SelectedFile == null || Job == null || !EnsureAdmin()) return;
 
         IsUploading = true;
         StateHasChanged();
@@ -1022,7 +1139,7 @@ Content-Type: application/json
 
     private async Task DownloadCodePackage()
     {
-        if (Job == null || string.IsNullOrEmpty(Job.JobCodeFile)) return;
+        if (Job == null || string.IsNullOrEmpty(Job.JobCodeFile) || !EnsureAdmin()) return;
 
         try
         {
@@ -1038,6 +1155,8 @@ Content-Type: application/json
 
     private async Task CreateVSSolutionFromJob()
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             var projectName = SanitizeProjectName(Job?.JobName ?? "Job");
@@ -1210,7 +1329,7 @@ Content-Type: application/json
 
     private async Task RunJobNow()
     {
-        if (Job == null) return;
+        if (Job == null || !EnsureAdmin()) return;
 
         // Check if job has a code file uploaded
         if (string.IsNullOrEmpty(Job.JobCodeFile))
@@ -1270,7 +1389,7 @@ Content-Type: application/json
     // Webhook methods
     private async Task OnWebhookToggle(bool enabled)
     {
-        if (Job == null) return;
+        if (Job == null || !EnsureAdmin()) return;
 
         if (enabled)
         {
@@ -1325,6 +1444,8 @@ Content-Type: application/json
 
     private async Task CopyWebhookUrl()
     {
+        if (!EnsureAdmin()) return;
+
         try
         {
             await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", WebhookUrl);
@@ -1337,8 +1458,47 @@ Content-Type: application/json
     }
 
     // Code Editor Methods
+    private async Task LoadReadOnlyCodeAsync()
+    {
+        isLoadingReadOnlyCode = true;
+        StateHasChanged();
+
+        try
+        {
+            var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var packageStream = await JobManager.DownloadJobPackageAsync(JobId);
+            if (packageStream != null)
+            {
+                await using (packageStream)
+                {
+                    var model = await CodeEditorService.ExtractAllFilesFromPackageAsync(packageStream, codeLanguage);
+                    // appsettings files can hold job secrets, so they stay hidden from read-only users.
+                    foreach (var file in model.DiscoveredFiles.Where(f => !f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        files[file] = CodeEditorService.GetFileContent(model, file);
+                    }
+                }
+            }
+
+            readOnlyFiles = files;
+            selectedReadOnlyFile = files.Keys.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load read-only code for job {JobId}", JobId);
+            NotificationService.Notify(NotificationSeverity.Error, "Error", "Could not load the code package.");
+        }
+        finally
+        {
+            isLoadingReadOnlyCode = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task OnLanguageChanged(object value)
     {
+        if (!EnsureAdmin()) return;
+
         // The value parameter contains the new language selected by the user
         // codeLanguage is already updated via @bind-Value before this fires
         var newLanguage = value?.ToString() ?? codeLanguage;
@@ -1424,7 +1584,7 @@ Content-Type: application/json
 
     private async Task OnCodeFileChanged()
     {
-        if (string.IsNullOrEmpty(selectedCodeFile)) return;
+        if (string.IsNullOrEmpty(selectedCodeFile) || !EnsureAdmin()) return;
         
         // Save current code before switching
         await FlushEditorBufferAsync(previousSelectedFile);
@@ -1521,6 +1681,8 @@ Content-Type: application/json
 
     private async Task OnEditModeChanged()
     {
+        if (!EnsureAdmin()) return;
+
         if (codeEditMode == CodeEditMode.Editor)
         {
             // When switching to Editor mode, load package files if available
@@ -1730,7 +1892,7 @@ Content-Type: application/json
 
     private async Task SaveAndCompileCode()
     {
-        if (jobCodeEditor == null || Job == null) return;
+        if (jobCodeEditor == null || Job == null || !EnsureAdmin()) return;
         
         isCompilingCode = true;
         StateHasChanged();
@@ -1981,7 +2143,7 @@ Content-Type: application/json
 
     private async Task RunJobWithCode()
     {
-        if (Job == null) return;
+        if (Job == null || !EnsureAdmin()) return;
         
         isRunningJobWithCode = true;
         StateHasChanged();
@@ -2126,7 +2288,7 @@ Content-Type: application/json
 
     private async Task OpenPublishToCommunityDialog()
     {
-        if (Job is null)
+        if (Job is null || !EnsureAdmin())
         {
             return;
         }
@@ -2156,6 +2318,8 @@ Content-Type: application/json
 
     private async Task OpenAIChatDialogWithPrompt(string? initialPrompt)
     {
+        if (!EnsureAdmin()) return;
+
         // Capture the latest editor buffer and what file is open so the AI never confuses
         // the active file (e.g. appsettings.json) with the job's code file.
         aiEditorContext = await BuildAIEditorContextAsync();
@@ -2253,6 +2417,9 @@ Content-Type: application/json
     /// </summary>
     private void WriteJobFile(string fileName, string content)
     {
+        // The editor buffer is shared across circuits; read-only users must never write to it.
+        if (!IsAdmin) return;
+
         if (loadedCodeModel != null)
         {
             CodeEditorService.SetFileContent(loadedCodeModel, fileName, content);
@@ -2363,6 +2530,8 @@ Content-Type: application/json
     /// </summary>
     private async Task OnAIFileUpdatesApplied(IReadOnlyList<ProposedFileUpdate> updates)
     {
+        if (!EnsureAdmin()) return;
+
         var activeBefore = selectedCodeFile;
 
         // Keep any unsaved edits to the open file before writing other files
@@ -2548,7 +2717,7 @@ Content-Type: application/json
 
     private async Task RestoreSnapshot(BlazorOrchestrator.Web.Data.Data.JobCodeChangeLog change)
     {
-        if (string.IsNullOrEmpty(change.SnapshotRowKey) || Job == null) return;
+        if (string.IsNullOrEmpty(change.SnapshotRowKey) || Job == null || !EnsureAdmin()) return;
 
         var confirmed = await DialogService.Confirm(
             $"This will replace the current editor content with the version from {change.CreatedDate:yyyy-MM-dd HH:mm:ss} UTC. You can undo this before saving.",

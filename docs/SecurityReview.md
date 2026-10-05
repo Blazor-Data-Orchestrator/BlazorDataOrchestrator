@@ -36,6 +36,46 @@ The main themes are:
 
 ---
 
+## Remediation Status (updated 2026-10-04)
+
+The Critical and High findings (SEC-001 to SEC-005) are fixed in code and tested. **All Medium, Low and Informational findings (SEC-006 to SEC-025) are left for later**, together with Phase 2 and Phase 3 of the remediation plan.
+
+> **Credential rotation (plan item 1.3) was deliberately not performed.** The repository owner decided not to rotate the SQL and storage credentials at this time. Packages stored before this fix contained live connection strings and were downloadable anonymously. If any environment was reachable from the internet, treat those credentials as exposed and revisit this decision.
+
+### What was changed
+
+| Plan item | Finding | Change | Key files |
+|-----------|---------|--------|-----------|
+| 1.1 | SEC-001 | `JobPackageController` now requires `[Authorize(Roles = "Admin")]`. Under `/api`, the cookie handler returns `401`/`403` instead of an HTML redirect. Other pages redirect a signed-in user who lacks the role to the login page with a message. | `Controllers/JobPackageController.cs`, `Program.cs` |
+| 1.2 | SEC-001 | Stored packages are stamped with `ReservedConnectionStrings.Empty` in `JobManager.UploadJobPackageAsync` and `WebNuGetPackageService.CreatePackageAsync`. Instead of a separate script, a one-time startup migration (`JobManager.BlankReservedConnectionStringsInStoredPackagesAsync`, run by `BackgroundInitializer`) rewrites every existing package blob. It records the `StoredPackagesReservedBlanked` setting and retries on the next start if it fails. | `Core/JobManager.cs`, `Web/Services/WebNuGetPackageService.cs`, `Program.cs` |
+| 1.3 | SEC-001 | **Not done**, by owner decision (see note above). | n/a |
+| 1.4 | SEC-002 | On Home, ViewOnly users see **View** and **View Logs** only. Edit, Schedule, Run Now, Download, VS Solution, Publish, Create and Quick Create are Admin-only. `JobDetailsDialog` resolves the role and is read-only for non-Admins: inputs are disabled, and Save, Delete, Run, the schedule and parameter actions, upload and the editor are hidden. The webhook URL and GUID (a bearer secret) are hidden. The Code tab shows a read-only view that omits `appsettings*.json` and never touches the shared editor buffer. Every mutating handler also calls `EnsureAdmin()`. | `Pages/Home.razor`, `Pages/Dialogs/JobDetailsDialog.razor` |
+| 1.5 | SEC-003 | `/admin` is `[Authorize(Roles = "Admin")]` and its nav link is Admin-only. Stored OAuth client secrets are never loaded into inputs. A "secret is saved" placeholder is shown, and a blank field on save keeps the stored value. In the AI settings editor, `AIKeyEndpointGuard` only sends a stored key to the endpoint it was saved with. Changing the Azure OpenAI or Foundry endpoint requires re-entering the key before models load or **Test Connection** runs. | `Pages/Admin/AdminHome.razor`, `Layout/NavMenu.razor`, `Shared/AIServiceSettingsEditor.razor`, `Services/AIKeyEndpointGuard.cs` |
+| 1.6 | SEC-005 | `InstallMarkerService` writes a durable `InstallCompleted` row to the Settings table. It is written by the install wizard, by `/setup` when the system is configured, and on the first healthy status check of an existing install. `SetupAccessPolicy` shows **Temporarily unavailable** instead of INSTALL, RUNSCRIPTS or CreateAdministrator to anyone but an Admin when the marker exists or cannot be read. Connection strings are never pre-filled or echoed. The first admin is created in a serializable transaction that aborts if any user exists. The database name is escaped. `SystemStatusService` no longer caches a negative result, so recovery from an outage is noticed. | `Services/InstallMarkerService.cs`, `Pages/Setup.razor`, `InstallUpgrade/StepDatabase.razor`, `StepStorage.razor`, `InstallWizard.razor`, `Services/SystemStatusService.cs` |
+| 1.7 | SEC-004 | Linking a *new* external login by email now uses only an identifier the provider verifies. For Microsoft this is the Graph `userPrincipalName`, mapped to a dedicated claim; Entra only allows verified tenant domains there, and guest `#EXT#` UPNs are refused. The unverified `mail` attribute is never used. For Google, the email must carry `verified_email`/`email_verified = true`. Already-linked logins are unaffected. `SaveTokens` is now `false` for both providers. | `Services/ExternalLoginService.cs`, `Services/ExternalAuthOptionsStore.cs`, `Controllers/AccountController.cs` |
+| 1.8 | SEC-006 | **Deferred.** Partly mitigated: the external and upgrade callbacks now sign out the provider-issued cookie whenever the login is rejected. The separate `External` scheme and the policy changes on the community pages are still open. | `Controllers/AccountController.cs` |
+
+Still recommended for SEC-004, not done: restrict Microsoft sign-in to a configured tenant (option 2), and audit existing `AspNetUserLogins` rows for links created before this fix.
+
+### Verification performed
+
+| Check | Result |
+|-------|--------|
+| T-01: anonymous `GET /api/job-package/3/download` | `401` |
+| T-02: ViewOnly `GET /api/job-package/3/download` | `403` |
+| Admin download; all four reserved keys in every `appsettings*.json` | `200`; all `""` |
+| One-time migration on local data | 17 stored packages rewritten |
+| Run a job end to end after blanking (`TestCsSimple0927`) | Agent: "Successfully processed JobInstance", no error, so runtime injection works |
+| ViewOnly dashboard and **View** dialog (Playwright) | Only View and View Logs. Dialog read-only: no Save, Delete, Run, Add Schedule, Add Parameter or upload; webhook URL hidden; Code tab shows `main.cs` with no settings files or connection strings |
+| ViewOnly `GET /admin` | Redirected to `/account/login?error=You do not have permission…` |
+| Admin Authentication tab after saving secrets | Secret inputs empty and absent from page HTML. A save with blank fields kept the stored secrets |
+| T-11: anonymous `/setup` with the SQL container stopped | "Temporarily unavailable" only, with no wizard and no `Password=`/`AccountKey=` in the page |
+| Unit tests: `tests/BlazorOrchestrator.Web.Tests/SecurityReviewFixTests.cs` (22 cases) | Pass. Covers T-01/T-02 (attribute), T-03 (web package blanking), T-06 (attribute), T-08 (key guard), T-09 (spoofed mail not linked), and T-11 (setup policy) |
+
+T-04, T-05, T-07 (as an automated test), T-10 and T-12 to T-27 are not yet automated. T-04 and T-07 were checked manually as listed above.
+
+---
+
 ## Scope and Methodology
 
 ### In scope
@@ -221,12 +261,12 @@ What the pipeline is missing: `UseForwardedHeaders`, `UseRateLimiter`, a securit
 
 | ID | Title | Severity | OWASP 2021 | Status |
 |----|-------|----------|------------|--------|
-| SEC-001 | Anonymous job package download exposes host connection strings and job source | Critical | A01 Broken Access Control | Open |
-| SEC-002 | ViewOnly users can edit, upload, schedule, run and delete jobs (code execution on Agent) | High | A01 Broken Access Control | Open |
-| SEC-003 | ViewOnly users can read OAuth secrets, exfiltrate stored AI API key, and change Community/MCP endpoints | High | A01 Broken Access Control / A10 SSRF | Open |
-| SEC-004 | External login links accounts by unverified email on multi-tenant Microsoft endpoint (account takeover) | High | A07 Identification and Authentication Failures | Open |
-| SEC-005 | Anonymous setup wizard fails open: exposes connection strings, rewrites appsettings, creates Admin | High | A01 Broken Access Control / A05 Security Misconfiguration | Open |
-| SEC-006 | Rejected external login leaves an authenticated cookie; plain `[Authorize]` pages accept it | Medium | A07 Identification and Authentication Failures | Open |
+| SEC-001 | Anonymous job package download exposes host connection strings and job source | Critical | A01 Broken Access Control | Fixed (2026-10-04) |
+| SEC-002 | ViewOnly users can edit, upload, schedule, run and delete jobs (code execution on Agent) | High | A01 Broken Access Control | Fixed (2026-10-04) |
+| SEC-003 | ViewOnly users can read OAuth secrets, exfiltrate stored AI API key, and change Community/MCP endpoints | High | A01 Broken Access Control / A10 SSRF | Fixed (2026-10-04) |
+| SEC-004 | External login links accounts by unverified email on multi-tenant Microsoft endpoint (account takeover) | High | A07 Identification and Authentication Failures | Fixed (2026-10-04) |
+| SEC-005 | Anonymous setup wizard fails open: exposes connection strings, rewrites appsettings, creates Admin | High | A01 Broken Access Control / A05 Security Misconfiguration | Fixed (2026-10-04) |
+| SEC-006 | Rejected external login leaves an authenticated cookie; plain `[Authorize]` pages accept it | Medium | A07 Identification and Authentication Failures | Open (partly mitigated) |
 | SEC-007 | No account lockout or brute-force protection on password login | Medium | A07 Identification and Authentication Failures | Open |
 | SEC-008 | 30-day sliding cookie without revalidation; `SecurePolicy.SameAsRequest` | Medium | A07 Identification and Authentication Failures | Open |
 | SEC-009 | No security headers (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy) | Medium | A05 Security Misconfiguration | Open |
@@ -1909,6 +1949,8 @@ flowchart LR
 ```
 
 ### Phase 1 - Immediate (0-3 days)
+
+> Status (2026-10-04): items 1.1, 1.2 and 1.4 to 1.7 are done. Item 1.3 (credential rotation) was not done, by owner decision. Item 1.8 is deferred. See [Remediation Status](#remediation-status-updated-2026-10-04). Phases 2 and 3 are still open.
 
 | # | Finding(s) | Action | Files | Exit check |
 |---|-----------|--------|-------|------------|

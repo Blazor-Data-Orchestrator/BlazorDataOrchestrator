@@ -31,13 +31,15 @@
         new Option { Label = "Azure (Managed Identity)", Value = "managed" }
     };
 
+    private bool HasExistingStorageConfig { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        // Read connection strings directly from appsettings.json file to avoid Aspire expansion
-        await LoadConnectionStringsFromAppSettingsFile();
+        await DetectExistingStorageConfigAsync();
     }
 
-    private async Task LoadConnectionStringsFromAppSettingsFile()
+    /// <summary>Only reports whether values exist; the values themselves are never sent to the browser.</summary>
+    private async Task DetectExistingStorageConfigAsync()
     {
         try
         {
@@ -46,32 +48,14 @@
             {
                 var json = await File.ReadAllTextAsync(appSettingsPath);
                 var jsonNode = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
-                
-                if (jsonNode?["ConnectionStrings"] != null)
-                {
-                    var blobConn = jsonNode["ConnectionStrings"]?["blobs"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(blobConn))
-                    {
-                        Model.BlobString = blobConn;
-                    }
-                    
-                    var tableConn = jsonNode["ConnectionStrings"]?["tables"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(tableConn))
-                    {
-                        Model.TableString = tableConn;
-                    }
-                    
-                    var queueConn = jsonNode["ConnectionStrings"]?["queues"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(queueConn))
-                    {
-                        Model.QueueString = queueConn;
-                    }
-                }
+                var connectionStrings = jsonNode?["ConnectionStrings"];
+                HasExistingStorageConfig = new[] { "blobs", "tables", "queues" }
+                    .Any(key => !string.IsNullOrEmpty(connectionStrings?[key]?.GetValue<string>()));
             }
         }
         catch
         {
-            // If file reading fails, leave model values as-is
+            HasExistingStorageConfig = false;
         }
     }
 
@@ -259,6 +243,13 @@
     <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-4">
         Configure Azure storage services (Blob, Table, Queue) for file storage and job queuing. For local development, use Azurite with "UseDevelopmentStorage=true".
     </RadzenAlert>
+
+    @if (HasExistingStorageConfig)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-mb-3" TagName="TagName.P">
+            Storage connection strings are already configured on this host. They are not shown here; enter a value only to replace it.
+        </RadzenText>
+    }
 
     @* Blob Storage Section *@
     <div class="rz-mb-4">

@@ -916,8 +916,8 @@ namespace BlazorDataOrchestrator.Core
                 fileStream.Position = 0;
             }
 
-            // Rewrite the four reserved connection strings so the stored package reflects host values
-            var (stampedStream, stampResult) = await PackageAppSettingsStamper.StampAsync(fileStream, _reserved);
+            // Stored packages carry blank reserved connection strings; the Agent injects host values at run time.
+            var (stampedStream, stampResult) = await PackageAppSettingsStamper.StampAsync(fileStream, ReservedConnectionStrings.Empty);
 
             await using (stampedStream)
             {
@@ -928,7 +928,7 @@ namespace BlazorDataOrchestrator.Core
 
                 if (stampResult.StampedFiles.Count > 0)
                 {
-                    await LogAsync("UploadJobPackage", $"Stamped reserved connection strings into: {string.Join(", ", stampResult.StampedFiles)}", jobId: jobId);
+                    await LogAsync("UploadJobPackage", $"Blanked reserved connection strings in: {string.Join(", ", stampResult.StampedFiles)}", jobId: jobId);
                 }
 
                 if (stampResult.CreatedFiles.Count > 0)
@@ -1017,6 +1017,52 @@ namespace BlazorDataOrchestrator.Core
                 await LogAsync("DownloadJobPackage", $"Error downloading package: {ex.Message}", "Error", jobId: jobId);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Rewrites every stored job package so its reserved connection strings are blank.
+        /// Packages uploaded before this change carried the host's live values.
+        /// </summary>
+        /// <returns>The number of packages rewritten.</returns>
+        public async Task<int> BlankReservedConnectionStringsInStoredPackagesAsync(CancellationToken cancellationToken = default)
+        {
+            if (!await _packageContainerClient.ExistsAsync(cancellationToken))
+            {
+                return 0;
+            }
+
+            var rewritten = 0;
+            await foreach (var item in _packageContainerClient.GetBlobsAsync(cancellationToken: cancellationToken))
+            {
+                var extension = Path.GetExtension(item.Name);
+                if (!string.Equals(extension, ".nupkg", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var blobClient = _packageContainerClient.GetBlobClient(item.Name);
+                using var original = new MemoryStream();
+                await blobClient.DownloadToAsync(original, cancellationToken);
+
+                var (stampedStream, stampResult) = await PackageAppSettingsStamper.StampAsync(original, ReservedConnectionStrings.Empty);
+                await using (stampedStream)
+                {
+                    if (stampResult.StampedFiles.Count == 0 && stampResult.CreatedFiles.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    await blobClient.UploadAsync(stampedStream, new Azure.Storage.Blobs.Models.BlobUploadOptions
+                    {
+                        HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders { ContentType = "application/octet-stream" }
+                    }, cancellationToken);
+                    rewritten++;
+                }
+            }
+
+            await LogAsync("BlankStoredPackageSecrets", $"Blanked reserved connection strings in {rewritten} stored package(s).");
+            return rewritten;
         }
 
         // #9 Run Job Now

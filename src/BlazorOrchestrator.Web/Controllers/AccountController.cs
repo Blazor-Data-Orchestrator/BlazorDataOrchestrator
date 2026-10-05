@@ -148,22 +148,27 @@ public class AccountController : Controller
         var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
         var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : null;
 
-        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email))
+        if (string.IsNullOrEmpty(providerKey))
         {
-            return Redirect("/account/login?error=Could+not+retrieve+email+from+external+provider");
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Redirect("/account/login?error=Could+not+retrieve+identity+from+external+provider");
         }
 
         if (string.IsNullOrEmpty(provider))
         {
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Redirect("/account/login?error=External+authentication+provider+was+not+supplied");
         }
 
-        // Find or link the user
-        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, email, name);
+        // Find or link the user. Only a provider-verified email may link a new external identity.
+        var linkableEmail = ExternalLoginService.GetLinkableEmail(provider, externalClaims);
+        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, linkableEmail, name);
 
         if (user == null)
         {
-            var encodedError = Uri.EscapeDataString("No local account found for this email. Please contact an administrator to create your account.");
+            // Drop the provider-issued cookie so a rejected login is not left signed in.
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var encodedError = Uri.EscapeDataString("No local account is linked to this sign-in. Please contact an administrator to create your account.");
             return Redirect($"/account/login?error={encodedError}");
         }
 
@@ -172,7 +177,7 @@ public class AccountController : Controller
         {
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.UserName ?? name),
-            new(ClaimTypes.Email, user.Email ?? email)
+            new(ClaimTypes.Email, user.Email ?? email ?? "")
         };
         await AddRoleClaimsAsync(claims, user.Id);
 
@@ -249,16 +254,19 @@ public class AccountController : Controller
         var name = externalClaims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? email ?? "";
         var provider = result.Properties?.Items.TryGetValue("provider", out var p) == true ? p : null;
 
-        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(email) || string.IsNullOrEmpty(provider))
+        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(provider))
         {
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Redirect("/setup?authError=Could+not+retrieve+identity");
         }
 
-        // Find the linked local user
-        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, email, name);
+        // Find the linked local user. Only a provider-verified email may link a new external identity.
+        var linkableEmail = ExternalLoginService.GetLinkableEmail(provider, externalClaims);
+        var user = await _externalLoginService.FindAndLinkUserAsync(provider, providerKey, linkableEmail, name);
         if (user == null)
         {
-            return Redirect("/setup?authError=No+local+account+found+for+this+email");
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Redirect("/setup?authError=No+local+account+is+linked+to+this+sign-in");
         }
 
         // Verify Admin role

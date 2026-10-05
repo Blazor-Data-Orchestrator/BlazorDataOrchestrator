@@ -1,4 +1,6 @@
+using System.Text.Json;
 using BlazorOrchestrator.Web.Models;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.Extensions.Options;
@@ -89,7 +91,8 @@ public sealed class ExternalAuthOptionsStore :
         if (!options.Scope.Contains("openid")) options.Scope.Add("openid");
         if (!options.Scope.Contains("profile")) options.Scope.Add("profile");
         if (!options.Scope.Contains("email")) options.Scope.Add("email");
-        options.SaveTokens = true;
+        options.ClaimActions.MapJsonKey(ExternalLoginService.MicrosoftUpnClaimType, "userPrincipalName");
+        options.SaveTokens = false;
         options.CallbackPath = "/signin-microsoft";
         options.AdditionalAuthorizationParameters["prompt"] = "login";
     }
@@ -104,7 +107,14 @@ public sealed class ExternalAuthOptionsStore :
         var config = GoogleConfig;
         options.ClientId = NonEmpty(config.ClientId);
         options.ClientSecret = NonEmpty(config.ClientSecret);
-        options.SaveTokens = true;
+        // userinfo v2 returns verified_email; v3 returns email_verified.
+        options.ClaimActions.MapCustomJson(ExternalLoginService.GoogleEmailVerifiedClaimType, user =>
+            user.TryGetProperty("verified_email", out var flag) || user.TryGetProperty("email_verified", out flag)
+                ? (flag.ValueKind == JsonValueKind.True ||
+                   (flag.ValueKind == JsonValueKind.String && string.Equals(flag.GetString(), "true", StringComparison.OrdinalIgnoreCase))
+                    ? "true" : "false")
+                : null);
+        options.SaveTokens = false;
         options.AdditionalAuthorizationParameters["prompt"] = "login";
     }
 

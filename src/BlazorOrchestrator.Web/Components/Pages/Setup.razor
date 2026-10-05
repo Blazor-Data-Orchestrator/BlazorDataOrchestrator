@@ -17,6 +17,8 @@
 @inject IJSRuntime JSRuntime
 @inject BlazorDataOrchestrator.Core.Services.SettingsService SettingsService
 @inject WizardTokenService WizardTokenService
+@inject InstallMarkerService InstallMarker
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Setup Wizard</PageTitle>
 
@@ -36,6 +38,23 @@ else if (IsConfigured)
             <RadzenIcon Icon="check_circle" Style="font-size: 3rem; color: #16a34a;" />
             <RadzenText TextStyle="TextStyle.H5">System is already configured</RadzenText>
             <RadzenButton Text="Go to Dashboard" Icon="home" ButtonStyle="ButtonStyle.Primary" Click="@(() => NavigationManager.NavigateTo("/", forceLoad: true))" />
+        </RadzenStack>
+    </div>
+}
+else if (WizardMode == SetupAccessPolicy.Unavailable)
+{
+    <div style="display: flex; justify-content: center; align-items: center; min-height: 400px;">
+        <RadzenStack AlignItems="AlignItems.Center" Gap="1rem" Style="max-width: 520px; text-align: center;">
+            <RadzenIcon Icon="cloud_off" Style="font-size: 3rem; color: #d97706;" />
+            <RadzenText TextStyle="TextStyle.H5">Temporarily unavailable</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body1">
+                The system is installed but its database or storage could not be reached. Please try again shortly.
+            </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Primary" Click="@RetryAsync" />
+                <RadzenButton Text="Sign in" Icon="login" ButtonStyle="ButtonStyle.Light"
+                              Click="@(() => NavigationManager.NavigateTo("/account/login?returnUrl=%2Fsetup", forceLoad: true))" />
+            </RadzenStack>
         </RadzenStack>
     </div>
 }
@@ -139,14 +158,50 @@ else
     private async Task CheckSystemStatus()
     {
         IsLoading = true;
+        IsConfigured = false;
+        WizardMode = "";
         ErrorMessage = string.Empty;
 
+        await DetectSystemStatusAsync();
+
+        if (IsConfigured || WizardMode == "UPGRADE")
+        {
+            await InstallMarker.MarkInstalledAsync();
+        }
+        else
+        {
+            using var cts = new CancellationTokenSource(DbCheckTimeout);
+            var marker = await InstallMarker.GetStateAsync(cts.Token);
+            var isAdmin = (await AuthStateProvider.GetAuthenticationStateAsync()).User.IsInRole("Admin");
+            var resolved = SetupAccessPolicy.Resolve(WizardMode, marker, isAdmin);
+            if (resolved == SetupAccessPolicy.Unavailable)
+            {
+                WizardMode = resolved;
+                ErrorMessage = string.Empty;
+            }
+        }
+
+        IsLoading = false;
+    }
+
+    private async Task RetryAsync()
+    {
+        ServiceProvider.GetService<ISystemStatusService>()?.Reset();
+        await CheckSystemStatus();
+        if (IsConfigured)
+        {
+            NavigationManager.NavigateTo("/", forceLoad: true);
+        }
+    }
+
+    /// <summary>Sets <see cref="WizardMode"/> or <see cref="IsConfigured"/> from live checks.</summary>
+    private async Task DetectSystemStatusAsync()
+    {
         try
         {
             if (!await CanConnectToDatabase())
             {
                 WizardMode = "INSTALL";
-                IsLoading = false;
                 return;
             }
         }
@@ -154,7 +209,6 @@ else
         {
             ErrorMessage = $"Database connection error: {ex.Message}";
             WizardMode = "INSTALL";
-            IsLoading = false;
             return;
         }
 
@@ -163,7 +217,6 @@ else
             if (!await IsDatabaseSetUpAsync())
             {
                 WizardMode = "RUNSCRIPTS";
-                IsLoading = false;
                 return;
             }
         }
@@ -171,7 +224,6 @@ else
         {
             ErrorMessage = $"Database setup check error: {ex.Message}";
             WizardMode = "RUNSCRIPTS";
-            IsLoading = false;
             return;
         }
 
@@ -180,7 +232,6 @@ else
             if (!await AdminExistsAsync())
             {
                 WizardMode = "CreateAdministrator";
-                IsLoading = false;
                 return;
             }
         }
@@ -188,7 +239,6 @@ else
         {
             ErrorMessage = $"Admin check error: {ex.Message}";
             WizardMode = "CreateAdministrator";
-            IsLoading = false;
             return;
         }
 
@@ -197,21 +247,18 @@ else
             if (await IsCodeAheadOfDatabaseAsync())
             {
                 WizardMode = "UPGRADE";
-                IsLoading = false;
                 return;
             }
         }
         catch (Exception ex)
         {
             ErrorMessage = $"Version check error: {ex.Message}";
-            IsLoading = false;
             IsConfigured = true;
             return;
         }
 
         // System is fully configured
         IsConfigured = true;
-        IsLoading = false;
     }
 
     private async Task<bool> CanConnectToDatabase()

@@ -44,6 +44,25 @@ var authBuilder = builder.Services.AddAuthentication(options =>
         options.SlidingExpiration = true;
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+        // API callers get status codes rather than an HTML login redirect.
+        options.Events.OnRedirectToLogin = context => RedirectOrStatus(context, StatusCodes.Status401Unauthorized, context.RedirectUri);
+        // There is no access-denied page, so signed-in users without the role go back to the login page with a message.
+        options.Events.OnRedirectToAccessDenied = context => RedirectOrStatus(context, StatusCodes.Status403Forbidden,
+            "/account/login?error=" + Uri.EscapeDataString("You do not have permission to view that page."));
+
+        static Task RedirectOrStatus(RedirectContext<CookieAuthenticationOptions> context, int statusCode, string redirectUri)
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = statusCode;
+            }
+            else
+            {
+                context.Response.Redirect(redirectUri);
+            }
+            return Task.CompletedTask;
+        }
     });
 
 // Always register external schemes with placeholder credentials.
@@ -299,6 +318,7 @@ builder.Services.AddScoped<McpToolBridge>();
 builder.Services.AddScoped<IExternalToolProvider>(sp => sp.GetRequiredService<McpToolBridge>());
 
 builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
+builder.Services.AddSingleton<InstallMarkerService>();
 
 var app = builder.Build();
 
@@ -386,6 +406,8 @@ public partial class Program { }
 
 public class BackgroundInitializer : BackgroundService
 {
+    private const string StoredPackagesBlankedSettingKey = "StoredPackagesReservedBlanked";
+
     private readonly IServiceProvider _sp;
     private readonly ILogger<BackgroundInitializer> _logger;
     private readonly IConfiguration _configuration;
@@ -424,6 +446,25 @@ public class BackgroundInitializer : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Admin role bootstrap skipped.");
+            }
+
+            // One-time cleanup: packages stored before SEC-001 carried live host connection strings.
+            try
+            {
+                using var scope = _sp.CreateScope();
+                var settings = scope.ServiceProvider.GetRequiredService<SettingsService>();
+                if (await settings.GetAsync(StoredPackagesBlankedSettingKey) == null)
+                {
+                    var jobManager = scope.ServiceProvider.GetRequiredService<JobManager>();
+                    var rewritten = await jobManager.BlankReservedConnectionStringsInStoredPackagesAsync(stoppingToken);
+                    await settings.SetAsync(StoredPackagesBlankedSettingKey, DateTime.UtcNow.ToString("O"),
+                        "Stored job packages were rewritten with blank reserved connection strings");
+                    _logger.LogInformation("Blanked reserved connection strings in {Count} stored job package(s).", rewritten);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not blank reserved connection strings in stored job packages; will retry on next start.");
             }
         }
         catch (Exception ex)
