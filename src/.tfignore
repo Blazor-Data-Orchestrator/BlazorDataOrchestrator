@@ -1,5 +1,6 @@
-# TFVC ignore for organizations that map a TFVC folder to this src folder for their own job projects.
-# Only the organization's job projects belong in TFVC. The product itself is owned by the GitHub repo.
+# LACOE TFVC ignore for $/EPICMain/BlazorDataOrchestrator, which is mapped to this src folder.
+# Only LACOE job projects belong in TFVC. The product itself is owned by the open-source GitHub repo.
+# Kept in the GitHub repo too, so a first-time clone is already protected before TFVC is mapped.
 # A leading \ anchors to this folder; a bare name matches at any depth.
 
 # --- Product projects: owned by the open-source repo, never checked into TFVC ---
@@ -16,14 +17,24 @@
 bin
 obj
 .vs
+.vscode
 *.user
 *.suo
 *.nupkg
+*.binlog
+TestResults
 execution_errors.log
+
+# --- Per-developer publish profiles (contain subscription/registry details) ---
+*.pubxml
+*.pubxml.user
 
 # --- Python run-time artefacts written into Code\CodePython by the template UI and the Agent ---
 __pycache__
 *.pyc
+.venv
+venv
+.pytest_cache
 runner.py
 _runner.py
 # Holds fully resolved settings, including connection strings
