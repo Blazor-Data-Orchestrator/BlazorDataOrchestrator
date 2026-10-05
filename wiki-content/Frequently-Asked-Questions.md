@@ -161,6 +161,10 @@ After changing any authentication settings in the Admin UI, you must **restart t
 
 No. External logins only link to **existing** user accounts. A user must already be created in the system (via the Install Wizard or by an administrator) before they can sign in with Microsoft or Google.
 
+### Why can't a user link their Microsoft or Google account?
+
+The first sign-in links by email only when the provider has verified it. For Microsoft, the local account's email must equal the user's sign-in name (user principal name), not their `mail` attribute. Guest (`#EXT#`) accounts are not linked. For Google, the email must be verified by Google.
+
 ### Where are the authentication settings stored?
 
 Authentication settings (Client ID, Client Secret, Enabled flags) are stored in **Azure Table Storage**, not in `appsettings.json`. They are managed exclusively through the Administration > Authentication tab in the web UI.

@@ -74,6 +74,18 @@ Still recommended for SEC-004, not done: restrict Microsoft sign-in to a configu
 
 T-04, T-05, T-07 (as an automated test), T-10 and T-12 to T-27 are not yet automated. T-04 and T-07 were checked manually as listed above.
 
+### Deployment verification (Azure Container Apps, Dev)
+
+Commit `074f6a3` was deployed as Web image tag `20261004214659-074f6a`. The Agent and Scheduler were not redeployed, because none of the code they run changed.
+
+| Check | Result |
+|-------|--------|
+| New revision running | Running, using the new image |
+| One-time package migration | Log: "Blanked reserved connection strings in 7 stored job package(s)." |
+| Anonymous `GET /api/job-package/1/download` | `401` |
+| Errors or critical logs in the new revision | None. Only benign warnings, such as `409 container already exists` on startup |
+| Owner's manual checks: job run, Admin smoke test, ViewOnly check, Authentication tab | Passed |
+
 ---
 
 ## Scope and Methodology

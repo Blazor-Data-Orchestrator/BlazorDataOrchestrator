@@ -200,6 +200,15 @@ Blazor Data Orchestrator supports optional external authentication via **Microso
 
 External logins only **link to existing user accounts**. They do not auto-create new accounts. A user must already exist in the system (created via the Install Wizard or by an administrator) before they can sign in with Microsoft or Google.
 
+The first external sign-in links to the local account whose email matches an identifier the provider has verified:
+
+- **Microsoft:** the account's sign-in name (user principal name, for example `jdoe@contoso.com`). The editable `mail` attribute is not used, and guest (`#EXT#`) accounts are not linked.
+- **Google:** the email address, only when Google reports it as verified.
+
+After the first sign-in, the link is stored and later sign-ins use it directly.
+
+> **Note:** Client secrets are never sent back to the browser. The Authentication tab shows an empty field with "A secret is saved. Leave blank to keep it." Enter a value only when you want to replace the stored secret.
+
 > **⚠️ Warning: Application Restart Required**
 >
 > After enabling, disabling, or changing the Client ID / Client Secret for any external authentication provider, you **must restart the application** for the changes to take effect.

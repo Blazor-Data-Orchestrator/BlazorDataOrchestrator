@@ -136,7 +136,7 @@ Blazor Data Orchestrator supports optional sign-in via **Microsoft** (Azure Entr
 >
 > The Login page will not show or hide provider buttons until the restart is complete.
 
-> **Note:** External logins only **link to existing user accounts**. They do not auto-create new accounts. The user must already exist in the system before they can sign in with an external provider.
+> **Note:** External logins only **link to existing user accounts**. They do not auto-create new accounts. The user must already exist in the system before they can sign in with an external provider. For Microsoft, the account's email in Blazor Data Orchestrator must match the user's sign-in name (user principal name).
 
 ---
 

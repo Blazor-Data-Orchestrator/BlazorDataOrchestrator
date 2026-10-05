@@ -114,7 +114,7 @@ Blazor Data Orchestrator supports optional external authentication via **Microso
 
 - **Microsoft authentication** — Register an application in Azure Entra ID, then enter the Client ID and Client Secret in the Administration > Authentication tab.
 - **Google authentication** — Create OAuth 2.0 credentials in the Google Cloud Console, then enter the Client ID and Client Secret in the Administration > Authentication tab.
-- **Account linking only** — External logins link to existing user accounts. They do not auto-create new accounts.
+- **Account linking only** — External logins link to existing user accounts. They do not auto-create new accounts. The first sign-in links by email only when the provider vouches for it: for Microsoft, the account's sign-in name (user principal name); for Google, a verified email address.
 - **Settings stored in Azure Table Storage** — Authentication configuration is persisted alongside other application settings, not in configuration files.
 
 > **Important:** After enabling or disabling an authentication provider, you must **restart the application** for the change to take effect. See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for details.
