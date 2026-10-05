@@ -97,8 +97,6 @@ Thumbs.db
 **/Properties/PublishProfiles/
 *.pubxml
 *.pubxml.user
-docs/ProductionARMDeploymentPlan.md
-docs/ProductionEnvironmentVariables.txt
 
 # Staged copy of .github/skills used only inside the packaged template zip
 /src/BlazorDataOrchestrator.JobCreatorTemplate/Skills/

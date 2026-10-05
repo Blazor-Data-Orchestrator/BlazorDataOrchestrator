@@ -31,7 +31,7 @@ So the answer to *"is it really a bug?"* is: **partly by design, partly a real b
 
 ### 1.3 Comparison with the reference project
 
-The system was modelled on **Warehouse Orchestrator** (`C:\Repo\EPICMain\WarehouseOchestratorProjects`). The two designs diverged materially:
+The system was modelled on **Warehouse Orchestrator** (an internal reference project). The two designs diverged materially:
 
 | Aspect | Warehouse Orchestrator (reference) | BlazorDataOrchestrator (current) |
 | --- | --- | --- |

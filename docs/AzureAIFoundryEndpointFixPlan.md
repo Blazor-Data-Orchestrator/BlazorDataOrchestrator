@@ -2,13 +2,13 @@
 
 ## 1. Overview
 
-Admins who configure the Code Assistant against the Azure AI Foundry resource `lacoeaidevaifoundry` get three different failures, depending on which Foundry URL they paste into **Admin > AI Settings**:
+Admins who configure the Code Assistant against the Azure AI Foundry resource `contoso-foundry` get three different failures, depending on which Foundry URL they paste into **Admin > AI Settings**:
 
 | # | Endpoint entered | Error shown in chat |
 |---|---|---|
-| A | `https://lacoeaidevaifoundry.services.ai.azure.com/openai/v1/responses` | `❌ Error communicating with AI service: HTTP 404 (404) Resource not found` |
-| B | `https://lacoeaidevaifoundry.services.ai.azure.com/anthropic/v1/messages` | `❌ Error communicating with AI service: HTTP 401 (401) Access denied due to invalid subscription key or wrong API endpoint...` |
-| C | `https://lacoeaidevaifoundry.services.ai.azure.com/api/projects/lacoeaidevproject` | `❌ Error communicating with AI service: HTTP 400 (BadRequest) API version not supported` |
+| A | `https://contoso-foundry.services.ai.azure.com/openai/v1/responses` | `❌ Error communicating with AI service: HTTP 404 (404) Resource not found` |
+| B | `https://contoso-foundry.services.ai.azure.com/anthropic/v1/messages` | `❌ Error communicating with AI service: HTTP 401 (401) Access denied due to invalid subscription key or wrong API endpoint...` |
+| C | `https://contoso-foundry.services.ai.azure.com/api/projects/contoso-project` | `❌ Error communicating with AI service: HTTP 400 (BadRequest) API version not supported` |
 
 All three were entered with **AI Service Type = Azure OpenAI**, because that is the only provider that shows an Endpoint field.
 
@@ -258,13 +258,13 @@ flowchart TD
 
 | Input | Deployment | Protocol (Auto) | OperationUrl | Notices |
 |---|---|---|---|---|
-| `.../openai/v1/responses` | `gpt-5-codex` | Responses | `https://lacoeaidevaifoundry.services.ai.azure.com/openai/v1/responses` | none |
+| `.../openai/v1/responses` | `gpt-5-codex` | Responses | `https://contoso-foundry.services.ai.azure.com/openai/v1/responses` | none |
 | `.../openai/v1/responses` | `gpt-4o` | Responses (URL hint wins) | same as above | none |
-| `.../anthropic/v1/messages` | `claude-sonnet-4-6` | AnthropicMessages | `https://lacoeaidevaifoundry.services.ai.azure.com/anthropic/v1/messages` | none |
-| `.../api/projects/lacoeaidevproject` | `gpt-4.1` | ChatCompletions | `https://lacoeaidevaifoundry.services.ai.azure.com/openai/v1/chat/completions` | "Project endpoint rewritten to resource endpoint" |
-| `.../api/projects/lacoeaidevproject` | `claude-opus-5-5` | AnthropicMessages | `.../anthropic/v1/messages` | "Project endpoint rewritten to resource endpoint" |
-| `https://lacoeaidevaifoundry.services.ai.azure.com` | `Llama-4-Maverick` | ChatCompletions | `.../openai/v1/chat/completions` | none |
-| `http://lacoeaidevaifoundry.services.ai.azure.com` | any | error | n/a | "https is required" |
+| `.../anthropic/v1/messages` | `claude-sonnet-4-6` | AnthropicMessages | `https://contoso-foundry.services.ai.azure.com/anthropic/v1/messages` | none |
+| `.../api/projects/contoso-project` | `gpt-4.1` | ChatCompletions | `https://contoso-foundry.services.ai.azure.com/openai/v1/chat/completions` | "Project endpoint rewritten to resource endpoint" |
+| `.../api/projects/contoso-project` | `claude-opus-5-5` | AnthropicMessages | `.../anthropic/v1/messages` | "Project endpoint rewritten to resource endpoint" |
+| `https://contoso-foundry.services.ai.azure.com` | `Llama-4-Maverick` | ChatCompletions | `.../openai/v1/chat/completions` | none |
+| `http://contoso-foundry.services.ai.azure.com` | any | error | n/a | "https is required" |
 
 ---
 
@@ -749,7 +749,7 @@ flowchart LR
 ### Phase 4: Tests and documentation
 
 1. Create the xUnit project `tests/BlazorDataOrchestrator.Core.Tests` (net10.0) with table-driven tests for `FoundryEndpointResolver`, `InferProtocolFromModel`, `ModelCapabilities`, and `AIErrorTranslator`.
-2. Run the manual test matrix in Section 17 against `lacoeaidevaifoundry`.
+2. Run the manual test matrix in Section 17 against a real Foundry resource.
 3. Update the AI settings page in `wiki-content/`.
 
 ---
@@ -771,7 +771,7 @@ flowchart LR
 | U9 | `not a url` | any | Auto | error | n/a | full URL required |
 | U10 | `https://r.services.ai.azure.com/` | `Llama-4-Maverick` | Auto | ChatCompletions | `.../openai/v1` | none |
 
-### 17.2 Manual test matrix (lacoeaidevaifoundry)
+### 17.2 Manual test matrix (contoso-foundry)
 
 | # | Service type | Endpoint | Deployment | Expected |
 |---|---|---|---|---|
