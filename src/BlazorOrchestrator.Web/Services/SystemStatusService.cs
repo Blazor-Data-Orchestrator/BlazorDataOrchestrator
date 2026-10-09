@@ -67,14 +67,18 @@ public class SystemStatusService : ISystemStatusService
             var schemaVersion = await settingsService.GetOrDefaultAsync(
                 "SchemaVersion", ApplicationVersion.Current);
 
-            _needsUpgrade = ConvertVersionToInteger(ApplicationVersion.Current)
-                          > ConvertVersionToInteger(schemaVersion);
-            return _needsUpgrade.Value;
+            var needsUpgrade = ConvertVersionToInteger(ApplicationVersion.Current)
+                             > ConvertVersionToInteger(schemaVersion);
+            // Only "up to date" is cached: another replica may apply the upgrade, and this one must notice.
+            if (!needsUpgrade)
+            {
+                _needsUpgrade = false;
+            }
+            return needsUpgrade;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Schema version check failed — assuming no upgrade needed");
-            _needsUpgrade = false;
             return false;
         }
     }
