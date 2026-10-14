@@ -110,14 +110,17 @@ public static class Extensions
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
         // Health check endpoints for container orchestrators (ACA) and local development.
+        // They are mapped in every environment, including Production.
         // /health  - all checks must pass → app ready to accept traffic
-        // /alive   - only "live" tagged checks → app is responsive
+        // /alive   - only "live" tagged checks (no dependencies) → app is responsive.
+        //            Anonymous: BlazorData.net checks it after each deployment.
         app.MapHealthChecks(HealthEndpointPath);
 
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
-        });
+        })
+        .AllowAnonymous();
 
         return app;
     }

@@ -528,3 +528,43 @@ BEGIN
     VALUES (N'Default', GETDATE(), N'System')
 END
 GO
+
+/****** Insert Administrator Role ******/
+IF NOT EXISTS (SELECT * FROM [dbo].[AspNetRoles] WHERE [NormalizedName] = N'ADMINISTRATOR')
+BEGIN
+    INSERT INTO [dbo].[AspNetRoles] ([Id], [Name], [NormalizedName], [ConcurrencyStamp])
+    VALUES (CONVERT(nvarchar(450), NEWID()), N'Administrator', N'ADMINISTRATOR', CONVERT(nvarchar(max), NEWID()))
+END
+GO
+
+/****** Existing installations: users created before roles existed had full access, so they become Administrators ******/
+IF NOT EXISTS (SELECT * FROM [dbo].[AspNetUserRoles] ur INNER JOIN [dbo].[AspNetRoles] r ON r.[Id] = ur.[RoleId] WHERE r.[NormalizedName] = N'ADMINISTRATOR')
+BEGIN
+    INSERT INTO [dbo].[AspNetUserRoles] ([UserId], [RoleId])
+    SELECT u.[Id], r.[Id]
+    FROM [dbo].[AspNetUsers] u
+    CROSS JOIN [dbo].[AspNetRoles] r
+    WHERE r.[NormalizedName] = N'ADMINISTRATOR'
+END
+GO
+
+/****** Object:  Table [dbo].[SchemaVersion] ******/
+/****** One row holding the version of the newest !SQL script applied to this database ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[SchemaVersion]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[SchemaVersion](
+	[Version] [nvarchar](20) NOT NULL,
+	[UpdatedUtc] [datetime2](7) NOT NULL
+) ON [PRIMARY]
+END
+GO
+IF NOT EXISTS (SELECT * FROM [dbo].[SchemaVersion])
+BEGIN
+    INSERT INTO [dbo].[SchemaVersion] ([Version], [UpdatedUtc])
+    VALUES (N'01.00.00', SYSUTCDATETIME())
+END
+GO

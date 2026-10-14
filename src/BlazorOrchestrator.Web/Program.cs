@@ -136,6 +136,7 @@ builder.Services.AddScoped<AppSettingsService>(sp =>
 });
 builder.Services.AddScoped<BlazorOrchestrator.Web.Services.TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
+builder.Services.AddSingleton(new EnvironmentConnectionStrings());
 
 // Register AI Settings service (uses Azure Table Storage)
 builder.Services.AddScoped<AISettingsService>(sp =>
@@ -248,7 +249,9 @@ public class BackgroundInitializer : BackgroundService
         {
             // Delay slightly to ensure SQL container is ready (Aspire wait-for helps, but this is defensive)
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-            await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger);
+            // Only a new, empty database is set up automatically. Schema upgrades of an existing
+            // database are applied by an Administrator in the Upgrade Wizard.
+            await DatabaseInitializer.EnsureDatabaseAsync(_configuration, _logger, initialInstallOnly: true);
         }
         catch (Exception ex)
         {

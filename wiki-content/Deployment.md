@@ -58,7 +58,7 @@ graph TB
 
 ## Azure Deployment with Azure Developer CLI
 
-The repository includes an `azure.yaml` file in the AppHost project, enabling deployment via the [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/overview). This is the recommended deployment path — it provisions all required Azure resources and deploys all services in one operation.
+The repository includes an `azure.yaml` file at the repository root, enabling deployment via the [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/overview). Run `azd` commands from the repository root. This is the recommended deployment path — it provisions all required Azure resources and deploys all services in one operation.
 
 ### One-Command Deployment
 
@@ -114,6 +114,44 @@ If you prefer more control, you can run each step separately:
    ```
 
    This builds, containerizes, and deploys all services (Web, Scheduler, Agent) to Azure Container Apps.
+
+### Using Existing Azure Resources
+
+By default `azd up` creates every resource. To use resources you already have, set any of these AppHost parameters before running `azd` (for example as environment variables such as `Parameters__existingSqlServerName=my-sql-server`). An empty parameter means "create it"; the parameters are ignored when you run the app locally.
+
+| Resource | Parameters |
+|----------|------------|
+| Container Apps environment | `existingAcaEnvName`, `existingAcaEnvResourceGroup` |
+| Container registry | `existingAcrName`, `existingAcrResourceGroup` |
+| Azure SQL server | `existingSqlServerName`, `existingSqlServerResourceGroup` |
+| SQL database name | `sqlDatabaseName` (default `blazororchestratordb`) |
+| Storage account | `existingStorageAccountName`, `existingStorageResourceGroup` |
+| User-assigned managed identity (shared by all apps) | `existingIdentityName`, `existingIdentityResourceGroup` |
+| Container app names | `webAppName`, `schedulerAppName`, `agentAppName` |
+
+A resource group parameter can be left empty when the resource is in the resource group you deploy to. The web app always uses sticky sessions (required by Blazor Server), and there is exactly one agent container app.
+
+> **Existing SQL server:** the deployment does not create database users on a SQL server it did not create. Grant each app's managed identity (or the shared identity) access to the database yourself, for example `CREATE USER [<identity-name>] FROM EXTERNAL PROVIDER; ALTER ROLE db_owner ADD MEMBER [<identity-name>];` (the same role Aspire grants on servers it creates; the Upgrade Wizard needs it to change the schema).
+
+---
+
+## Deploy with BlazorData.net
+
+[BlazorData.net](https://blazordata.net) installs and updates Blazor Data Orchestrator in your own Azure subscription without installing any tools on your machine.
+
+1. **Sign in** to BlazorData.net and **connect your Azure subscription** (you approve the BlazorData.net deployment app in your Microsoft Entra tenant and grant it access to the subscription or resource group).
+2. **Choose a release.** Every release on the [Releases page](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/releases) has a `deploy-manifest.json` that lists the pre-built container images (`ghcr.io/blazor-data-orchestrator/bdo-web`, `bdo-scheduler`, `bdo-agent`), the tool versions it was tested with, and the parameters above.
+3. **Choose new or existing resources** (Container Apps environment, registry, SQL server, storage account, managed identity) and the container app names.
+4. **Deploy.** BlazorData.net runs `azd` from the repository root of the release source, with the tool versions from the manifest, and checks the web app's `/alive` endpoint when it is done.
+5. **Open Blazor Data Orchestrator.** On a new install, the Install Wizard shows the database and storage connection strings as "Provided by Azure deployment" (they are not written to `appsettings.json`). Create the administrator account and you are done.
+
+### Updates
+
+When you update to a newer release, BlazorData.net deploys the new images but **does not change the database schema**. Open Blazor Data Orchestrator after the update: it detects that the database (`[dbo].[SchemaVersion]`) is older than the application and shows the **Upgrade Wizard**. Sign in as an **Administrator** and select **Apply Upgrade** to run the newer `!SQL` scripts. Each script runs in a transaction; back up the database first.
+
+### Release versions
+
+Release tags (`v1.0.0`) match the application version (`01.00.00`) in `ApplicationVersion.Current`, the `SQLVersion` file and the newest `!SQL` script. The `release.yml` workflow builds a release when a `v*.*.*` tag is pushed.
 
 ---
 

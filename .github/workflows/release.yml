@@ -1,0 +1,98 @@
+name: Release
+
+# Builds a BlazorDataOrchestrator release from a version tag (v1.0.0 = ApplicationVersion 01.00.00):
+#   - tests the solution and checks the tag against ApplicationVersion, SQLVersion and !SQL scripts
+#   - pushes the web, scheduler and agent images to GHCR
+#   - generates the infrastructure snapshot (aspire publish) and deploy-manifest.json
+#   - creates the GitHub Release that BlazorData.net deploys from
+#
+# One-time setup: after the first run, make the bdo-web, bdo-scheduler and bdo-agent GHCR packages
+# public (Package settings > Change visibility) so they can be imported without credentials.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_PREFIX: ghcr.io/blazor-data-orchestrator
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET (global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Check tag matches ApplicationVersion
+        shell: pwsh
+        run: ./build/Check-Version.ps1 -Tag "$env:GITHUB_REF_NAME"
+
+      - name: Build and test
+        run: dotnet test BlazorDataOrchestrator.slnx -c Release
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Web and scheduler images
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          dotnet publish src/BlazorOrchestrator.Web/BlazorOrchestrator.Web.csproj -c Release --os linux --arch x64 -t:PublishContainer \
+            -p:ContainerRegistry=ghcr.io -p:ContainerRepository=blazor-data-orchestrator/bdo-web -p:ContainerImageTag="$V"
+          dotnet publish src/BlazorOrchestrator.Scheduler/BlazorOrchestrator.Scheduler.csproj -c Release --os linux --arch x64 -t:PublishContainer \
+            -p:ContainerRegistry=ghcr.io -p:ContainerRepository=blazor-data-orchestrator/bdo-scheduler -p:ContainerImageTag="$V"
+
+      - name: Agent image (Dockerfile, context src/)
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          docker build -f src/BlazorOrchestrator.Agent/Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            -t "$IMAGE_PREFIX/bdo-agent:$V" src
+          docker push "$IMAGE_PREFIX/bdo-agent:$V"
+
+      - name: Image digests
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          digest() { docker buildx imagetools inspect "$IMAGE_PREFIX/$1:$V" --format '{{json .Manifest}}' | jq -r '.digest'; }
+          {
+            echo "WEB_DIGEST=$(digest bdo-web)"
+            echo "SCHEDULER_DIGEST=$(digest bdo-scheduler)"
+            echo "AGENT_DIGEST=$(digest bdo-agent)"
+          } | tee -a "$GITHUB_ENV"
+
+      - name: Infrastructure snapshot (aspire publish)
+        run: |
+          ASPIRE_VERSION=$(grep -oP 'Aspire\.AppHost\.Sdk/\K[0-9A-Za-z.\-]+' src/BlazorOrchestrator.AppHost/BlazorOrchestrator.AppHost.csproj)
+          dotnet tool install --global Aspire.Cli --version "$ASPIRE_VERSION"
+          # aspire.config.json at the repository root points at the AppHost
+          aspire publish -o out/infra
+          (cd out/infra && zip -r ../infra-snapshot.zip .)
+
+      - name: Deploy manifest
+        shell: pwsh
+        run: ./build/New-DeployManifest.ps1 -Tag "$env:GITHUB_REF_NAME" -Out out/deploy-manifest.json
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/deploy-manifest.json out/infra-snapshot.zip \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

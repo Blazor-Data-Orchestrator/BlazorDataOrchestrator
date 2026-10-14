@@ -312,6 +312,11 @@
                     context.AspNetUsers.Add(newUser);
                     await context.SaveChangesAsync();
                     AddLog($"✅ Admin user '{Model.AdminUser}' created successfully!");
+
+                    // The Administrator role is required to run the Upgrade Wizard
+                    var authService = scope.ServiceProvider.GetRequiredService<AuthService>();
+                    await authService.AddToAdministratorRoleAsync(newUser.Id);
+                    AddLog($"🛡️ '{Model.AdminUser}' added to the {AuthService.AdministratorRole} role.");
                 }
                 else
                 {

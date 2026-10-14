@@ -7,10 +7,16 @@
 @inject IServiceProvider ServiceProvider
 @inject IConfiguration Configuration
 @inject IWebHostEnvironment Environment
+@inject EnvironmentConnectionStrings EnvironmentConnections
 
 @code {
-    [Parameter] 
+    [Parameter]
     public InstallationModel Model { get; set; } = new();
+
+    private const string ConnectionName = "blazororchestratordb";
+
+    // Set when the hosting environment (azd / Aspire) already supplies the connection string
+    private string? ProvidedConnectionString { get; set; }
 
     private bool IsTesting { get; set; } = false;
     private bool IsCreatingDatabase { get; set; } = false;
@@ -31,6 +37,16 @@
 
     protected override void OnInitialized()
     {
+        // A connection string set by the environment (e.g. azd in Azure Container Apps) is used as-is
+        ProvidedConnectionString = EnvironmentConnections.GetProvided(ConnectionName);
+        if (ProvidedConnectionString != null)
+        {
+            Model.DbConnectionType = "manual";
+            Model.DbConnectionString = ProvidedConnectionString;
+            Model.DbConnectionVerified = true;
+            return;
+        }
+
         // Pre-populate with existing connection string from appsettings if available
         if (string.IsNullOrEmpty(Model.DbConnectionString))
         {
@@ -44,6 +60,20 @@
 
     private async Task SaveConnectionStringToAppSettings()
     {
+        // Never write appsettings.json when the environment provides the value or in Azure Container Apps
+        if (ProvidedConnectionString != null)
+        {
+            return;
+        }
+
+        if (!EnvironmentConnections.CanWriteAppSettings(ConnectionName))
+        {
+            SaveSettingsMessage = "Running in Azure Container Apps: appsettings.json was not changed because the container file system is not durable. " +
+                "Set the ConnectionStrings__blazororchestratordb environment variable (or secret) on the container app instead.";
+            SaveSettingsSuccess = false;
+            return;
+        }
+
         try
         {
             var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
@@ -206,6 +236,36 @@
         Configure the primary SQL Server database connection for BlazorOrchestrator.
     </RadzenAlert>
 
+    @if (ProvidedConnectionString != null)
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3 rz-mb-4">
+            <RadzenIcon Icon="cloud_done" IconColor="@Colors.Success" />
+            <div style="min-width: 0;">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    <strong>@EnvironmentConnections.ProvidedByText</strong>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-m-0" Style="word-break: break-all;">
+                    @EnvironmentConnectionStrings.Mask(ProvidedConnectionString)
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400 rz-m-0">
+                    The ConnectionStrings__blazororchestratordb environment variable is used; appsettings.json is not changed.
+                </RadzenText>
+            </div>
+        </RadzenCard>
+
+        <RadzenButton Text="Test Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary"
+                      Click="@TestConnection" IsBusy="@IsTesting" BusyText="Testing..." />
+
+        @if (TestResultMessage != null)
+        {
+            <RadzenAlert AlertStyle="@(TestResultSuccess == true ? AlertStyle.Success : AlertStyle.Danger)"
+                         ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mt-3">
+                @TestResultMessage
+            </RadzenAlert>
+        }
+    }
+    else
+    {
     <div class="row rz-mb-4">
         <div class="col-md-12">
             <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">Connection Method</RadzenText>
@@ -299,5 +359,6 @@
                 </div>
             </RadzenCard>
         }
+    }
     }
 </div>

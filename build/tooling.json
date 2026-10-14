@@ -1,0 +1,5 @@
+{
+  "$comment": "Tool versions each release is built and tested with. New-DeployManifest.ps1 copies them into deploy-manifest.json; the .NET SDK comes from global.json and the Aspire version from the AppHost Sdk attribute.",
+  "azd": "1.35.1",
+  "engine": "azd"
+}

@@ -36,7 +36,7 @@
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
-    <PackageReference Include="Radzen.Blazor" Version="*" />
+    <PackageReference Include="Radzen.Blazor" Version="12.0.7" />
     <PackageReference Include="SimpleBlazorMonaco" Version="1.0.9" />
     <!-- AI packages for ConfigureAIDialog connection testing -->
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
@@ -50,8 +50,9 @@
     <ProjectReference Include="..\BlazorOrchestrator.ServiceDefaults\BlazorOrchestrator.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <!-- Every versioned schema script is copied; DatabaseInitializer applies them in name order -->
   <ItemGroup>
-    <None Update="!SQL\01.00.00.sql">
+    <None Update="!SQL\*.sql">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

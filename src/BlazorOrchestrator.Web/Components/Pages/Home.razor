@@ -60,7 +60,7 @@ else if (IsInstalling)
     }
     else if (WizardMode == "UPGRADE")
     {
-        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" LatestGitHubVersion="@GitHubVersion" OnUpgradeComplete="OnUpgradeComplete" />
+        <UpgradeWorkflow CurrentCodeVersion="@CurrentVersion" DatabaseVersion="@DatabaseSchemaVersion" LatestGitHubVersion="@GitHubVersion" OnUpgradeComplete="OnUpgradeComplete" />
     }
     else
     {
@@ -228,8 +228,8 @@ else
     // ********************************
     // INSTALLER/UPGRADE CONFIGURATION (START)
     // ********************************
-    // Current Application Version - should match the format in GitHub SQLVersion file
-    private const string CurrentVersion = "1.0";
+    // Current Application Version (the running code) - matches the GitHub SQLVersion file format
+    private const string CurrentVersion = ApplicationVersion.Current;
     // GitHub URL for the latest version
     private const string GitHubVersionUrl = "https://raw.githubusercontent.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/main/SQLVersion";
     // ********************************
@@ -243,6 +243,9 @@ else
     private string WizardMode { get; set; } = "";
     private string ErrorMessage { get; set; } = "";
     private string GitHubVersion { get; set; } = "";
+    private string DatabaseSchemaVersion { get; set; } = "";
+    // Set once the user has seen the "newer release on GitHub" notice in this session
+    private bool UpdateNoticeDismissed { get; set; }
 
     private List<JobViewModel> Jobs { get; set; } = new();
     private List<JobViewModel> AllJobs { get; set; } = new();
@@ -427,52 +430,61 @@ else
 
     private async Task<bool> IsDatabaseNeedUpgradeAsync()
     {
+        // The database schema is older than the running code (for example after the
+        // container images were updated): the Upgrade Wizard must apply the newer !SQL scripts.
+        DatabaseSchemaVersion = await GetDatabaseSchemaVersionAsync();
+        var schemaIsBehindCode = ConvertVersionToInteger(DatabaseSchemaVersion) < ConvertVersionToInteger(CurrentVersion);
+
+        GitHubVersion = await GetGitHubVersionAsync();
+
+        if (schemaIsBehindCode)
+        {
+            return true;
+        }
+
+        // A newer release is published on GitHub - show the notice once per session
+        if (!UpdateNoticeDismissed && ConvertVersionToInteger(GitHubVersion) > ConvertVersionToInteger(CurrentVersion))
+        {
+            return true;
+        }
+
+        // Versions match - no upgrade needed, show dashboard (Happy Path!)
+        return false;
+    }
+
+    /// <summary>
+    /// Reads [dbo].[SchemaVersion]. Returns an empty string for databases created before the
+    /// SchemaVersion table existed, so they are upgraded too.
+    /// </summary>
+    private async Task<string> GetDatabaseSchemaVersionAsync()
+    {
+        var connectionString = Configuration.GetConnectionString("blazororchestratordb");
+        if (string.IsNullOrWhiteSpace(connectionString)) return string.Empty;
+
+        using var cts = new CancellationTokenSource(DbCheckTimeout);
+        return await DatabaseInitializer.GetSchemaVersionAsync(connectionString, cts.Token) ?? string.Empty;
+    }
+
+    private async Task<string> GetGitHubVersionAsync()
+    {
         try
         {
             // Fetch the latest version from GitHub
             using var httpClient = new HttpClient();
             httpClient.Timeout = TimeSpan.FromSeconds(10);
-            GitHubVersion = (await httpClient.GetStringAsync(GitHubVersionUrl)).Trim();
-
-            // Compare versions - if GitHub version is higher than local code version, upgrade needed
-            // This means there are new SQL scripts to run from CurrentVersion to GitHubVersion
-            if (ConvertVersionToInteger(GitHubVersion) > ConvertVersionToInteger(CurrentVersion))
-            {
-                return true;
-            }
-
-            // Versions match - no upgrade needed, show dashboard (Happy Path!)
-            return false;
+            return (await httpClient.GetStringAsync(GitHubVersionUrl)).Trim();
         }
         catch
         {
-            // If we can't reach GitHub, assume no upgrade needed and continue to dashboard
-            GitHubVersion = CurrentVersion;
-            return false;
+            // If we can't reach GitHub, assume the running code is the latest release
+            return CurrentVersion;
         }
     }
 
     /// <summary>
-    /// Converts a version string like "01.00.00" to an integer for comparison
+    /// Converts a version string like "01.00.00" (or the older "1.0") to an integer for comparison
     /// </summary>
-    private int ConvertVersionToInteger(string version)
-    {
-        if (string.IsNullOrEmpty(version)) return 0;
-
-        int versionNumber = 0;
-        var segments = version.Split('.');
-        var multipliers = new List<int> { 10000, 100, 1 };
-
-        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
-        {
-            if (int.TryParse(segments[i], out int segment))
-            {
-                versionNumber += segment * multipliers[i];
-            }
-        }
-
-        return versionNumber;
-    }
+    private int ConvertVersionToInteger(string version) => ApplicationVersion.ToInteger(version);
 
     private async Task LoadDashboardData()
     {
@@ -493,6 +505,7 @@ else
     {
         // Reset wizard state
         WizardState.SetUpgrading(false);
+        UpdateNoticeDismissed = true;
         // Re-check system status after upgrade
         await CheckSystemStatus();
     }

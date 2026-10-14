@@ -1,100 +1,188 @@
 @using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Services
+@using BlazorDataOrchestrator.Core
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
 @inject WizardStateService WizardState
+@inject AuthService AuthService
+@inject IConfiguration Configuration
+@inject ILoggerFactory LoggerFactory
+@inject NavigationManager NavigationManager
 
 @code {
     [Parameter]
     public EventCallback OnUpgradeComplete { get; set; }
 
+    // Version of the running code (ApplicationVersion.Current)
     [Parameter]
-    public string CurrentCodeVersion { get; set; } = "01.00.00";
+    public string CurrentCodeVersion { get; set; } = ApplicationVersion.Current;
+
+    // Version recorded in [dbo].[SchemaVersion]; empty when the table does not exist yet
+    [Parameter]
+    public string DatabaseVersion { get; set; } = string.Empty;
 
     [Parameter]
-    public string LatestGitHubVersion { get; set; } = "01.00.00";
+    public string LatestGitHubVersion { get; set; } = ApplicationVersion.Current;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
 
     public string Stage { get; set; } = "login";
     public List<string> Logs = new();
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
-    
-    // Check if local version is ahead of GitHub (shouldn't happen in normal scenarios)
-    private bool IsDowngrade => ConvertVersionToInteger(CurrentCodeVersion) > ConvertVersionToInteger(LatestGitHubVersion);
+    private string? SignedInUserName { get; set; }
+    private string? SignedInUserId { get; set; }
+    private bool IsAuthorizing { get; set; }
+    private List<string> PendingScripts { get; set; } = new();
+    private IReadOnlyList<string> AppliedScripts { get; set; } = Array.Empty<string>();
 
-    protected override void OnInitialized()
+    private string DisplayDatabaseVersion => string.IsNullOrEmpty(DatabaseVersion) ? "(not recorded)" : DatabaseVersion;
+
+    // The database schema is older than the running code, so there are !SQL scripts to apply
+    private bool HasPendingScripts => ConvertVersionToInteger(DatabaseVersion) < ConvertVersionToInteger(CurrentCodeVersion);
+
+    // Only a newer GitHub release is available; the deployment must be updated first
+    private bool IsNewReleaseNoticeOnly => !HasPendingScripts && ConvertVersionToInteger(LatestGitHubVersion) > ConvertVersionToInteger(CurrentCodeVersion);
+
+    protected override async Task OnInitializedAsync()
     {
         WizardState.SetUpgrading(true);
-    }
 
-    private int ConvertVersionToInteger(string version)
-    {
-        if (string.IsNullOrEmpty(version)) return 0;
-        int versionNumber = 0;
-        var segments = version.Split('.');
-        var multipliers = new List<int> { 10000, 100, 1 };
-        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
+        if (IsNewReleaseNoticeOnly)
         {
-            if (int.TryParse(segments[i], out int segment))
+            Stage = "notice";
+            return;
+        }
+
+        if (AuthStateTask != null)
+        {
+            var user = (await AuthStateTask).User;
+            if (user.Identity?.IsAuthenticated == true)
             {
-                versionNumber += segment * multipliers[i];
+                SignedInUserName = user.Identity.Name;
+                SignedInUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
             }
         }
-        return versionNumber;
+
+        LoadPendingScripts();
+    }
+
+    private int ConvertVersionToInteger(string version) => ApplicationVersion.ToInteger(version);
+
+    private void LoadPendingScripts()
+    {
+        var scriptDirectory = DatabaseInitializer.GetScriptDirectory();
+        PendingScripts = Directory.Exists(scriptDirectory)
+            ? DatabaseInitializer.GetPendingScripts(Directory.EnumerateFiles(scriptDirectory, "*.sql"), DatabaseVersion)
+                .Select(Path.GetFileName)
+                .Select(name => name!)
+                .ToList()
+            : new List<string>();
+    }
+
+    private void SignIn()
+    {
+        // Sign in through the normal login page, then come back here
+        NavigationManager.NavigateTo("/account/login?returnUrl=%2F", forceLoad: true);
     }
 
     private async Task Authenticate()
     {
         ErrorMessage = string.Empty;
 
-        if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
+        if (string.IsNullOrEmpty(SignedInUserId))
         {
-            ErrorMessage = "Please enter username and password.";
+            ErrorMessage = "Please sign in with a BlazorOrchestrator Administrator account.";
             return;
         }
 
-        // TODO: Implement actual admin authentication
-        // For now, proceed to check stage
-        Stage = "check";
+        IsAuthorizing = true;
+        try
+        {
+            if (!await AuthService.IsAdministratorAsync(SignedInUserId))
+            {
+                ErrorMessage = $"'{SignedInUserName}' is not a BlazorOrchestrator {AuthService.AdministratorRole}. Sign in with an Administrator account to run the upgrade.";
+                return;
+            }
+
+            Stage = "check";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Could not verify the Administrator role: {ex.Message}";
+        }
+        finally
+        {
+            IsAuthorizing = false;
+        }
+    }
+
+    private void AddLog(string message)
+    {
+        Logs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task RunScripts()
     {
+        // Re-check on every run; the wizard changes the database schema
+        if (!await AuthService.IsAdministratorAsync(SignedInUserId))
+        {
+            ErrorMessage = "Only a BlazorOrchestrator Administrator can run the upgrade.";
+            Stage = "login";
+            return;
+        }
+
+        var connectionString = Configuration.GetConnectionString("blazororchestratordb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            ErrorMessage = "No blazororchestratordb connection string is configured.";
+            return;
+        }
+
         Stage = "running";
+        ErrorMessage = string.Empty;
         Logs.Clear();
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Starting database backup...");
-        StateHasChanged();
-        await Task.Delay(1000);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Backup completed successfully.");
-        StateHasChanged();
-        await Task.Delay(500);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Applying migration scripts...");
-        StateHasChanged();
-        await Task.Delay(1500);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Running script: 01.00.00.sql");
-        StateHasChanged();
-        await Task.Delay(1000);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Database schema updated.");
-        StateHasChanged();
-        await Task.Delay(500);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Updating version table...");
-        StateHasChanged();
-        await Task.Delay(500);
-
-        Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✓ Upgrade completed successfully!");
         StateHasChanged();
 
-        Stage = "complete";
+        var logger = LoggerFactory.CreateLogger("UpgradeWizard");
+        logger.LogInformation("Upgrade Wizard started by {UserName}.", SignedInUserName);
+        AddLog($"Upgrade started by {SignedInUserName}. Database version {DisplayDatabaseVersion}, code version {CurrentCodeVersion}.");
+
+        try
+        {
+            AppliedScripts = await DatabaseInitializer.ApplyPendingScriptsAsync(connectionString, logger, AddLog);
+            DatabaseVersion = await DatabaseInitializer.GetSchemaVersionAsync(connectionString) ?? string.Empty;
+            AddLog($"✓ Upgrade completed. Database version is now {DisplayDatabaseVersion}.");
+            Stage = "complete";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            AddLog("✗ Upgrade stopped. The failed script was rolled back; earlier scripts stay applied.");
+            DatabaseVersion = await TryGetSchemaVersionAsync(connectionString) ?? DatabaseVersion;
+            LoadPendingScripts();
+            Stage = "failed";
+        }
+
+        StateHasChanged();
+    }
+
+    private static async Task<string?> TryGetSchemaVersionAsync(string connectionString)
+    {
+        try
+        {
+            return await DatabaseInitializer.GetSchemaVersionAsync(connectionString);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task SkipUpgrade()
     {
-        // Allow user to continue when local version is ahead (dev/pre-release scenario)
+        // Continue to the application (new release notice)
         if (OnUpgradeComplete.HasDelegate)
         {
             await OnUpgradeComplete.InvokeAsync();
@@ -110,37 +198,7 @@
     }
 }
 
-@if (Stage == "login")
-{
-    <div class="d-flex justify-content-center rz-mt-5">
-        <RadzenCard Style="width: 450px;" Class="rz-shadow-5">
-            <div class="text-center rz-mb-4">
-                <RadzenIcon Icon="system_update" IconColor="@Colors.Warning" Style="font-size: 3rem;" />
-                <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">System Upgrade Required</RadzenText>
-                <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
-                    Your Version: <strong>@CurrentCodeVersion</strong> | Latest Version: <strong>@LatestGitHubVersion</strong>
-                </RadzenText>
-            </div>
-
-            @if (!string.IsNullOrEmpty(ErrorMessage))
-            {
-                <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-3">
-                    @ErrorMessage
-                </RadzenAlert>
-            }
-
-            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-3">Super Admin Login</RadzenText>
-            <div class="rz-mb-3">
-                <RadzenTextBox @bind-Value="Username" Placeholder="Username" Style="width: 100%;" />
-            </div>
-            <div class="rz-mb-4">
-                <RadzenPassword @bind-Value="Password" Placeholder="Password" Style="width: 100%;" />
-            </div>
-            <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
-        </RadzenCard>
-    </div>
-}
-else if (Stage == "check")
+@if (Stage == "notice")
 {
     <div class="d-flex justify-content-center rz-mt-5">
         <RadzenCard Style="width: 600px;" Class="rz-shadow-5">
@@ -156,12 +214,76 @@ else if (Stage == "check")
                 </div>
             </div>
 
-            @if (IsDowngrade)
+            <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">New Release Available</RadzenText>
+                Update your deployment first (for example with BlazorData.net or <code>azd up</code>).
+                After the update, open BlazorOrchestrator again and this wizard will apply the database changes.
+            </RadzenAlert>
+            <RadzenButton Click="SkipUpgrade" Text="Continue to Application" ButtonStyle="ButtonStyle.Light" Style="width: 100%; margin-top: 1rem;" Icon="arrow_forward" />
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "login")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 450px;" Class="rz-shadow-5">
+            <div class="text-center rz-mb-4">
+                <RadzenIcon Icon="system_update" IconColor="@Colors.Warning" Style="font-size: 3rem;" />
+                <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">Database Upgrade Required</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
+                    Database Version: <strong>@DisplayDatabaseVersion</strong> | Application Version: <strong>@CurrentCodeVersion</strong>
+                </RadzenText>
+            </div>
+
+            @if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-3">
+                    @ErrorMessage
+                </RadzenAlert>
+            }
+
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-mb-3">Administrator Sign-in</RadzenText>
+            @if (string.IsNullOrEmpty(SignedInUserId))
+            {
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-4">
+                    Sign in with a BlazorOrchestrator <strong>Administrator</strong> account to run the upgrade.
+                </RadzenText>
+                <RadzenButton Click="@SignIn" Text="Sign In" Icon="login" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
+            }
+            else
+            {
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-4">
+                    Signed in as <strong>@SignedInUserName</strong>.
+                </RadzenText>
+                <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" IsBusy="@IsAuthorizing" BusyText="Checking..." Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
+                <div class="rz-mt-2 text-center">
+                    <a href="/account/logout" data-enhance="false">Sign in as a different user</a>
+                </div>
+            }
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "check")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 600px;" Class="rz-shadow-5">
+            <div class="d-flex justify-content-between align-items-center rz-mb-5 rz-px-4">
+                <div class="text-center">
+                    <RadzenText TextStyle="TextStyle.Overline">DATABASE VERSION</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H4">@DisplayDatabaseVersion</RadzenText>
+                </div>
+                <RadzenIcon Icon="arrow_forward" Style="font-size: 2rem; color: #ccc;" />
+                <div class="text-center">
+                    <RadzenText TextStyle="TextStyle.Overline">APPLICATION VERSION</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H4" Class="rz-color-primary">@CurrentCodeVersion</RadzenText>
+                </div>
+            </div>
+
+            @if (PendingScripts.Count == 0)
             {
                 <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
-                    <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Version Mismatch</RadzenText>
-                    Your local code version is higher than the latest published version on GitHub.
-                    This may happen if you are running a development or pre-release version.
+                    <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">No Scripts Found</RadzenText>
+                    No database scripts newer than @DisplayDatabaseVersion were found in the application's !SQL folder.
                 </RadzenAlert>
                 <RadzenButton Click="SkipUpgrade" Text="Continue Anyway" ButtonStyle="ButtonStyle.Warning" Style="width: 100%; margin-top: 1rem;" Icon="skip_next" />
             }
@@ -169,30 +291,52 @@ else if (Stage == "check")
             {
                 <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
                     <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Upgrade Available</RadzenText>
-                    Migration scripts are ready to be applied. A backup will be created before upgrading.
+                    These scripts will be applied in order: <strong>@string.Join(", ", PendingScripts)</strong>.
+                    Each script runs in a transaction and is rolled back if it fails.
+                    Back up the database before you continue.
                 </RadzenAlert>
                 <RadzenButton Click="RunScripts" Text="Apply Upgrade" ButtonStyle="ButtonStyle.Primary" Style="width: 100%; margin-top: 1rem;" Icon="upgrade" />
             }
         </RadzenCard>
     </div>
 }
-else if (Stage == "running")
+else if (Stage == "running" || Stage == "failed")
 {
     <div class="d-flex justify-content-center rz-mt-5">
         <RadzenCard Style="width: 700px;" Class="rz-p-0">
             <div class="rz-p-3 rz-background-color-base-200" style="border-bottom: 1px solid #e0e0e0;">
                 <div class="d-flex align-items-center gap-2">
-                    <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width: 100px; height: 6px;" />
-                    <RadzenText TextStyle="TextStyle.Subtitle2" Class="rz-m-0">Applying Upgrade Scripts...</RadzenText>
+                    @if (Stage == "running")
+                    {
+                        <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width: 100px; height: 6px;" />
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Class="rz-m-0">Applying Upgrade Scripts...</RadzenText>
+                    }
+                    else
+                    {
+                        <RadzenIcon Icon="error" IconColor="@Colors.Danger" />
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Class="rz-m-0">Upgrade Failed</RadzenText>
+                    }
                 </div>
             </div>
             <div style="background-color: #1e1e1e; color: #00ff00; padding: 20px; height: 350px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;">
                 @foreach (var log in Logs)
                 {
-                    <div style="margin-bottom: 4px;">@log</div>
+                    <div style="margin-bottom: 4px; white-space: pre-wrap;">@log</div>
                 }
-                <div class="rz-mt-2" style="animation: blink 1s infinite;">▌</div>
+                @if (Stage == "running")
+                {
+                    <div class="rz-mt-2" style="animation: blink 1s infinite;">▌</div>
+                }
             </div>
+            @if (Stage == "failed")
+            {
+                <div class="rz-p-3">
+                    <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
+                        @ErrorMessage
+                    </RadzenAlert>
+                    <RadzenButton Click="RunScripts" Text="Retry" ButtonStyle="ButtonStyle.Primary" Icon="refresh" Style="width: 100%;" Disabled="@(PendingScripts.Count == 0)" />
+                </div>
+            }
         </RadzenCard>
     </div>
 }
@@ -204,7 +348,7 @@ else if (Stage == "complete")
                 <RadzenIcon Icon="check_circle" IconColor="@Colors.Success" Style="font-size: 4rem;" />
                 <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">Upgrade Complete!</RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
-                    Application has been upgraded to version <strong>@LatestGitHubVersion</strong>
+                    The database has been upgraded to version <strong>@DisplayDatabaseVersion</strong>
                 </RadzenText>
             </div>
 
@@ -213,9 +357,11 @@ else if (Stage == "complete")
                     <strong>Summary:</strong>
                 </RadzenText>
                 <ul style="margin-bottom: 0; padding-left: 20px;">
-                    <li>Database backup created successfully</li>
-                    <li>Migration scripts applied</li>
-                    <li>Version updated to @LatestGitHubVersion</li>
+                    @foreach (var script in AppliedScripts)
+                    {
+                        <li>Applied @script</li>
+                    }
+                    <li>Schema version recorded as @DisplayDatabaseVersion</li>
                 </ul>
             </RadzenCard>
 

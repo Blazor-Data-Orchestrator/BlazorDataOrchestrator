@@ -1,12 +1,29 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Dapper;
+using BlazorDataOrchestrator.Core;
 
 namespace BlazorOrchestrator.Web.Data;
 
 public static class DatabaseInitializer
 {
-    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger, Action<string>? onProgress = null)
+    /// <summary>
+    /// Folder (under the application base directory) that holds the versioned schema scripts.
+    /// Each script is named after the version it brings the database to, e.g. 01.00.00.sql.
+    /// </summary>
+    public const string ScriptFolderName = "!SQL";
+
+    private const int ScriptCommandTimeoutSeconds = 300;
+
+    /// <summary>
+    /// Creates the database when it is missing and applies every !SQL script newer than the
+    /// version recorded in [dbo].[SchemaVersion].
+    /// </summary>
+    /// <param name="initialInstallOnly">
+    /// When true, scripts are only applied to a database that has no BlazorOrchestrator schema yet.
+    /// An existing database is left for the Upgrade Wizard (schema upgrades are never automatic).
+    /// </param>
+    public static async Task EnsureDatabaseAsync(IConfiguration configuration, ILogger logger, Action<string>? onProgress = null, bool initialInstallOnly = false)
     {
         var connStr = configuration.GetConnectionString("blazororchestratordb");
         if (string.IsNullOrWhiteSpace(connStr))
@@ -20,11 +37,11 @@ public static class DatabaseInitializer
         try
         {
             onProgress?.Invoke("📋 Parsing connection string...");
-            
+
             // First, ensure the database exists
             var builder = new SqlConnectionStringBuilder(connStr);
             var databaseName = builder.InitialCatalog;
-            
+
             if (string.IsNullOrEmpty(databaseName))
             {
                 var msg = "Connection string does not contain a database name (Initial Catalog).";
@@ -73,33 +90,16 @@ public static class DatabaseInitializer
                 onProgress?.Invoke($"ℹ️ Skipping database creation (Azure SQL - database is pre-provisioned).");
             }
 
-            // Now connect to the actual database and run scripts
-            onProgress?.Invoke($"🔌 Connecting to database '{databaseName}'...");
-            await using var connection = new SqlConnection(connStr);
-            await connection.OpenAsync();
-            onProgress?.Invoke($"✅ Connected to database '{databaseName}'.");
-
-            // Read embedded SQL script
-            onProgress?.Invoke("📄 Loading SQL initialization script...");
-            var script = await GetSqlScriptAsync();
-            onProgress?.Invoke("✅ SQL script loaded.");
-
-            // Split on GO batches (simple parser)
-            var batches = SplitSqlBatches(script).ToList();
-            onProgress?.Invoke($"📊 Found {batches.Count} SQL batches to execute.");
-
-            int batchIndex = 0;
-            foreach (var batch in batches)
+            if (initialInstallOnly && await HasExistingSchemaAsync(connStr))
             {
-                if (string.IsNullOrWhiteSpace(batch)) continue;
-                batchIndex++;
-                onProgress?.Invoke($"⚡ Executing batch {batchIndex}/{batches.Count}...");
-                await connection.ExecuteAsync(batch);
+                var msg = "Database schema already exists; newer scripts are applied by the Upgrade Wizard.";
+                logger.LogInformation(msg);
+                onProgress?.Invoke($"ℹ️ {msg}");
+                return;
             }
-            
-            var successMsg = "Database initialization script executed successfully.";
-            logger.LogInformation(successMsg);
-            onProgress?.Invoke($"✅ {successMsg}");
+
+            await ApplyPendingScriptsAsync(connStr, logger, onProgress);
+
             onProgress?.Invoke("🎉 Database setup complete!");
         }
         catch (Exception ex)
@@ -111,17 +111,146 @@ public static class DatabaseInitializer
         }
     }
 
-    private static async Task<string> GetSqlScriptAsync()
+    /// <summary>
+    /// Applies every !SQL script newer than [dbo].[SchemaVersion].[Version], in name order.
+    /// Each script runs in its own transaction (split on GO) together with the SchemaVersion
+    /// update, so a failed script leaves the database at the previous version.
+    /// </summary>
+    /// <returns>The names of the scripts that were applied.</returns>
+    public static async Task<IReadOnlyList<string>> ApplyPendingScriptsAsync(
+        string connectionString,
+        ILogger logger,
+        Action<string>? onProgress = null,
+        string? scriptDirectory = null,
+        CancellationToken cancellationToken = default)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "!SQL", "01.00.00.sql");
-        if (File.Exists(path))
+        scriptDirectory ??= GetScriptDirectory();
+
+        onProgress?.Invoke("🔌 Connecting to database...");
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        onProgress?.Invoke($"✅ Connected to database '{connection.Database}'.");
+
+        var currentVersion = await GetSchemaVersionAsync(connection, cancellationToken);
+        onProgress?.Invoke($"🔢 Current schema version: {currentVersion ?? "(none)"}");
+
+        var pendingScripts = GetPendingScripts(Directory.EnumerateFiles(scriptDirectory, "*.sql"), currentVersion);
+        if (pendingScripts.Count == 0)
         {
-            return await File.ReadAllTextAsync(path);
+            var upToDate = "Database schema is up to date; no scripts to run.";
+            logger.LogInformation(upToDate);
+            onProgress?.Invoke($"✅ {upToDate}");
+            return Array.Empty<string>();
         }
-        throw new FileNotFoundException("SQL initialization script not found.", path);
+
+        onProgress?.Invoke($"📄 {pendingScripts.Count} script(s) to run: {string.Join(", ", pendingScripts.Select(Path.GetFileName))}");
+
+        var applied = new List<string>();
+        foreach (var scriptPath in pendingScripts)
+        {
+            var scriptName = Path.GetFileName(scriptPath);
+            var scriptVersion = Path.GetFileNameWithoutExtension(scriptPath);
+            var batches = SplitSqlBatches(await File.ReadAllTextAsync(scriptPath, cancellationToken))
+                .Where(batch => !string.IsNullOrWhiteSpace(batch))
+                .ToList();
+
+            onProgress?.Invoke($"⚡ Running {scriptName} ({batches.Count} batches)...");
+
+            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                foreach (var batch in batches)
+                {
+                    await connection.ExecuteAsync(new CommandDefinition(batch, transaction: transaction,
+                        commandTimeout: ScriptCommandTimeoutSeconds, cancellationToken: cancellationToken));
+                }
+
+                await SetSchemaVersionAsync(connection, transaction, scriptVersion, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                logger.LogError(ex, "Schema script {ScriptName} failed and was rolled back.", scriptName);
+                onProgress?.Invoke($"❌ {scriptName} failed and was rolled back: {ex.Message}");
+                throw;
+            }
+
+            applied.Add(scriptName);
+            logger.LogInformation("Applied schema script {ScriptName}.", scriptName);
+            onProgress?.Invoke($"✅ {scriptName} applied. Schema version is now {scriptVersion}.");
+        }
+
+        return applied;
     }
 
-    private static IEnumerable<string> SplitSqlBatches(string script)
+    /// <summary>
+    /// Reads the schema version recorded in [dbo].[SchemaVersion], or null when the table does
+    /// not exist yet (a new database, or one created before the table was added).
+    /// </summary>
+    public static async Task<string?> GetSchemaVersionAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        return await GetSchemaVersionAsync(connection, cancellationToken);
+    }
+
+    private static async Task<string?> GetSchemaVersionAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            IF OBJECT_ID(N'[dbo].[SchemaVersion]', N'U') IS NULL
+                SELECT CAST(NULL AS nvarchar(20));
+            ELSE
+                SELECT TOP (1) [Version] FROM [dbo].[SchemaVersion] ORDER BY [UpdatedUtc] DESC;
+            """;
+        return await connection.ExecuteScalarAsync<string?>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+    }
+
+    private static async Task SetSchemaVersionAsync(SqlConnection connection, SqlTransaction transaction, string version, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            IF OBJECT_ID(N'[dbo].[SchemaVersion]', N'U') IS NULL
+                CREATE TABLE [dbo].[SchemaVersion]([Version] nvarchar(20) NOT NULL, [UpdatedUtc] datetime2(7) NOT NULL);
+
+            UPDATE [dbo].[SchemaVersion] SET [Version] = @version, [UpdatedUtc] = SYSUTCDATETIME();
+            IF @@ROWCOUNT = 0
+                INSERT INTO [dbo].[SchemaVersion] ([Version], [UpdatedUtc]) VALUES (@version, SYSUTCDATETIME());
+            """;
+        await connection.ExecuteAsync(new CommandDefinition(sql, new { version }, transaction, cancellationToken: cancellationToken));
+    }
+
+    private static async Task<bool> HasExistingSchemaAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        var exists = await connection.ExecuteScalarAsync<int>(
+            "SELECT CASE WHEN OBJECT_ID(N'[dbo].[AspNetUsers]', N'U') IS NULL THEN 0 ELSE 1 END");
+        return exists == 1;
+    }
+
+    /// <summary>
+    /// The folder the build copies the !SQL scripts to.
+    /// </summary>
+    public static string GetScriptDirectory() => Path.Combine(AppContext.BaseDirectory, ScriptFolderName);
+
+    /// <summary>
+    /// Returns the scripts whose version (file name) is newer than <paramref name="currentVersion"/>,
+    /// in name order. A null or empty current version means every script is pending.
+    /// </summary>
+    public static IReadOnlyList<string> GetPendingScripts(IEnumerable<string> scriptPaths, string? currentVersion)
+    {
+        var current = ApplicationVersion.ToInteger(currentVersion);
+        return scriptPaths
+            .Where(path => string.Equals(Path.GetExtension(path), ".sql", StringComparison.OrdinalIgnoreCase))
+            .Where(path => ApplicationVersion.ToInteger(Path.GetFileNameWithoutExtension(path)) > current)
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Splits a script into batches on lines that contain only GO.
+    /// </summary>
+    public static IEnumerable<string> SplitSqlBatches(string script)
     {
         var lines = script.Split(new[] {"\r\n", "\n"}, StringSplitOptions.None);
         var sb = new System.Text.StringBuilder();

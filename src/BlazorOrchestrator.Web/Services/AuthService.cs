@@ -10,6 +10,11 @@ namespace BlazorOrchestrator.Web.Services;
 /// </summary>
 public class AuthService
 {
+    /// <summary>
+    /// The role that may run the Upgrade Wizard. Seeded by !SQL/01.00.00.sql.
+    /// </summary>
+    public const string AdministratorRole = "Administrator";
+
     private readonly ApplicationDbContext _context;
 
     public AuthService(ApplicationDbContext context)
@@ -50,6 +55,67 @@ public class AuthService
         }
 
         return user;
+    }
+
+    /// <summary>
+    /// Returns true when the user is a BlazorOrchestrator Administrator.
+    /// Installations created before the Administrator role existed have no role members; until the
+    /// Upgrade Wizard runs 01.00.00.sql (which makes those users Administrators), every existing
+    /// user keeps the full access they had before.
+    /// </summary>
+    public async Task<bool> IsAdministratorAsync(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return false;
+
+        var normalizedRole = AdministratorRole.ToUpperInvariant();
+
+        var user = await _context.AspNetUsers
+            .AsNoTracking()
+            .Include(u => u.Roles)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+            return false;
+
+        if (user.Roles.Any(r => r.NormalizedName == normalizedRole))
+            return true;
+
+        var anyAdministrator = await _context.AspNetRoles
+            .AsNoTracking()
+            .Where(r => r.NormalizedName == normalizedRole)
+            .AnyAsync(r => r.Users.Any());
+
+        return !anyAdministrator;
+    }
+
+    /// <summary>
+    /// Adds the user to the Administrator role, creating the role if it does not exist yet.
+    /// </summary>
+    public async Task AddToAdministratorRoleAsync(string userId)
+    {
+        var normalizedRole = AdministratorRole.ToUpperInvariant();
+
+        var role = await _context.AspNetRoles.FirstOrDefaultAsync(r => r.NormalizedName == normalizedRole);
+        if (role == null)
+        {
+            role = new AspNetRole
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = AdministratorRole,
+                NormalizedName = normalizedRole,
+                ConcurrencyStamp = Guid.NewGuid().ToString()
+            };
+            _context.AspNetRoles.Add(role);
+        }
+
+        var user = await _context.AspNetUsers.Include(u => u.Roles).FirstAsync(u => u.Id == userId);
+        if (!user.Roles.Any(r => r.Id == role.Id))
+        {
+            user.Roles.Add(role);
+        }
+
+        await _context.SaveChangesAsync();
     }
 
     /// <summary>

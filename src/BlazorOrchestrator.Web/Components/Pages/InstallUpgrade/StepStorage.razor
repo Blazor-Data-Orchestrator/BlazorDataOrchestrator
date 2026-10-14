@@ -5,10 +5,16 @@
 @using System.Text.Json
 @using System.Text.Json.Nodes
 @inject IWebHostEnvironment Environment
+@inject EnvironmentConnectionStrings EnvironmentConnections
 
 @code {
-    [Parameter] 
+    [Parameter]
     public InstallationModel Model { get; set; } = new();
+
+    // Connection strings already set by the environment (e.g. azd in Azure Container Apps)
+    private string? ProvidedBlobString { get; set; }
+    private string? ProvidedTableString { get; set; }
+    private string? ProvidedQueueString { get; set; }
 
     private bool IsTestingBlob { get; set; } = false;
     private bool IsTestingTable { get; set; } = false;
@@ -35,6 +41,31 @@
     {
         // Read connection strings directly from appsettings.json file to avoid Aspire expansion
         await LoadConnectionStringsFromAppSettingsFile();
+
+        // Values set by the environment win and are never written to appsettings.json
+        ProvidedBlobString = EnvironmentConnections.GetProvided("blobs");
+        if (ProvidedBlobString != null)
+        {
+            Model.BlobType = "manual";
+            Model.BlobString = ProvidedBlobString;
+            Model.BlobVerified = true;
+        }
+
+        ProvidedTableString = EnvironmentConnections.GetProvided("tables");
+        if (ProvidedTableString != null)
+        {
+            Model.TableType = "manual";
+            Model.TableString = ProvidedTableString;
+            Model.TableVerified = true;
+        }
+
+        ProvidedQueueString = EnvironmentConnections.GetProvided("queues");
+        if (ProvidedQueueString != null)
+        {
+            Model.QueueType = "manual";
+            Model.QueueString = ProvidedQueueString;
+            Model.QueueVerified = true;
+        }
     }
 
     private async Task LoadConnectionStringsFromAppSettingsFile()
@@ -77,6 +108,20 @@
 
     private async Task SaveStorageConnectionStringsToAppSettings()
     {
+        // Never write appsettings.json when every value comes from the environment or in Azure Container Apps
+        if (ProvidedBlobString != null && ProvidedTableString != null && ProvidedQueueString != null)
+        {
+            return;
+        }
+
+        if (EnvironmentConnections.IsRunningInContainerApps)
+        {
+            SaveSettingsMessage = "Running in Azure Container Apps: appsettings.json was not changed because the container file system is not durable. " +
+                "Set the ConnectionStrings__blobs, ConnectionStrings__tables and ConnectionStrings__queues environment variables on the container app instead.";
+            SaveSettingsSuccess = false;
+            return;
+        }
+
         try
         {
             var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
@@ -104,12 +149,12 @@
                 jsonNode["ConnectionStrings"] = new JsonObject();
             }
 
-            // Update the connection strings
-            if (!string.IsNullOrEmpty(Model.BlobString))
+            // Update the connection strings (values provided by the environment are left alone)
+            if (!string.IsNullOrEmpty(Model.BlobString) && ProvidedBlobString == null)
                 jsonNode["ConnectionStrings"]!["blobs"] = Model.BlobString;
-            if (!string.IsNullOrEmpty(Model.TableString))
+            if (!string.IsNullOrEmpty(Model.TableString) && ProvidedTableString == null)
                 jsonNode["ConnectionStrings"]!["tables"] = Model.TableString;
-            if (!string.IsNullOrEmpty(Model.QueueString))
+            if (!string.IsNullOrEmpty(Model.QueueString) && ProvidedQueueString == null)
                 jsonNode["ConnectionStrings"]!["queues"] = Model.QueueString;
 
             // Write back to file with proper formatting
@@ -249,10 +294,32 @@
 
     private async Task TestAllConnections()
     {
-        await TestBlobConnection();
-        await TestTableConnection();
-        await TestQueueConnection();
+        // Values provided by the environment may be endpoint URIs (managed identity), not connection strings
+        if (ProvidedBlobString == null) await TestBlobConnection();
+        if (ProvidedTableString == null) await TestTableConnection();
+        if (ProvidedQueueString == null) await TestQueueConnection();
     }
+
+    private bool AnyManualEntry =>
+        (Model.BlobType == "manual" && ProvidedBlobString == null) ||
+        (Model.TableType == "manual" && ProvidedTableString == null) ||
+        (Model.QueueType == "manual" && ProvidedQueueString == null);
+
+    private RenderFragment ProvidedCard(string connectionName, string value) =>
+        @<RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3 rz-mt-2">
+            <RadzenIcon Icon="cloud_done" IconColor="@Colors.Success" />
+            <div style="min-width: 0;">
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    <strong>@EnvironmentConnections.ProvidedByText</strong>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-m-0" Style="word-break: break-all;">
+                    @EnvironmentConnectionStrings.Mask(value)
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400 rz-m-0">
+                    The ConnectionStrings__@connectionName environment variable is used; appsettings.json is not changed.
+                </RadzenText>
+            </div>
+        </RadzenCard>;
 }
 
 <div class="rz-p-2">
@@ -266,6 +333,12 @@
             <RadzenIcon Icon="cloud_upload" Style="vertical-align: middle; margin-right: 4px;" />
             Blob Storage
         </RadzenText>
+        @if (ProvidedBlobString != null)
+        {
+            @ProvidedCard("blobs", ProvidedBlobString)
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.BlobType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.BlobType == "manual")
         {
@@ -290,6 +363,7 @@
                 </div>
             }
         }
+        }
     </div>
 
     @* Table Storage Section *@
@@ -298,6 +372,12 @@
             <RadzenIcon Icon="table_chart" Style="vertical-align: middle; margin-right: 4px;" />
             Table Storage
         </RadzenText>
+        @if (ProvidedTableString != null)
+        {
+            @ProvidedCard("tables", ProvidedTableString)
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.TableType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.TableType == "manual")
         {
@@ -322,6 +402,7 @@
                 </div>
             }
         }
+        }
     </div>
 
     @* Queue Storage Section *@
@@ -330,6 +411,12 @@
             <RadzenIcon Icon="queue" Style="vertical-align: middle; margin-right: 4px;" />
             Queue Storage
         </RadzenText>
+        @if (ProvidedQueueString != null)
+        {
+            @ProvidedCard("queues", ProvidedQueueString)
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.QueueType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
         @if (Model.QueueType == "manual")
         {
@@ -354,10 +441,11 @@
                 </div>
             }
         }
+        }
     </div>
 
     @* Test All Button *@
-    @if (Model.BlobType == "manual" || Model.TableType == "manual" || Model.QueueType == "manual")
+    @if (AnyManualEntry)
     {
         <div class="rz-mb-4">
             <RadzenButton Text="Test All Storage Connections" Icon="check_circle" ButtonStyle="ButtonStyle.Primary"
