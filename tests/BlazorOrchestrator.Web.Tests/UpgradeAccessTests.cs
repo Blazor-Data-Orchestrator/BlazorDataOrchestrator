@@ -47,6 +47,65 @@ public class UpgradeAccessTests
         Assert.False(await auth.IsActiveAdminAsync("u1", TestContext.Current.CancellationToken));
     }
 
+    [Fact(DisplayName = "PR #47 HIGH-2: fresh install -> first Admin -> Admin removed -> restart never promotes ViewOnly users")]
+    [Trait("Category", "Security")]
+    public async Task FreshInstall_AdminRemoved_RestartDoesNotPromote()
+    {
+        await using var db = CreateTransactionalDb();
+        var marker = new FakeMarker();
+        var service = new AllowedUserService(db, NullLogger<AllowedUserService>.Instance);
+
+        // Startup ran before the installer: no users yet, nothing to mark.
+        Assert.False(await service.BootstrapAdminRoleAsync(allowLegacyPromotion: !await marker.IsCompletedAsync(), TestContext.Current.CancellationToken));
+        Assert.False(marker.Completed);
+
+        // The Install Wizard creates the first Admin and records the marker.
+        Assert.True(await service.CreateFirstAdminAsync("boss", "boss@example.com", "Correct-Horse-1", marker, TestContext.Current.CancellationToken));
+        Assert.True(marker.Completed);
+
+        var viewer = NewUser("viewer");
+        viewer.Roles.Add(await db.AspNetRoles.SingleAsync(r => r.NormalizedName == "VIEWONLY", TestContext.Current.CancellationToken));
+        db.AspNetUsers.Add(viewer);
+        var boss = await db.AspNetUsers.Include(u => u.Roles).SingleAsync(u => u.UserName == "boss", TestContext.Current.CancellationToken);
+        boss.Roles.Clear();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        // Restart with the marker as recorded ...
+        Assert.False(await service.BootstrapAdminRoleAsync(allowLegacyPromotion: !await marker.IsCompletedAsync(), TestContext.Current.CancellationToken));
+        // ... and even if the marker were lost: the database is role-aware, so it is not a legacy install.
+        Assert.False(await service.BootstrapAdminRoleAsync(allowLegacyPromotion: true, TestContext.Current.CancellationToken));
+
+        Assert.False(await db.AspNetUsers.AnyAsync(u => u.Roles.Any(r => r.NormalizedName == "ADMIN"), TestContext.Current.CancellationToken));
+    }
+
+    [Fact(DisplayName = "PR #47 HIGH-2: the installer fails visibly and creates nothing when the marker cannot be written")]
+    [Trait("Category", "Security")]
+    public async Task CreateFirstAdmin_MarkerWriteFails_CreatesNothing()
+    {
+        await using var db = CreateTransactionalDb();
+        var service = new AllowedUserService(db, NullLogger<AllowedUserService>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateFirstAdminAsync("boss", "boss@example.com", "Correct-Horse-1", new FakeMarker { FailWrites = true }, TestContext.Current.CancellationToken));
+
+        Assert.False(await db.AspNetUsers.AnyAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact(DisplayName = "PR #47 HIGH-2: a database whose users already have roles is not treated as legacy")]
+    [Trait("Category", "Security")]
+    public async Task Bootstrap_UsersWithRoles_IsNotLegacy()
+    {
+        await using var db = CreateDb();
+        var viewer = NewUser("viewer");
+        viewer.Roles.Add(new AspNetRole { Id = "v", Name = "ViewOnly", NormalizedName = "VIEWONLY" });
+        db.AspNetUsers.Add(viewer);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new AllowedUserService(db, NullLogger<AllowedUserService>.Instance);
+
+        Assert.False(await service.BootstrapAdminRoleAsync(allowLegacyPromotion: true, TestContext.Current.CancellationToken));
+        Assert.False(await db.AspNetUsers.AnyAsync(u => u.Roles.Any(r => r.NormalizedName == "ADMIN"), TestContext.Current.CancellationToken));
+    }
+
     [Fact(DisplayName = "Review #5: an unreadable migration marker / schema version is an error, not 'not set'")]
     [Trait("Category", "Security")]
     public async Task StrictSettingsRead_FailsClosed()
@@ -126,6 +185,28 @@ public class UpgradeAccessTests
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"access-{Guid.NewGuid():N}")
             .Options);
+
+    // The installer uses a transaction; the in-memory provider ignores it.
+    private static ApplicationDbContext CreateTransactionalDb() =>
+        new(new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase($"access-{Guid.NewGuid():N}")
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options);
+
+    private sealed class FakeMarker : IAdminRoleMigrationMarker
+    {
+        public bool Completed { get; private set; }
+        public bool FailWrites { get; init; }
+
+        public Task<bool> IsCompletedAsync(CancellationToken cancellationToken = default) => Task.FromResult(Completed);
+
+        public Task MarkCompletedAsync(CancellationToken cancellationToken = default)
+        {
+            if (FailWrites) throw new InvalidOperationException("Simulated Table Storage outage.");
+            Completed = true;
+            return Task.CompletedTask;
+        }
+    }
 
     private static AspNetUser NewUser(string id) => new()
     {

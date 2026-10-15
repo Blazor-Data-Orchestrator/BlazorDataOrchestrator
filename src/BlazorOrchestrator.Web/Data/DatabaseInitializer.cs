@@ -15,7 +15,10 @@ namespace BlazorOrchestrator.Web.Data;
 /// in) applies the newer !SQL scripts to an existing schema.</item>
 /// </list>
 /// Both take <see cref="SchemaMigrationLock"/> before reading the schema version, so two replicas,
-/// two wizard sessions, or startup and a wizard never run scripts at the same time.
+/// two wizard sessions, or startup and a wizard never run scripts at the same time. The applied
+/// scripts and version are recorded in SQL (<see cref="SchemaCheckpoint"/>) in the same transaction
+/// as each script; the SchemaVersion setting in Table Storage is synchronized from it, and
+/// <see cref="EnsureDatabaseAsync"/> repairs that setting at startup when it fell behind.
 /// </summary>
 public static class DatabaseInitializer
 {
@@ -138,6 +141,10 @@ public static class DatabaseInitializer
                 var batches = SqlScriptCatalog.GetBatches(await File.ReadAllTextAsync(path, cancellationToken));
                 onProgress?.Invoke($"📊 Found {batches.Count} SQL batches to execute.");
 
+                // The baseline is the full schema of the running code: every script up to that
+                // version counts as applied.
+                var baselineVersion = string.IsNullOrEmpty(currentVersion) ? ApplicationVersion.Current : currentVersion;
+
                 // One transaction: a failure leaves no half-created schema behind.
                 await using (var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken))
                 {
@@ -148,6 +155,14 @@ public static class DatabaseInitializer
                         onProgress?.Invoke($"⚡ Executing batch {batchIndex}/{batches.Count}...");
                         await ExecuteBatchAsync(connection, transaction, batch, cancellationToken);
                     }
+
+                    // The SQL checkpoint is part of the same transaction as the schema.
+                    await SchemaCheckpoint.EnsureTablesAsync(connection, transaction);
+                    foreach (var script in ScriptsUpTo(directory, baselineVersion))
+                    {
+                        await SchemaCheckpoint.RecordScriptAsync(connection, transaction, Path.GetFileName(script), SqlScriptCatalog.VersionOf(script), backfilled: true);
+                    }
+                    await SchemaCheckpoint.SetStateVersionAsync(connection, transaction, baselineVersion);
 
                     await transaction.CommitAsync(cancellationToken);
                 }
@@ -164,12 +179,22 @@ public static class DatabaseInitializer
                 try
                 {
                     var existingVersion = await versionStore.GetAsync(cancellationToken);
-                    if (created)
+                    var sqlVersion = await SchemaCheckpoint.GetStateVersionAsync(connection);
+                    if (sqlVersion != null)
                     {
-                        // A new schema is the full baseline of the running code.
-                        onProgress?.Invoke($"📝 Setting SchemaVersion to {currentVersion}...");
-                        await versionStore.SetAsync(currentVersion, cancellationToken);
-                        onProgress?.Invoke($"✅ SchemaVersion set to {currentVersion}.");
+                        // The SQL checkpoint is authoritative (a new schema records the code
+                        // version). Repair a setting that fell behind, e.g. after an upgrade whose
+                        // final SchemaVersion write failed; this applies nothing.
+                        if (ApplicationVersion.ToInteger(existingVersion) < ApplicationVersion.ToInteger(sqlVersion))
+                        {
+                            onProgress?.Invoke($"📝 Setting SchemaVersion to {sqlVersion} (from the database checkpoint)...");
+                            await versionStore.SetAsync(sqlVersion, cancellationToken);
+                            onProgress?.Invoke($"✅ SchemaVersion set to {sqlVersion}.");
+                        }
+                        else
+                        {
+                            onProgress?.Invoke($"ℹ️ SchemaVersion already set to {existingVersion}; leaving unchanged.");
+                        }
                     }
                     else if (string.IsNullOrEmpty(existingVersion))
                     {
@@ -204,13 +229,17 @@ public static class DatabaseInitializer
     }
 
     /// <summary>
-    /// Applies every !SQL script newer than the recorded schema version (up to
-    /// <paramref name="codeVersion"/>) in version order. Each script runs in its own transaction;
-    /// the version is recorded after each script commits, then raised to the code version.
+    /// Applies every !SQL script up to <paramref name="codeVersion"/> that the SQL checkpoint
+    /// (<see cref="SchemaCheckpoint"/>) has not recorded, in version order. Each script and its
+    /// checkpoint row commit in one transaction, so a committed script is never replayed, even
+    /// when the SchemaVersion setting cannot be written afterwards. A database that predates the
+    /// checkpoint is backfilled once from the SchemaVersion setting. Finally the setting is
+    /// synchronized with the database state.
     /// Only the Upgrade Wizard calls this, after it has verified an Administrator.
     /// </summary>
     /// <exception cref="MissingSqlScriptsException">Scripts this build shipped with are missing; nothing is changed.</exception>
     /// <exception cref="SchemaScriptFailedException">A script failed; it was rolled back and earlier scripts stay applied.</exception>
+    /// <exception cref="SchemaVersionSyncException">Scripts are applied, but the SchemaVersion setting could not be updated; retrying is safe.</exception>
     public static async Task<SchemaUpgradeResult> ApplyPendingScriptsAsync(
         string connectionString,
         string codeVersion,
@@ -237,19 +266,34 @@ public static class DatabaseInitializer
         onProgress?.Invoke("Waiting for the schema lock...");
         await using var schemaLock = await SchemaMigrationLock.AcquireAsync(connection, lockTimeout, cancellationToken);
 
-        // Read under the lock: another session may have upgraded while this one waited.
-        var startVersion = await versionStore.GetAsync(cancellationToken) ?? SqlScriptCatalog.BaselineVersion;
-        var applied = new List<string>();
-
-        if (ApplicationVersion.ToInteger(startVersion) >= ApplicationVersion.ToInteger(codeVersion))
+        // Everything below is decided from the SQL checkpoint, read under the lock: another
+        // session may have upgraded while this one waited.
+        await SchemaCheckpoint.EnsureTablesAsync(connection);
+        var stateVersion = await SchemaCheckpoint.GetStateVersionAsync(connection);
+        if (stateVersion == null)
         {
-            onProgress?.Invoke($"The database is already at version {startVersion}; nothing to apply.");
-            return new SchemaUpgradeResult(startVersion, startVersion, applied);
+            // The database predates the checkpoint: backfill it once from the SchemaVersion
+            // setting (a storage failure throws here, so nothing is guessed).
+            stateVersion = await versionStore.GetAsync(cancellationToken) ?? SqlScriptCatalog.BaselineVersion;
+            onProgress?.Invoke($"Recording the existing schema ({stateVersion}) in the database checkpoint...");
+            await using var backfill = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            foreach (var script in ScriptsUpTo(directory, stateVersion))
+            {
+                await SchemaCheckpoint.RecordScriptAsync(connection, backfill, Path.GetFileName(script), SqlScriptCatalog.VersionOf(script), backfilled: true);
+            }
+            await SchemaCheckpoint.SetStateVersionAsync(connection, backfill, stateVersion);
+            await backfill.CommitAsync(cancellationToken);
         }
 
-        var pending = SqlScriptCatalog.GetPendingScripts(Directory.EnumerateFiles(directory, "*.sql"), startVersion, codeVersion);
+        var startVersion = stateVersion;
+        var alreadyApplied = await SchemaCheckpoint.GetAppliedScriptsAsync(connection);
+        var pending = ScriptsUpTo(directory, codeVersion)
+            .Where(path => !alreadyApplied.Contains(Path.GetFileName(path)))
+            .ToList();
+        var applied = new List<string>();
+
         onProgress?.Invoke(pending.Count == 0
-            ? $"No migration scripts between {startVersion} and {codeVersion}."
+            ? $"No migration scripts to apply (database at {startVersion}, code {codeVersion})."
             : $"Found {pending.Count} migration script(s) to apply: {string.Join(", ", pending.Select(Path.GetFileName))}.");
 
         foreach (var path in pending)
@@ -274,20 +318,53 @@ public static class DatabaseInitializer
                     }
                 }
 
+                // Recorded in the same transaction: once committed, this script never runs again.
+                await SchemaCheckpoint.RecordScriptAsync(connection, transaction, name, version, backfilled: false);
+                if (ApplicationVersion.ToInteger(version) > ApplicationVersion.ToInteger(stateVersion))
+                {
+                    stateVersion = version;
+                    await SchemaCheckpoint.SetStateVersionAsync(connection, transaction, stateVersion);
+                }
+
                 await transaction.CommitAsync(cancellationToken);
             }
 
-            await versionStore.SetAsync(version, cancellationToken);
             applied.Add(name);
             logger.LogInformation("Applied schema script {Script}.", name);
-            onProgress?.Invoke($"✓ {name} applied. SchemaVersion is now {version}.");
+            onProgress?.Invoke($"✓ {name} applied and recorded.");
         }
 
         // A version bump without a script only records the new version.
-        await versionStore.SetAsync(codeVersion, cancellationToken);
-        onProgress?.Invoke($"SchemaVersion updated to {codeVersion}.");
-        return new SchemaUpgradeResult(startVersion, codeVersion, applied);
+        if (ApplicationVersion.ToInteger(stateVersion) < ApplicationVersion.ToInteger(codeVersion))
+        {
+            await using var bump = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            await SchemaCheckpoint.SetStateVersionAsync(connection, bump, codeVersion);
+            await bump.CommitAsync(cancellationToken);
+            stateVersion = codeVersion;
+        }
+
+        // Copy the database state to the SchemaVersion setting the setup gate reads. If this
+        // fails, a retry (or the next startup) only repeats this copy; nothing is re-applied.
+        try
+        {
+            if (await versionStore.GetAsync(cancellationToken) != stateVersion)
+            {
+                await versionStore.SetAsync(stateVersion, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Schema scripts are applied, but the SchemaVersion setting could not be updated to {Version}.", stateVersion);
+            throw new SchemaVersionSyncException(stateVersion, applied, ex);
+        }
+
+        onProgress?.Invoke($"SchemaVersion updated to {stateVersion}.");
+        return new SchemaUpgradeResult(startVersion, stateVersion, applied);
     }
+
+    /// <summary>NN.NN.NN.sql scripts in <paramref name="directory"/> not newer than <paramref name="version"/>, in version order.</summary>
+    private static IReadOnlyList<string> ScriptsUpTo(string directory, string version) =>
+        SqlScriptCatalog.GetPendingScripts(Directory.EnumerateFiles(directory, "*.sql"), databaseVersion: null, version);
 
     private static async Task<bool> SchemaExistsAsync(SqlConnection connection, CancellationToken cancellationToken)
     {
@@ -311,6 +388,18 @@ public sealed class MissingSqlScriptsException(string directory, IReadOnlyList<s
 {
     public string Directory { get; } = directory;
     public IReadOnlyList<string> MissingScripts { get; } = missingScripts;
+}
+
+/// <summary>
+/// Every script is applied and recorded in the database, but the SchemaVersion setting could not
+/// be updated. Retrying (or restarting the app) only repeats that update.
+/// </summary>
+public sealed class SchemaVersionSyncException(string version, IReadOnlyList<string> appliedScripts, Exception inner)
+    : Exception($"The schema scripts were applied and recorded in the database (now at {version}), but the SchemaVersion setting could not be updated: {inner.Message} " +
+                "Select Retry; no script runs again.", inner)
+{
+    public string Version { get; } = version;
+    public IReadOnlyList<string> AppliedScripts { get; } = appliedScripts;
 }
 
 /// <summary>A schema script failed; its transaction was rolled back.</summary>

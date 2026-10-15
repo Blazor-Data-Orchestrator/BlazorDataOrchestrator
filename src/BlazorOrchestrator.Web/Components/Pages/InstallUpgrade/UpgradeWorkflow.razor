@@ -197,6 +197,16 @@
             MissingScripts = ex.MissingScripts;
             Stage = "missing";
         }
+        catch (SchemaVersionSyncException ex)
+        {
+            // The scripts are applied and recorded in SQL; Retry only copies the version again.
+            ErrorMessage = ex.Message;
+            AddLog($"✗ {ex.Message}");
+            AppliedScripts = ex.AppliedScripts;
+            DatabaseVersion = ex.Version;
+            PendingScripts = new List<string>();
+            Stage = "failed";
+        }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;

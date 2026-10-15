@@ -134,10 +134,19 @@ internal sealed class InMemorySchemaVersionStore(string? version = null) : ISche
         lock (_gate) return Task.FromResult(Version);
     }
 
+    /// <summary>The next N writes throw, like a Table Storage outage.</summary>
+    public int FailNextSets { get; set; }
+
     public Task SetAsync(string version, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
+            if (FailNextSets > 0)
+            {
+                FailNextSets--;
+                throw new InvalidOperationException("Simulated Table Storage outage.");
+            }
+
             Version = version;
             Writes++;
             History.Add(version);

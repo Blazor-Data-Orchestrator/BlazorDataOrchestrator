@@ -285,62 +285,22 @@
             if (!string.IsNullOrEmpty(Model.AdminUser) && !string.IsNullOrEmpty(Model.AdminEmail))
             {
                 AddLog("🔍 Checking that no account exists yet...");
+                AddLog($"📝 Recording that this installation uses roles, then creating admin user '{Model.AdminUser}'...");
 
-                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var strategy = context.Database.CreateExecutionStrategy();
-
-                // Serializable so two concurrent wizards cannot both create a first admin.
-                var created = await strategy.ExecuteAsync(async () =>
+                var allowedUsers = scope.ServiceProvider.GetRequiredService<AllowedUserService>();
+                var marker = scope.ServiceProvider.GetRequiredService<IAdminRoleMigrationMarker>();
+                bool created;
+                try
                 {
-                    await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-
-                    if (await context.AspNetUsers.AnyAsync())
-                    {
-                        return false;
-                    }
-
-                    AddLog($"📝 Creating admin user '{Model.AdminUser}'...");
-                    
-                    var passwordHasher = new PasswordHasher<AspNetUser>();
-                    var newUser = new AspNetUser
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        UserName = Model.AdminUser,
-                        NormalizedUserName = Model.AdminUser?.ToUpperInvariant(),
-                        Email = Model.AdminEmail,
-                        NormalizedEmail = Model.AdminEmail?.ToUpperInvariant(),
-                        EmailConfirmed = true,
-                        SecurityStamp = Guid.NewGuid().ToString(),
-                        ConcurrencyStamp = Guid.NewGuid().ToString(),
-                        PhoneNumberConfirmed = false,
-                        TwoFactorEnabled = false,
-                        LockoutEnabled = false,
-                        AccessFailedCount = 0
-                    };
-                    newUser.PasswordHash = passwordHasher.HashPassword(newUser, Model.AdminPassword ?? "Admin@123");
-
-                    // Ensure Admin role exists and assign it to the new user
-                    var adminRole = await context.AspNetRoles
-                        .FirstOrDefaultAsync(r => r.NormalizedName == "ADMIN");
-                    
-                    if (adminRole == null)
-                    {
-                        adminRole = new AspNetRole
-                        {
-                            Id = Guid.NewGuid().ToString(),
-                            Name = "Admin",
-                            NormalizedName = "ADMIN",
-                            ConcurrencyStamp = Guid.NewGuid().ToString()
-                        };
-                        context.AspNetRoles.Add(adminRole);
-                    }
-
-                    newUser.Roles.Add(adminRole);
-                    context.AspNetUsers.Add(newUser);
-                    await context.SaveChangesAsync();
-                    await transaction.CommitAsync();
-                    return true;
-                });
+                    // Records the AdminRoleMigrationCompleted marker before the user is created; if
+                    // the marker cannot be written nothing is created and the install fails here.
+                    created = await allowedUsers.CreateFirstAdminAsync(Model.AdminUser!, Model.AdminEmail!, Model.AdminPassword ?? "Admin@123", marker);
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"❌ Could not record the role migration marker or create the administrator: {ex.Message}");
+                    throw;
+                }
 
                 // Users now exist either way, so the anonymous wizard must stay closed from here on.
                 await InstallMarker.MarkInstalledAsync();

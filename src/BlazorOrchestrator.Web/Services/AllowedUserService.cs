@@ -379,16 +379,27 @@ public class AllowedUserService
     public const string AdminRoleMigrationSettingKey = "AdminRoleMigrationCompleted";
 
     /// <summary>
-    /// Ensures the Admin and ViewOnly roles exist. On an installation that predates roles
-    /// (<paramref name="allowLegacyPromotion"/> true: the role migration has not completed) and
-    /// has no enabled Admin, every existing enabled user is promoted so the system isn't locked
-    /// out of the admin UI and the Upgrade Wizard. Once the migration has completed the method
-    /// fails closed: losing the last Admin never grants anyone Admin again.
+    /// Ensures the Admin and ViewOnly roles exist. Every existing enabled user is promoted to
+    /// Admin only on an installation that provably predates roles, so it isn't locked out of the
+    /// admin UI and the Upgrade Wizard. That needs both:
+    /// <list type="bullet">
+    /// <item><paramref name="allowLegacyPromotion"/>: the AdminRoleMigrationCompleted marker is not
+    /// recorded (the caller fails closed when it cannot be read), and</item>
+    /// <item>positive evidence in the database: the Admin role does not exist yet and no user has
+    /// any role. A role-aware install (the installer creates the Admin role with the first
+    /// Admin, and this method creates it on every startup) never qualifies again.</item>
+    /// </list>
+    /// Otherwise the method fails closed: losing the last Admin never grants anyone Admin.
     /// Intended to be called once at application startup.
     /// </summary>
     /// <returns>True when at least one enabled Admin exists afterwards (the migration is complete).</returns>
     public async Task<bool> BootstrapAdminRoleAsync(bool allowLegacyPromotion, CancellationToken ct = default)
     {
+        // Evidence is read before this method creates any role.
+        var isPreRoleDatabase =
+            !await _db.AspNetRoles.AnyAsync(r => r.NormalizedName == AdminRoleNormalized, ct)
+            && !await _db.AspNetUsers.AnyAsync(u => u.Roles.Any(), ct);
+
         var role = await EnsureAdminRoleAsync(ct);
         await EnsureViewOnlyRoleAsync(ct);
 
@@ -401,10 +412,10 @@ public class AllowedUserService
             return true;
         }
 
-        if (!allowLegacyPromotion)
+        if (!allowLegacyPromotion || !isPreRoleDatabase)
         {
             await _db.SaveChangesAsync(ct);
-            _logger.LogWarning("No enabled user has the Admin role. Users are not promoted automatically after the role migration; assign the Admin role to a user directly in the database.");
+            _logger.LogWarning("No enabled user has the Admin role. Users are promoted automatically only on an installation that predates roles; assign the Admin role to a user directly in the database.");
             return false;
         }
 
@@ -429,6 +440,55 @@ public class AllowedUserService
         await _db.SaveChangesAsync(ct);
         _logger.LogInformation("Bootstrapped Admin role: promoted {Count} existing enabled user(s).", candidates.Count);
         return true;
+    }
+
+    /// <summary>
+    /// Creates the first user, with the Admin role, for the Install Wizard. The
+    /// AdminRoleMigrationCompleted marker is recorded first: if it cannot be written the method
+    /// throws and creates nothing, so a fresh, role-aware install can never be mistaken for a
+    /// pre-role one (which would promote every user if this Admin were later removed).
+    /// </summary>
+    /// <returns>False when a user already exists (nothing is created).</returns>
+    public async Task<bool> CreateFirstAdminAsync(string userName, string email, string password, IAdminRoleMigrationMarker marker, CancellationToken ct = default)
+    {
+        await marker.MarkCompletedAsync(ct);
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+
+        // Serializable so two concurrent wizards cannot both create a first admin.
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+
+            if (await _db.AspNetUsers.AnyAsync(ct))
+            {
+                return false;
+            }
+
+            var newUser = new AspNetUser
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = userName,
+                NormalizedUserName = userName.ToUpperInvariant(),
+                Email = email,
+                NormalizedEmail = email.ToUpperInvariant(),
+                EmailConfirmed = true,
+                SecurityStamp = Guid.NewGuid().ToString(),
+                ConcurrencyStamp = Guid.NewGuid().ToString(),
+                PhoneNumberConfirmed = false,
+                TwoFactorEnabled = false,
+                LockoutEnabled = false,
+                AccessFailedCount = 0
+            };
+            newUser.PasswordHash = _passwordHasher.HashPassword(newUser, password);
+
+            // Ensure the Admin role exists and assign it to the new user
+            newUser.Roles.Add(await EnsureAdminRoleAsync(ct));
+            _db.AspNetUsers.Add(newUser);
+            await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return true;
+        });
     }
 
     // ---------- helpers ----------

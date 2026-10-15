@@ -197,6 +197,7 @@ builder.Services.AddScoped<AppSettingsService>(sp =>
 builder.Services.AddScoped<BlazorOrchestrator.Web.Services.TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
 builder.Services.AddSingleton(_ => new EnvironmentConnectionStrings());
+builder.Services.AddScoped<IAdminRoleMigrationMarker>(sp => new SettingsAdminRoleMigrationMarker(sp.GetRequiredService<SettingsService>()));
 
 // Register AI Settings service (uses Azure Table Storage)
 builder.Services.AddScoped<AISettingsService>(sp =>
@@ -437,16 +438,16 @@ public class BackgroundInitializer : BackgroundService
             {
                 using var scope = _sp.CreateScope();
                 var allowedUsers = scope.ServiceProvider.GetRequiredService<AllowedUserService>();
-                var settings = scope.ServiceProvider.GetRequiredService<SettingsService>();
+                var marker = scope.ServiceProvider.GetRequiredService<IAdminRoleMigrationMarker>();
 
-                // Legacy promotion is allowed only until the role migration is recorded as complete.
-                // If the marker cannot be read, GetStrictAsync throws and nothing is promoted (fail closed).
-                var migrationCompleted = await settings.GetStrictAsync(AllowedUserService.AdminRoleMigrationSettingKey, stoppingToken) != null;
+                // Legacy promotion needs the marker to be absent AND a database that predates roles
+                // (BootstrapAdminRoleAsync checks that). If the marker cannot be read, IsCompletedAsync
+                // throws and nothing is promoted (fail closed).
+                var migrationCompleted = await marker.IsCompletedAsync(stoppingToken);
                 var hasAdmin = await allowedUsers.BootstrapAdminRoleAsync(allowLegacyPromotion: !migrationCompleted, stoppingToken);
                 if (hasAdmin && !migrationCompleted)
                 {
-                    await settings.SetAsync(AllowedUserService.AdminRoleMigrationSettingKey, DateTime.UtcNow.ToString("O"),
-                        "Admin role migration completed; users are no longer promoted automatically");
+                    await marker.MarkCompletedAsync(stoppingToken);
                 }
             }
             catch (Exception ex)

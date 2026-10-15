@@ -156,7 +156,7 @@ A resource group parameter can be left empty when the resource is in the resourc
 
 ### Updates
 
-When you update to a newer release, BlazorData.net deploys the new images but **does not change the database schema**, and Blazor Data Orchestrator does not change an existing schema when it starts. Open Blazor Data Orchestrator after the update: it detects that the recorded schema version (the `SchemaVersion` setting) is older than the application and shows the **Upgrade Wizard**. Sign in as an **Admin** and select **Apply Upgrade** to run the newer `!SQL` scripts. Each script runs in its own transaction, and only one upgrade can run at a time (other replicas or sessions wait for it). Back up the database first.
+When you update to a newer release, BlazorData.net deploys the new images but **does not change the database schema**, and Blazor Data Orchestrator does not change an existing schema when it starts. Open Blazor Data Orchestrator after the update: it detects that the recorded schema version (the `SchemaVersion` setting) is older than the application and shows the **Upgrade Wizard**. Sign in as an **Admin** and select **Apply Upgrade** to run the newer `!SQL` scripts. Each script runs in its own transaction together with a record of it in the database (`[dbo].[SchemaScriptHistory]` and `[dbo].[SchemaVersionState]`), so a script that has been applied never runs again, even if the wizard is retried. Only one upgrade can run at a time (other replicas or sessions wait for it). Back up the database first.
 
 If the wizard reports that upgrade scripts are missing, the deployment is incomplete: redeploy the release instead of continuing.
 
