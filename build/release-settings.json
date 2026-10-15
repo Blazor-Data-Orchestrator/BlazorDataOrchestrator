@@ -1,0 +1,5 @@
+{
+  "$comment": "Edit by hand in the release PR. requiresTopologyChange: true when the release changes Azure resources (BlazorData.net then runs a full azd provision on update). minUpgradeFrom: the oldest installed version that can update directly to this release (the Upgrade Wizard applies every newer !SQL script, so 01.00.00 installs can update directly).",
+  "requiresTopologyChange": false,
+  "minUpgradeFrom": "01.00.00"
+}

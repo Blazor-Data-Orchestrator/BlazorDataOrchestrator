@@ -57,6 +57,22 @@ public class AuthService
     }
 
     /// <summary>
+    /// True when the user exists, is enabled, is not locked out and has the Admin role.
+    /// Fails closed: an unknown user or an empty id is never an administrator.
+    /// </summary>
+    public async Task<bool> IsActiveAdminAsync(string? userId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return false;
+
+        var now = DateTimeOffset.UtcNow;
+        return await _context.AspNetUsers
+            .Where(u => u.Id == userId && u.EmailConfirmed && (u.LockoutEnd == null || u.LockoutEnd <= now))
+            .SelectMany(u => u.Roles)
+            .AnyAsync(r => r.NormalizedName == "ADMIN", cancellationToken);
+    }
+
+    /// <summary>
     /// Changes the password for a user after verifying the current password.
     /// Returns true if the password was changed successfully, false if the current password is incorrect.
     /// </summary>

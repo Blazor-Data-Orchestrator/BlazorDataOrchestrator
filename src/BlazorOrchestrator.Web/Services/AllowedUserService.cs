@@ -373,11 +373,21 @@ public class AllowedUserService
     }
 
     /// <summary>
-    /// Ensures the Admin role exists. If no enabled user is assigned to it, promotes every
-    /// existing enabled user so the system isn't locked out of the new admin UI.
+    /// Settings key recorded once the role migration has completed (an enabled Admin exists).
+    /// From then on the legacy promotion below never runs again.
+    /// </summary>
+    public const string AdminRoleMigrationSettingKey = "AdminRoleMigrationCompleted";
+
+    /// <summary>
+    /// Ensures the Admin and ViewOnly roles exist. On an installation that predates roles
+    /// (<paramref name="allowLegacyPromotion"/> true: the role migration has not completed) and
+    /// has no enabled Admin, every existing enabled user is promoted so the system isn't locked
+    /// out of the admin UI and the Upgrade Wizard. Once the migration has completed the method
+    /// fails closed: losing the last Admin never grants anyone Admin again.
     /// Intended to be called once at application startup.
     /// </summary>
-    public async Task BootstrapAdminRoleAsync(CancellationToken ct = default)
+    /// <returns>True when at least one enabled Admin exists afterwards (the migration is complete).</returns>
+    public async Task<bool> BootstrapAdminRoleAsync(bool allowLegacyPromotion, CancellationToken ct = default)
     {
         var role = await EnsureAdminRoleAsync(ct);
         await EnsureViewOnlyRoleAsync(ct);
@@ -388,7 +398,14 @@ public class AllowedUserService
         if (hasAnyAdmin)
         {
             await _db.SaveChangesAsync(ct);
-            return;
+            return true;
+        }
+
+        if (!allowLegacyPromotion)
+        {
+            await _db.SaveChangesAsync(ct);
+            _logger.LogWarning("No enabled user has the Admin role. Users are not promoted automatically after the role migration; assign the Admin role to a user directly in the database.");
+            return false;
         }
 
         var candidates = await _db.AspNetUsers
@@ -400,7 +417,7 @@ public class AllowedUserService
         {
             _logger.LogWarning("No enabled users exist; Admin role created but unassigned. The /admin/users page will be inaccessible until an admin row is added directly to the database.");
             await _db.SaveChangesAsync(ct);
-            return;
+            return false;
         }
 
         foreach (var u in candidates)
@@ -411,6 +428,7 @@ public class AllowedUserService
 
         await _db.SaveChangesAsync(ct);
         _logger.LogInformation("Bootstrapped Admin role: promoted {Count} existing enabled user(s).", candidates.Count);
+        return true;
     }
 
     // ---------- helpers ----------

@@ -6,6 +6,13 @@
 
     [Parameter]
     public EventCallback OnInstallComplete { get; set; }
+
+    // Connection strings are never rendered: only the server, database or storage account they
+    // point to (no password, key or SAS), or "Provided by the Azure deployment".
+    private static string Describe(string type, bool providedByEnvironment, string value) =>
+        providedByEnvironment ? BlazorOrchestrator.Web.Services.EnvironmentConnectionStrings.ProvidedByText
+        : type == "managed" ? "Azure Managed Identity"
+        : BlazorOrchestrator.Web.Services.ConnectionStringDisplay.Describe(value);
 }
 
 <div class="rz-p-2">
@@ -38,14 +45,11 @@
         </div>
         <div class="rz-ps-4">
             <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
-                <strong>Connection Type:</strong> @(Model.DbConnectionType == "managed" ? "Azure Managed Identity" : "Manual Connection String")
+                <strong>Connection Type:</strong> @(Model.DbProvidedByEnvironment ? "Environment" : Model.DbConnectionType == "managed" ? "Azure Managed Identity" : "Manual Connection String")
             </RadzenText>
-            @if (Model.DbConnectionType == "manual" && !string.IsNullOrEmpty(Model.DbConnectionString))
-            {
-                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500" Style="word-break: break-all;">
-                    @Model.DbConnectionString
-                </RadzenText>
-            }
+            <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500" Style="word-break: break-all;">
+                @Describe(Model.DbConnectionType, Model.DbProvidedByEnvironment, Model.DbConnectionString)
+            </RadzenText>
         </div>
     </RadzenCard>
 
@@ -56,34 +60,14 @@
         </div>
         <div class="rz-ps-4">
             <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
-                <strong>Blob Storage:</strong> @(Model.BlobType == "managed" ? "Azure Managed Identity" : "Manual")
+                <strong>Blob Storage:</strong> @Describe(Model.BlobType, Model.BlobProvidedByEnvironment, Model.BlobString)
             </RadzenText>
-            @if (Model.BlobType == "manual" && !string.IsNullOrEmpty(Model.BlobString))
-            {
-                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-mb-2" Style="word-break: break-all;">
-                    @Model.BlobString
-                </RadzenText>
-            }
-
             <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-1">
-                <strong>Table Storage:</strong> @(Model.TableType == "managed" ? "Azure Managed Identity" : "Manual")
+                <strong>Table Storage:</strong> @Describe(Model.TableType, Model.TableProvidedByEnvironment, Model.TableString)
             </RadzenText>
-            @if (Model.TableType == "manual" && !string.IsNullOrEmpty(Model.TableString))
-            {
-                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500 rz-mb-2" Style="word-break: break-all;">
-                    @Model.TableString
-                </RadzenText>
-            }
-
             <RadzenText TextStyle="TextStyle.Body2" Class="rz-mb-0">
-                <strong>Queue Storage:</strong> @(Model.QueueType == "managed" ? "Azure Managed Identity" : "Manual")
+                <strong>Queue Storage:</strong> @Describe(Model.QueueType, Model.QueueProvidedByEnvironment, Model.QueueString)
             </RadzenText>
-            @if (Model.QueueType == "manual" && !string.IsNullOrEmpty(Model.QueueString))
-            {
-                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-500" Style="word-break: break-all;">
-                    @Model.QueueString
-                </RadzenText>
-            }
         </div>
     </RadzenCard>
 

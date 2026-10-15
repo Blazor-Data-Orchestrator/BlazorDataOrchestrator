@@ -124,10 +124,10 @@ else
 
         if (!string.IsNullOrEmpty(wizardToken))
         {
-            var (isValid, _, userName) = WizardTokenService.ValidateToken(wizardToken);
+            var (isValid, userId, userName) = WizardTokenService.ValidateToken(wizardToken);
             if (isValid)
             {
-                WizardState.SetAdminAuthenticated(userName);
+                WizardState.SetAdminAuthenticated(userName, userId);
                 IsUpgradeAuthorized = true;
             }
             else

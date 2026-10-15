@@ -113,16 +113,24 @@
     <ProjectReference Include="..\BlazorOrchestrator.ServiceDefaults\BlazorOrchestrator.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <!-- Every versioned schema script is copied; the Upgrade Wizard applies them in version order. -->
   <ItemGroup>
-  <None Update="!SQL\01.20.00.sql">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="!SQL\01.10.00.sql">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="!SQL\01.00.00.sql">
+    <None Update="!SQL\*.sql">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- Records the script names in the assembly (SqlScriptCatalog.ExpectedScripts) so the Upgrade
+       Wizard refuses to run, instead of recording a version it never applied, when a deployment
+       lost one of them. -->
+  <Target Name="EmbedSqlScriptList" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <_BdoSqlScript Include="$(MSBuildProjectDirectory)\!SQL\*.sql" />
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BlazorOrchestrator.SqlScripts</_Parameter1>
+        <_Parameter2>@(_BdoSqlScript->'%(Filename)%(Extension)', ';')</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 
 </Project>

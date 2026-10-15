@@ -5,6 +5,7 @@
 @using System.Text.Json
 @using System.Text.Json.Nodes
 @inject IWebHostEnvironment Environment
+@inject BlazorOrchestrator.Web.Services.EnvironmentConnectionStrings EnvironmentConnections
 
 @code {
     [Parameter] 
@@ -35,8 +36,34 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Set by the Azure deployment (azd / Aspire): used as-is, never copied into the model.
+        Model.BlobProvidedByEnvironment = EnvironmentConnections.IsProvided("blobs");
+        Model.TableProvidedByEnvironment = EnvironmentConnections.IsProvided("tables");
+        Model.QueueProvidedByEnvironment = EnvironmentConnections.IsProvided("queues");
+        if (Model.BlobProvidedByEnvironment) { Model.BlobString = string.Empty; Model.BlobVerified = true; }
+        if (Model.TableProvidedByEnvironment) { Model.TableString = string.Empty; Model.TableVerified = true; }
+        if (Model.QueueProvidedByEnvironment) { Model.QueueString = string.Empty; Model.QueueVerified = true; }
+
         await DetectExistingStorageConfigAsync();
     }
+
+    private bool AnyManualEntry =>
+        (Model.BlobType == "manual" && !Model.BlobProvidedByEnvironment) ||
+        (Model.TableType == "manual" && !Model.TableProvidedByEnvironment) ||
+        (Model.QueueType == "manual" && !Model.QueueProvidedByEnvironment);
+
+    private RenderFragment ProvidedCard(string connectionName) =>
+        @<RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3 rz-mt-2">
+            <RadzenIcon Icon="cloud_done" IconColor="@Colors.Success" />
+            <div>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    <strong>@EnvironmentConnectionStrings.ProvidedByText</strong>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400 rz-m-0">
+                    The ConnectionStrings__@connectionName environment variable is used. Its value is not shown, and appsettings.json is not changed.
+                </RadzenText>
+            </div>
+        </RadzenCard>;
 
     /// <summary>Only reports whether values exist; the values themselves are never sent to the browser.</summary>
     private async Task DetectExistingStorageConfigAsync()
@@ -61,6 +88,14 @@
 
     private async Task SaveStorageConnectionStringsToAppSettings()
     {
+        // appsettings.json is not durable in Azure Container Apps.
+        if (EnvironmentConnections.IsRunningInContainerApps)
+        {
+            SaveSettingsMessage = EnvironmentConnections.NotWrittenReason("blobs", "tables", "queues");
+            SaveSettingsSuccess = false;
+            return;
+        }
+
         try
         {
             var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
@@ -88,12 +123,12 @@
                 jsonNode["ConnectionStrings"] = new JsonObject();
             }
 
-            // Update the connection strings
-            if (!string.IsNullOrEmpty(Model.BlobString))
+            // Update the connection strings (values provided by the environment are left alone)
+            if (!string.IsNullOrEmpty(Model.BlobString) && !Model.BlobProvidedByEnvironment)
                 jsonNode["ConnectionStrings"]!["blobs"] = Model.BlobString;
-            if (!string.IsNullOrEmpty(Model.TableString))
+            if (!string.IsNullOrEmpty(Model.TableString) && !Model.TableProvidedByEnvironment)
                 jsonNode["ConnectionStrings"]!["tables"] = Model.TableString;
-            if (!string.IsNullOrEmpty(Model.QueueString))
+            if (!string.IsNullOrEmpty(Model.QueueString) && !Model.QueueProvidedByEnvironment)
                 jsonNode["ConnectionStrings"]!["queues"] = Model.QueueString;
 
             // Write back to file with proper formatting
@@ -233,9 +268,10 @@
 
     private async Task TestAllConnections()
     {
-        await TestBlobConnection();
-        await TestTableConnection();
-        await TestQueueConnection();
+        // Environment-provided values are usually endpoint URIs for managed identity, not connection strings.
+        if (!Model.BlobProvidedByEnvironment) await TestBlobConnection();
+        if (!Model.TableProvidedByEnvironment) await TestTableConnection();
+        if (!Model.QueueProvidedByEnvironment) await TestQueueConnection();
     }
 }
 
@@ -257,8 +293,15 @@
             <RadzenIcon Icon="cloud_upload" Style="vertical-align: middle; margin-right: 4px;" />
             Blob Storage
         </RadzenText>
+        @if (Model.BlobProvidedByEnvironment)
+        {
+            @ProvidedCard("blobs")
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.BlobType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
-        @if (Model.BlobType == "manual")
+        }
+        @if (Model.BlobType == "manual" && !Model.BlobProvidedByEnvironment)
         {
             <RadzenTextBox @bind-Value="Model.BlobString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
             <div class="rz-mt-2">
@@ -289,8 +332,15 @@
             <RadzenIcon Icon="table_chart" Style="vertical-align: middle; margin-right: 4px;" />
             Table Storage
         </RadzenText>
+        @if (Model.TableProvidedByEnvironment)
+        {
+            @ProvidedCard("tables")
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.TableType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
-        @if (Model.TableType == "manual")
+        }
+        @if (Model.TableType == "manual" && !Model.TableProvidedByEnvironment)
         {
             <RadzenTextBox @bind-Value="Model.TableString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
             <div class="rz-mt-2">
@@ -321,8 +371,15 @@
             <RadzenIcon Icon="queue" Style="vertical-align: middle; margin-right: 4px;" />
             Queue Storage
         </RadzenText>
+        @if (Model.QueueProvidedByEnvironment)
+        {
+            @ProvidedCard("queues")
+        }
+        else
+        {
         <RadzenDropDown @bind-Value="Model.QueueType" Data="@storageOptions" TextProperty="Label" ValueProperty="Value" Style="width:100%" />
-        @if (Model.QueueType == "manual")
+        }
+        @if (Model.QueueType == "manual" && !Model.QueueProvidedByEnvironment)
         {
             <RadzenTextBox @bind-Value="Model.QueueString" Placeholder="UseDevelopmentStorage=true or DefaultEndpointsProtocol=https;AccountName=..." Style="width:100%" Class="rz-mt-2" />
             <div class="rz-mt-2">
@@ -348,7 +405,7 @@
     </div>
 
     @* Test All Button *@
-    @if (Model.BlobType == "manual" || Model.TableType == "manual" || Model.QueueType == "manual")
+    @if (AnyManualEntry)
     {
         <div class="rz-mb-4">
             <RadzenButton Text="Test All Storage Connections" Icon="check_circle" ButtonStyle="ButtonStyle.Primary"

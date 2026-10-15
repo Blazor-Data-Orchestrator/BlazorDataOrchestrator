@@ -46,6 +46,25 @@ public class SettingsService
     }
 
     /// <summary>
+    /// Gets a setting value by key for decisions that must fail closed. Returns null only when
+    /// the table or the setting does not exist (HTTP 404); any other storage failure throws, so a
+    /// transient outage is never mistaken for "not set".
+    /// </summary>
+    public async Task<string?> GetStrictAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _tableServiceClient.GetTableClient(TableName)
+                .GetEntityIfExistsAsync<SettingsEntity>(PartitionKey, key, cancellationToken: cancellationToken);
+            return response.HasValue ? response.Value?.Value : null;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Gets a setting value by key, returning defaultValue if not found.
     /// </summary>
     public async Task<string> GetOrDefaultAsync(string key, string defaultValue)
