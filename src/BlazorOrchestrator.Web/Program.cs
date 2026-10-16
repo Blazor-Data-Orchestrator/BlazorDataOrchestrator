@@ -196,6 +196,8 @@ builder.Services.AddScoped<AppSettingsService>(sp =>
 });
 builder.Services.AddScoped<BlazorOrchestrator.Web.Services.TimeDisplayService>();
 builder.Services.AddScoped<WizardStateService>();
+builder.Services.AddSingleton(_ => new EnvironmentConnectionStrings());
+builder.Services.AddScoped<IAdminRoleMigrationMarker>(sp => new SettingsAdminRoleMigrationMarker(sp.GetRequiredService<SettingsService>()));
 
 // Register AI Settings service (uses Azure Table Storage)
 builder.Services.AddScoped<AISettingsService>(sp =>
@@ -362,12 +364,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path;
     // Static assets are endpoints now (MapStaticAssets), so the setup page's CSS/JS must bypass the gate.
     var isStaticAsset = context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.StaticAssets.StaticAssetDescriptor>() != null;
-    if (!isStaticAsset &&
-        !path.StartsWithSegments("/setup") &&
-        !path.StartsWithSegments("/account") &&
-        !path.StartsWithSegments("/community") &&
-        !path.StartsWithSegments("/_blazor") &&
-        !path.StartsWithSegments("/_framework"))
+    if (!SetupGate.IsExempt(path, isStaticAsset))
     {
         var systemStatus = context.RequestServices.GetRequiredService<ISystemStatusService>();
         if (!await systemStatus.IsConfiguredAsync())
@@ -441,7 +438,17 @@ public class BackgroundInitializer : BackgroundService
             {
                 using var scope = _sp.CreateScope();
                 var allowedUsers = scope.ServiceProvider.GetRequiredService<AllowedUserService>();
-                await allowedUsers.BootstrapAdminRoleAsync(stoppingToken);
+                var marker = scope.ServiceProvider.GetRequiredService<IAdminRoleMigrationMarker>();
+
+                // Legacy promotion needs the marker to be absent AND a database that predates roles
+                // (BootstrapAdminRoleAsync checks that). If the marker cannot be read, IsCompletedAsync
+                // throws and nothing is promoted (fail closed).
+                var migrationCompleted = await marker.IsCompletedAsync(stoppingToken);
+                var hasAdmin = await allowedUsers.BootstrapAdminRoleAsync(allowLegacyPromotion: !migrationCompleted, stoppingToken);
+                if (hasAdmin && !migrationCompleted)
+                {
+                    await marker.MarkCompletedAsync(stoppingToken);
+                }
             }
             catch (Exception ex)
             {

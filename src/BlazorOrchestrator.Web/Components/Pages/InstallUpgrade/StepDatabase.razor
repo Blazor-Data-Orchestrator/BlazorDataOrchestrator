@@ -7,10 +7,13 @@
 @inject IServiceProvider ServiceProvider
 @inject IConfiguration Configuration
 @inject IWebHostEnvironment Environment
+@inject BlazorOrchestrator.Web.Services.EnvironmentConnectionStrings EnvironmentConnections
 
 @code {
-    [Parameter] 
+    [Parameter]
     public InstallationModel Model { get; set; } = new();
+
+    private const string ConnectionName = "blazororchestratordb";
 
     private bool IsTesting { get; set; } = false;
     private bool IsCreatingDatabase { get; set; } = false;
@@ -34,11 +37,55 @@
     protected override void OnInitialized()
     {
         // Only report whether a value exists; the value itself is never sent to the browser.
-        HasExistingConnection = !string.IsNullOrEmpty(Configuration.GetConnectionString("blazororchestratordb"));
+        HasExistingConnection = !string.IsNullOrEmpty(Configuration.GetConnectionString(ConnectionName));
+
+        // Set by the Azure deployment (azd / Aspire): used as-is, never copied into the model.
+        Model.DbProvidedByEnvironment = EnvironmentConnections.IsProvided(ConnectionName);
+        if (Model.DbProvidedByEnvironment)
+        {
+            Model.DbConnectionString = string.Empty;
+        }
+    }
+
+    /// <summary>Tests the environment-provided connection string on the server.</summary>
+    private async Task TestProvidedConnection()
+    {
+        IsTesting = true;
+        TestResultMessage = null;
+        TestResultSuccess = null;
+        StateHasChanged();
+
+        try
+        {
+            await using var connection = new SqlConnection(Configuration.GetConnectionString(ConnectionName));
+            await connection.OpenAsync();
+            TestResultMessage = "Connection successful!";
+            TestResultSuccess = true;
+            Model.DbConnectionVerified = true;
+        }
+        catch (Exception ex)
+        {
+            TestResultMessage = $"Connection failed: {ex.Message}";
+            TestResultSuccess = false;
+            Model.DbConnectionVerified = false;
+        }
+        finally
+        {
+            IsTesting = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SaveConnectionStringToAppSettings()
     {
+        // appsettings.json is not durable in Azure Container Apps, and an environment value overrides it.
+        if (!EnvironmentConnections.CanWriteAppSettings(ConnectionName))
+        {
+            SaveSettingsMessage = EnvironmentConnections.NotWrittenReason(ConnectionName);
+            SaveSettingsSuccess = false;
+            return;
+        }
+
         try
         {
             var appSettingsPath = Path.Combine(Environment.ContentRootPath, "appsettings.json");
@@ -202,6 +249,33 @@
         Configure the primary SQL Server database connection for BlazorOrchestrator.
     </RadzenAlert>
 
+    @if (Model.DbProvidedByEnvironment)
+    {
+        <RadzenCard Variant="Variant.Flat" Class="rz-background-color-success-lighter d-flex align-items-center gap-3 rz-mb-4">
+            <RadzenIcon Icon="cloud_done" IconColor="@Colors.Success" />
+            <div>
+                <RadzenText TextStyle="TextStyle.Body2" Class="rz-m-0">
+                    <strong>@EnvironmentConnectionStrings.ProvidedByText</strong>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Class="rz-color-base-400 rz-m-0">
+                    The ConnectionStrings__blazororchestratordb environment variable is used. Its value is not shown, and appsettings.json is not changed.
+                </RadzenText>
+            </div>
+        </RadzenCard>
+
+        <RadzenButton Text="Test Connection" Icon="cable" ButtonStyle="ButtonStyle.Secondary"
+                      Click="@TestProvidedConnection" IsBusy="@IsTesting" BusyText="Testing..." />
+
+        @if (TestResultMessage != null)
+        {
+            <RadzenAlert AlertStyle="@(TestResultSuccess == true ? AlertStyle.Success : AlertStyle.Danger)"
+                         ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mt-3">
+                @TestResultMessage
+            </RadzenAlert>
+        }
+    }
+    else
+    {
     <div class="row rz-mb-4">
         <div class="col-md-12">
             <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.H3">Connection Method</RadzenText>
@@ -301,5 +375,6 @@
                 </div>
             </RadzenCard>
         }
+    }
     }
 </div>

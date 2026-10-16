@@ -1,35 +1,48 @@
 @using BlazorOrchestrator.Web.Data
 @using BlazorOrchestrator.Web.Data.Data
 @using BlazorOrchestrator.Web.Services
+@using BlazorDataOrchestrator.Core
 @using BlazorDataOrchestrator.Core.Services
-@using Microsoft.Data.SqlClient
-@using Microsoft.EntityFrameworkCore
-@using Dapper
 @inject WizardStateService WizardState
 @inject IConfiguration Configuration
 @inject SettingsService SettingsService
 @inject AuthService AuthService
-@inject ApplicationDbContext DbContext
 @inject AuthenticationSettings AuthSettings
+@inject ILoggerFactory LoggerFactory
 
 @code {
     [Parameter]
     public EventCallback OnUpgradeComplete { get; set; }
 
     [Parameter]
-    public string CurrentCodeVersion { get; set; } = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
+    public string CurrentCodeVersion { get; set; } = ApplicationVersion.Current;
 
     [Parameter]
-    public string DatabaseVersion { get; set; } = BlazorDataOrchestrator.Core.ApplicationVersion.Current;
+    public string DatabaseVersion { get; set; } = ApplicationVersion.Current;
 
     [Parameter]
     public bool IsAdminAuthenticated { get; set; }
 
+    /// <summary>Folder holding the !SQL scripts (tests point it elsewhere).</summary>
+    [Parameter]
+    public string? ScriptDirectory { get; set; }
+
+    /// <summary>Script names the build shipped with (tests override it).</summary>
+    [Parameter]
+    public IReadOnlyList<string>? ExpectedScripts { get; set; }
+
+    // login -> check -> running -> complete | failed; "missing" when the deployment lost scripts
     public string Stage { get; set; } = "login";
     public List<string> Logs = new();
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
+    private bool IsBusy { get; set; }
+    private List<string> PendingScripts { get; set; } = new();
+    private IReadOnlyList<string> MissingScripts { get; set; } = Array.Empty<string>();
+    private IReadOnlyList<string> AppliedScripts { get; set; } = Array.Empty<string>();
+
+    private string ScriptFolder => ScriptDirectory ?? SqlScriptCatalog.DefaultDirectory;
 
     private const string ExternalButtonStyle = "display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; padding: 0.625rem; background-color: #ffffff; color: #3c4043; border: 1px solid #dadce0; border-radius: 4px; font-size: 0.875rem; font-weight: 500; cursor: pointer; text-decoration: none; box-sizing: border-box;";
 
@@ -39,70 +52,24 @@
 
         if (Stage == "login" && (IsAdminAuthenticated || WizardState.IsAdminAuthenticated))
         {
-            Stage = "check";
+            EnterCheckStage();
         }
     }
 
-    private int ConvertVersionToInteger(string version)
+    /// <summary>Shows the scripts that will run, or a deployment error when scripts are missing.</summary>
+    private void EnterCheckStage()
     {
-        if (string.IsNullOrEmpty(version)) return 0;
-        int versionNumber = 0;
-        var segments = version.Split('.');
-        var multipliers = new List<int> { 10000, 100, 1 };
-        for (int i = 0; i < segments.Length && i < multipliers.Count; i++)
+        MissingScripts = SqlScriptCatalog.FindMissing(ScriptFolder, ExpectedScripts ?? SqlScriptCatalog.ExpectedScripts);
+        if (MissingScripts.Count > 0)
         {
-            if (int.TryParse(segments[i], out int segment))
-            {
-                versionNumber += segment * multipliers[i];
-            }
-        }
-        return versionNumber;
-    }
-
-    /// <summary>
-    /// Converts a version string like "1.0" to the SQL script filename format "01.00.00".
-    /// </summary>
-    private string VersionToScriptPrefix(string version)
-    {
-        var segments = version.Split('.');
-        var parts = new List<string>();
-        for (int i = 0; i < 3; i++)
-        {
-            if (i < segments.Length && int.TryParse(segments[i], out int val))
-                parts.Add(val.ToString("D2"));
-            else
-                parts.Add("00");
-        }
-        return string.Join(".", parts);
-    }
-
-    /// <summary>
-    /// Finds all SQL scripts in the !SQL folder that are newer than the DB version
-    /// and up to (inclusive) the code version, ordered by version ascending.
-    /// </summary>
-    private List<(string FileName, string Version, int VersionInt)> GetPendingScripts()
-    {
-        var sqlDir = Path.Combine(AppContext.BaseDirectory, "!SQL");
-        if (!Directory.Exists(sqlDir))
-            return new();
-
-        var dbVersionInt = ConvertVersionToInteger(DatabaseVersion);
-        var codeVersionInt = ConvertVersionToInteger(CurrentCodeVersion);
-
-        var scripts = new List<(string FileName, string Version, int VersionInt)>();
-
-        foreach (var file in Directory.GetFiles(sqlDir, "*.sql").OrderBy(f => f))
-        {
-            var name = Path.GetFileNameWithoutExtension(file);
-            // Parse version from filename like "01.00.00" or "02.00.00"
-            var versionInt = ConvertVersionToInteger(name);
-            if (versionInt > dbVersionInt && versionInt <= codeVersionInt)
-            {
-                scripts.Add((file, name, versionInt));
-            }
+            Stage = "missing";
+            return;
         }
 
-        return scripts.OrderBy(s => s.VersionInt).ToList();
+        PendingScripts = SqlScriptCatalog.GetPendingScripts(Directory.EnumerateFiles(ScriptFolder, "*.sql"), DatabaseVersion, CurrentCodeVersion)
+            .Select(path => Path.GetFileName(path))
+            .ToList();
+        Stage = "check";
     }
 
     private async Task Authenticate()
@@ -115,134 +82,161 @@
             return;
         }
 
-        var user = await AuthService.ValidateCredentialsAsync(Username, Password);
-        if (user == null)
+        IsBusy = true;
+        try
         {
-            ErrorMessage = "Invalid username or password.";
-            return;
+            var user = await AuthService.ValidateCredentialsAsync(Username, Password);
+            if (user == null)
+            {
+                ErrorMessage = "Invalid username or password.";
+                return;
+            }
+
+            if (!await AuthService.IsActiveAdminAsync(user.Id))
+            {
+                ErrorMessage = "Only administrators can perform upgrades.";
+                return;
+            }
+
+            WizardState.SetAdminAuthenticated(user.UserName ?? Username, user.Id);
+            Password = string.Empty;
+            EnterCheckStage();
+        }
+        catch (Exception ex)
+        {
+            // A database outage must not end the circuit; the user can retry.
+            LoggerFactory.CreateLogger("UpgradeWizard").LogWarning(ex, "Upgrade Wizard sign-in failed.");
+            ErrorMessage = "Could not verify the administrator account right now. Check the database connection and try again.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>Re-checks, right before the scripts run, that the signed-in user is still an active Admin.</summary>
+    private async Task<bool> IsStillAuthorizedAsync()
+    {
+        if (!WizardState.IsAdminAuthenticated)
+        {
+            ErrorMessage = "Please sign in with an administrator account.";
+            Stage = "login";
+            return false;
         }
 
-        // Check Admin role
-        var isAdmin = await DbContext.AspNetUsers
-            .Where(u => u.Id == user.Id)
-            .SelectMany(u => u.Roles)
-            .AnyAsync(r => r.NormalizedName == "ADMIN");
-
-        if (!isAdmin)
+        try
         {
-            ErrorMessage = "Only administrators can perform upgrades.";
-            return;
-        }
+            if (await AuthService.IsActiveAdminAsync(WizardState.AuthenticatedAdminUserId))
+            {
+                return true;
+            }
 
-        WizardState.SetAdminAuthenticated(user.UserName ?? Username);
-        Stage = "check";
+            WizardState.ClearAdminAuthenticated();
+            ErrorMessage = "Your account is no longer an active administrator. Sign in with an administrator account.";
+            Stage = "login";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LoggerFactory.CreateLogger("UpgradeWizard").LogWarning(ex, "Upgrade Wizard authorization check failed.");
+            ErrorMessage = "Could not verify the administrator account right now. Check the database connection and try again.";
+            return false;
+        }
+    }
+
+    private void AddLog(string message)
+    {
+        Logs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task RunScripts()
     {
-        Stage = "running";
-        Logs.Clear();
+        if (IsBusy) return;
+        ErrorMessage = string.Empty;
+        IsBusy = true;
 
         try
         {
-            var pendingScripts = GetPendingScripts();
-
-            if (pendingScripts.Count == 0)
+            if (!await IsStillAuthorizedAsync())
             {
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] No pending migration scripts found.");
-                StateHasChanged();
-                await Task.Delay(500);
-
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Updating schema version to {CurrentCodeVersion}...");
-                StateHasChanged();
-                await SettingsService.SetAsync("SchemaVersion", CurrentCodeVersion, "Database schema version tracking");
-
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✓ Schema version updated.");
-                StateHasChanged();
-                Stage = "complete";
                 return;
             }
-
-            Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Found {pendingScripts.Count} migration script(s) to apply.");
-            Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Database version: {DatabaseVersion} → Code version: {CurrentCodeVersion}");
-            StateHasChanged();
-            await Task.Delay(300);
 
             var connStr = Configuration.GetConnectionString("blazororchestratordb");
             if (string.IsNullOrEmpty(connStr))
             {
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✗ No database connection string found.");
-                StateHasChanged();
+                ErrorMessage = "No blazororchestratordb connection string is configured.";
                 return;
             }
 
-            await using var connection = new SqlConnection(connStr);
-            await connection.OpenAsync();
-
-            foreach (var (fileName, version, versionInt) in pendingScripts)
-            {
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Running script: {Path.GetFileName(fileName)}");
-                StateHasChanged();
-
-                var script = await File.ReadAllTextAsync(fileName);
-                var batches = SplitSqlBatches(script).ToList();
-
-                int batchIndex = 0;
-                foreach (var batch in batches)
-                {
-                    if (string.IsNullOrWhiteSpace(batch)) continue;
-                    batchIndex++;
-                    await connection.ExecuteAsync(batch);
-                }
-
-                Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✓ Script {Path.GetFileName(fileName)} applied ({batchIndex} batches).");
-                StateHasChanged();
-
-                // Update schema version after each script succeeds
-                await SettingsService.SetAsync("SchemaVersion", version, "Database schema version tracking");
-            }
-
-            // Final schema version update to match code version
-            await SettingsService.SetAsync("SchemaVersion", CurrentCodeVersion, "Database schema version tracking");
-
-            Logs.Add($"[{DateTime.Now.ToShortTimeString()}] Schema version updated to {CurrentCodeVersion}.");
-            Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✓ Upgrade completed successfully!");
+            Stage = "running";
+            Logs.Clear();
             StateHasChanged();
 
+            var logger = LoggerFactory.CreateLogger("UpgradeWizard");
+            logger.LogInformation("Upgrade Wizard started by {UserName}.", WizardState.AuthenticatedAdminName);
+            AddLog($"Upgrade started by {WizardState.AuthenticatedAdminName}. Database version {DatabaseVersion} → code version {CurrentCodeVersion}.");
+
+            var result = await DatabaseInitializer.ApplyPendingScriptsAsync(
+                connStr,
+                CurrentCodeVersion,
+                new SettingsSchemaVersionStore(SettingsService),
+                logger,
+                AddLog,
+                ScriptFolder,
+                ExpectedScripts ?? SqlScriptCatalog.ExpectedScripts);
+
+            AppliedScripts = result.AppliedScripts;
+            DatabaseVersion = result.CurrentVersion;
+            AddLog($"✓ Upgrade completed. Schema version is now {DatabaseVersion}.");
             Stage = "complete";
+        }
+        catch (MissingSqlScriptsException ex)
+        {
+            MissingScripts = ex.MissingScripts;
+            Stage = "missing";
+        }
+        catch (SchemaVersionSyncException ex)
+        {
+            // The scripts are applied and recorded in SQL; Retry only copies the version again.
+            ErrorMessage = ex.Message;
+            AddLog($"✗ {ex.Message}");
+            AppliedScripts = ex.AppliedScripts;
+            DatabaseVersion = ex.Version;
+            PendingScripts = new List<string>();
+            Stage = "failed";
         }
         catch (Exception ex)
         {
-            Logs.Add($"[{DateTime.Now.ToShortTimeString()}] ✗ Error: {ex.Message}");
+            ErrorMessage = ex.Message;
+            AddLog($"✗ {ex.Message}");
+            if (ex is SchemaScriptFailedException)
+            {
+                AddLog("The failed script was rolled back; scripts before it stay applied.");
+            }
+            await RefreshDatabaseVersionAsync();
+            Stage = "failed";
+        }
+        finally
+        {
+            IsBusy = false;
             StateHasChanged();
         }
     }
 
-    private static IEnumerable<string> SplitSqlBatches(string script)
+    private async Task RefreshDatabaseVersionAsync()
     {
-        var lines = script.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-        var sb = new System.Text.StringBuilder();
-        foreach (var line in lines)
+        try
         {
-            if (line.Trim().Equals("GO", StringComparison.OrdinalIgnoreCase))
-            {
-                yield return sb.ToString();
-                sb.Clear();
-            }
-            else
-            {
-                sb.AppendLine(line);
-            }
+            DatabaseVersion = await new SettingsSchemaVersionStore(SettingsService).GetAsync() ?? DatabaseVersion;
+            PendingScripts = SqlScriptCatalog.GetPendingScripts(Directory.EnumerateFiles(ScriptFolder, "*.sql"), DatabaseVersion, CurrentCodeVersion)
+                .Select(path => Path.GetFileName(path))
+                .ToList();
         }
-        if (sb.Length > 0)
-            yield return sb.ToString();
-    }
-
-    private async Task SkipUpgrade()
-    {
-        if (OnUpgradeComplete.HasDelegate)
+        catch
         {
-            await OnUpgradeComplete.InvokeAsync();
+            // Keep the last known version; the error is already shown.
         }
     }
 
@@ -284,7 +278,7 @@
             <div class="rz-mb-4">
                 <RadzenPassword @bind-Value="Password" Placeholder="Password" Style="width: 100%;" />
             </div>
-            <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" />
+            <RadzenButton Click="@Authenticate" Text="Authorize Upgrade" Style="width: 100%;" ButtonStyle="ButtonStyle.Primary" IsBusy="@IsBusy" BusyText="Checking..." />
 
             @if (AuthSettings.IsMicrosoftConfigured || AuthSettings.IsGoogleConfigured)
             {
@@ -321,7 +315,7 @@
         </RadzenCard>
     </div>
 }
-else if (Stage == "check")
+else if (Stage == "check" || Stage == "failed")
 {
     <div class="d-flex justify-content-center rz-mt-5">
         <RadzenCard Style="width: 600px;" Class="rz-shadow-5">
@@ -337,11 +331,58 @@ else if (Stage == "check")
                 </div>
             </div>
 
+            @if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" Class="rz-mb-3">
+                    @if (Stage == "failed")
+                    {
+                        <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Upgrade stopped</RadzenText>
+                    }
+                    @ErrorMessage
+                </RadzenAlert>
+            }
+
             <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter">
                 <RadzenText TextStyle="TextStyle.Subtitle2" TagName="TagName.Div">Database Migration Required</RadzenText>
-                Your code version is ahead of the database schema. Migration scripts will be applied to bring the database up to date.
+                @if (PendingScripts.Count > 0)
+                {
+                    <span>These scripts will be applied, each in its own transaction: <strong>@string.Join(", ", PendingScripts)</strong>.</span>
+                }
+                else
+                {
+                    <span>No schema changes are needed for this version; the schema version will be recorded as @CurrentCodeVersion.</span>
+                }
             </RadzenAlert>
-            <RadzenButton Click="RunScripts" Text="Apply Upgrade" ButtonStyle="ButtonStyle.Primary" Style="width: 100%; margin-top: 1rem;" Icon="upgrade" />
+
+            @if (Stage == "failed" && Logs.Count > 0)
+            {
+                <div class="rz-mt-3" style="background-color: #1e1e1e; color: #ff8080; padding: 12px; max-height: 200px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px;">
+                    @foreach (var log in Logs)
+                    {
+                        <div>@log</div>
+                    }
+                </div>
+            }
+
+            <RadzenButton Click="RunScripts" Text="@(Stage == "failed" ? "Retry Upgrade" : "Apply Upgrade")" ButtonStyle="ButtonStyle.Primary" Style="width: 100%; margin-top: 1rem;" Icon="upgrade" IsBusy="@IsBusy" BusyText="Checking..." />
+        </RadzenCard>
+    </div>
+}
+else if (Stage == "missing")
+{
+    <div class="d-flex justify-content-center rz-mt-5">
+        <RadzenCard Style="width: 600px;" Class="rz-shadow-5">
+            <div class="text-center rz-mb-4">
+                <RadzenIcon Icon="report" IconColor="@Colors.Danger" Style="font-size: 3rem;" />
+                <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">Deployment Is Missing Upgrade Scripts</RadzenText>
+            </div>
+            <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="false">
+                The database cannot be upgraded from <strong>@DatabaseVersion</strong> to <strong>@CurrentCodeVersion</strong>
+                because these schema scripts are missing from this deployment:
+                <strong>@string.Join(", ", MissingScripts)</strong>.
+                Redeploy the release (or restore its <code>!SQL</code> folder) and open BlazorOrchestrator again.
+                Nothing was changed in the database.
+            </RadzenAlert>
         </RadzenCard>
     </div>
 }
@@ -373,7 +414,7 @@ else if (Stage == "complete")
                 <RadzenIcon Icon="check_circle" IconColor="@Colors.Success" Style="font-size: 4rem;" />
                 <RadzenText TextStyle="TextStyle.H5" Class="rz-mt-2">Upgrade Complete!</RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" Class="rz-color-base-500">
-                    Database has been upgraded to version <strong>@CurrentCodeVersion</strong>
+                    Database has been upgraded to version <strong>@DatabaseVersion</strong>
                 </RadzenText>
             </div>
 
@@ -382,12 +423,19 @@ else if (Stage == "complete")
                     <strong>Summary:</strong>
                 </RadzenText>
                 <ul style="margin-bottom: 0; padding-left: 20px;">
-                    <li>Migration scripts applied</li>
-                    <li>Schema version updated to @CurrentCodeVersion</li>
+                    <li>@(AppliedScripts.Count == 0 ? "No migration scripts were needed" : $"Scripts applied: {string.Join(", ", AppliedScripts)}")</li>
+                    <li>Schema version updated to @DatabaseVersion</li>
                 </ul>
             </RadzenCard>
 
-            <RadzenButton Click="FinishUpgrade" Text="Continue to Application" Style="width: 100%;" ButtonStyle="ButtonStyle.Success" Icon="arrow_forward" />
+            <div style="background-color: #1e1e1e; color: #00ff00; padding: 12px; max-height: 200px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px;" class="rz-mb-4">
+                @foreach (var log in Logs)
+                {
+                    <div>@log</div>
+                }
+            </div>
+
+            <RadzenButton Click="FinishUpgrade" Text="Continue to Sign In" Style="width: 100%;" ButtonStyle="ButtonStyle.Success" Icon="arrow_forward" />
         </RadzenCard>
     </div>
 }

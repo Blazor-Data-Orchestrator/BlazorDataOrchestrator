@@ -8,6 +8,9 @@ public class WizardStateService
     public bool IsAdminAuthenticated { get; private set; }
     public string AuthenticatedAdminName { get; private set; } = string.Empty;
 
+    /// <summary>AspNetUsers.Id of the authorized Administrator, used to re-check the role before each run.</summary>
+    public string AuthenticatedAdminUserId { get; private set; } = string.Empty;
+
     public event Action? OnChange;
 
     public void SetStep(int step)
@@ -28,10 +31,11 @@ public class WizardStateService
         NotifyStateChanged();
     }
 
-    public void SetAdminAuthenticated(string adminName)
+    public void SetAdminAuthenticated(string adminName, string? userId = null)
     {
         IsAdminAuthenticated = true;
         AuthenticatedAdminName = adminName;
+        AuthenticatedAdminUserId = userId ?? string.Empty;
         NotifyStateChanged();
     }
 
@@ -39,6 +43,7 @@ public class WizardStateService
     {
         IsAdminAuthenticated = false;
         AuthenticatedAdminName = string.Empty;
+        AuthenticatedAdminUserId = string.Empty;
         NotifyStateChanged();
     }
 
