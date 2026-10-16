@@ -137,6 +137,7 @@ By default `azd up` creates every resource. To use resources you already have, s
 | Storage account | `existingStorageAccountName`, `existingStorageResourceGroup` |
 | User-assigned managed identity (shared by all apps) | `existingIdentityName`, `existingIdentityResourceGroup` |
 | Container app names | `webAppName`, `schedulerAppName`, `agentAppName` |
+| Prebuilt agent image | `agentImage`: a `registry/repository:tag` in the environment's container registry. The agent is then deployed from that image instead of being built from its Dockerfile, so no Docker daemon is needed (BlazorData.net sets it to the release image it imported). |
 
 A resource group parameter can be left empty when the resource is in the resource group you deploy to. The web app always uses sticky sessions (required by Blazor Server), every container app carries an `azd-service-name` tag (`webapp`, `scheduler`, `agent`), and there is exactly one agent container app.
 

@@ -2,7 +2,10 @@ using System.Diagnostics;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
+using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
+using Azure.Provisioning.Expressions;
+using Azure.Provisioning.Resources;
 using BlazorDataOrchestrator.Core.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -27,6 +30,8 @@ var builder = DistributedApplication.CreateBuilder(args);
 //   existingStorageAccountName / existingStorageResourceGroup    Storage account
 //   existingIdentityName / existingIdentityResourceGroup         User-assigned managed identity
 //   webAppName / schedulerAppName / agentAppName                 Container app names
+//   agentImage                                                   Prebuilt agent image (registry/repository:tag) in the
+//                                                                environment's registry; skips the Dockerfile build
 //
 // A missing *ResourceGroup value means "the resource group being deployed to".
 var isPublishMode = builder.ExecutionContext.IsPublishMode;
@@ -159,7 +164,13 @@ var scheduler = builder.AddProject<Projects.BlazorOrchestrator_Scheduler>("sched
 // The build context is the src/ directory (one level up from AppHost) so that
 // project references to Core and ServiceDefaults resolve correctly.
 // There is exactly one agent container app; agentAppName only renames it.
-var agent = builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Dockerfile")
+// agentImage (publish mode): a prebuilt agent image, for example the release image that BlazorData.net
+// imports into the registry. azd then deploys that image instead of building the Dockerfile, so no
+// Docker daemon is needed.
+var agentImage = Setting("agentImage");
+var agent = (agentImage is null
+        ? builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Dockerfile")
+        : AddPrebuiltContainer(builder, "agent", agentImage))
     .WithReference(db).WaitFor(db)
     .WithReference(blobs).WaitFor(blobs)
     .WithReference(tables).WaitFor(tables)
@@ -168,6 +179,18 @@ var agent = builder.AddDockerfile("agent", "..", "BlazorOrchestrator.Agent/Docke
     {
         app.Tags["azd-service-name"] = "agent";
         if (agentAppName is not null) app.Name = agentAppName;
+
+        if (agentImage is not null)
+        {
+            // A built image gets the environment's registry and pull identity automatically; a prebuilt one
+            // does not, so attach them here (the image lives in the environment's registry).
+            var registryServer = env.GetOutput("AZURE_CONTAINER_REGISTRY_ENDPOINT").AsProvisioningParameter(infrastructure);
+            var pullIdentityId = env.GetOutput("AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID").AsProvisioningParameter(infrastructure);
+            app.Configuration.Registries = [new ContainerAppRegistryCredentials { Server = registryServer, Identity = pullIdentityId }];
+            app.Identity ??= new ManagedServiceIdentity();
+            app.Identity.ManagedServiceIdentityType = ManagedServiceIdentityType.UserAssigned;
+            app.Identity.UserAssignedIdentities[BicepFunction.Interpolate($"{pullIdentityId}").Compile().ToString()] = new UserAssignedIdentityDetails();
+        }
     });
 
 if (identity is not null)
@@ -178,6 +201,22 @@ if (identity is not null)
 }
 
 builder.Build().Run();
+
+// "registry/repository:tag" (or "@sha256:..." digest) -> a container resource pulled from that registry.
+static IResourceBuilder<ContainerResource> AddPrebuiltContainer(IDistributedApplicationBuilder builder, string name, string image)
+{
+    var slash = image.IndexOf('/');
+    var registry = slash > 0 && (image[..slash].Contains('.') || image[..slash].Contains(':')) ? image[..slash] : null;
+    var rest = registry is null ? image : image[(slash + 1)..];
+    var at = rest.IndexOf("@sha256:", StringComparison.Ordinal);
+    var colon = rest.LastIndexOf(':');
+    var container = at > 0
+        ? builder.AddContainer(name, rest[..at]).WithImageSHA256(rest[(at + "@sha256:".Length)..])
+        : colon > 0
+            ? builder.AddContainer(name, rest[..colon], rest[(colon + 1)..])
+            : builder.AddContainer(name, rest);
+    return registry is null ? container : container.WithImageRegistry(registry);
+}
 
 // ---------------------------------------------------------------------------
 // Container runtime auto-detection (Docker / Podman)

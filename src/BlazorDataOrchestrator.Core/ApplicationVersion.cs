@@ -22,7 +22,7 @@ public static class ApplicationVersion
     /// <summary>
     /// The current application/code version, e.g. <c>"01.20.00"</c>.
     /// </summary>
-    public const string Current = "01.60.01";
+    public const string Current = "01.60.02";
 
     /// <summary>
     /// Converts a version such as <c>"01.20.00"</c> (or the older <c>"1.0"</c> format) to an
