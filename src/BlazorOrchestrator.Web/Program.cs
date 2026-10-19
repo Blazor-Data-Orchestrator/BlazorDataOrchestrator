@@ -93,7 +93,10 @@ builder.Services.AddCascadingAuthenticationState();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    // The job code editor returns the whole file over JS interop (switching files, Save & Compile,
+    // AI Assistant). The 32 KB SignalR default drops the circuit for any job larger than that.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 1024 * 1024);
 
 // Check if a database connection string is available
 var connectionString = builder.Configuration.GetConnectionString("blazororchestratordb");

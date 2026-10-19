@@ -415,6 +415,30 @@ public class CSharpCompilationService
                 // Assembly not available, skip
             }
         }
+
+        // Match the Agent's compiler: the shared job references plus the whole .NET runtime.
+        foreach (var assembly in JobCompilationReferences.Common)
+        {
+            if (!string.IsNullOrEmpty(assembly.Location))
+            {
+                references.Add(MetadataReference.CreateFromFile(assembly.Location));
+            }
+        }
+
+        var existingPaths = new HashSet<string>(
+            references.Select(r => r.Display ?? string.Empty), StringComparer.OrdinalIgnoreCase);
+        foreach (var path in JobCompilationReferences.FrameworkAssemblyPaths)
+        {
+            if (!existingPaths.Add(path)) continue;
+            try
+            {
+                references.Add(MetadataReference.CreateFromFile(path));
+            }
+            catch
+            {
+                // Unreadable runtime file, skip
+            }
+        }
     }
 
     /// <summary>
