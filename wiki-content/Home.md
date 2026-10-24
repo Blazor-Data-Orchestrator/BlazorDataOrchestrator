@@ -9,7 +9,7 @@ Welcome to the **Blazor Data Orchestrator** wiki — your comprehensive guide to
 >
 > **[BlazorData.net](https://deploy.blazordata.net)** deploys Blazor Data Orchestrator into your own Azure subscription in minutes, with nothing to install on your machine. Sign in with Google or Microsoft, connect Azure, pick or create your resources, and click **Deploy**. Updating to a newer release is one click. Start with a 30-day free trial, no card required.
 >
-> **[Deploy now at deploy.blazordata.net](https://deploy.blazordata.net)** · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc) · [Install and update guide](https://deploy.blazordata.net/guide)
+> **[Deploy now at deploy.blazordata.net](https://deploy.blazordata.net)** · [Watch the walk-thru video](https://www.youtube.com/watch?v=mMcOTeI-p3Q) · [Install and update guide](https://deploy.blazordata.net/guide)
 
 ## What is Blazor Data Orchestrator?
 

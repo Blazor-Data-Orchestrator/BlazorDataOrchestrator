@@ -32,7 +32,7 @@ No. Aspire automatically starts an **Azurite** container (Azure Storage emulator
 
 ### How do I deploy to Azure?
 
-The easiest way is [BlazorData.net](https://deploy.blazordata.net): sign in, connect Azure, pick or create your resources and click **Deploy**. It runs in your browser, so you don't need `azd`, the Aspire CLI or Docker, and it installs into your own Azure subscription. See [Deploy with BlazorData.net](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment#deploy-with-blazordatanet) and the [walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc).
+The easiest way is [BlazorData.net](https://deploy.blazordata.net): sign in, connect Azure, pick or create your resources and click **Deploy**. It runs in your browser, so you don't need `azd`, the Aspire CLI or Docker, and it installs into your own Azure subscription. See [Deploy with BlazorData.net](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment#deploy-with-blazordatanet) and the [walk-thru video](https://www.youtube.com/watch?v=mMcOTeI-p3Q).
 
 To deploy from your own machine instead, run `azd up` from the repository root. This single command provisions all required Azure resources (Azure SQL, Storage Account, Container Registry, Container Apps Environment), builds and containerizes all services, and deploys them to Azure Container Apps. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
