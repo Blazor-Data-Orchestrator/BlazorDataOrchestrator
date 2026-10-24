@@ -4,6 +4,13 @@
 
 Welcome to the **Blazor Data Orchestrator** wiki — your comprehensive guide to installing, configuring, and operating the platform.
 
+> [!TIP]
+> ## 🚀 The easiest way to install and update: BlazorData.net
+>
+> **[BlazorData.net](https://deploy.blazordata.net)** deploys Blazor Data Orchestrator into your own Azure subscription in minutes, with nothing to install on your machine. Sign in with Google or Microsoft, connect Azure, pick or create your resources, and click **Deploy**. Updating to a newer release is one click. Start with a 30-day free trial, no card required.
+>
+> **[Deploy now at deploy.blazordata.net](https://deploy.blazordata.net)** · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc) · [Install and update guide](https://deploy.blazordata.net/guide)
+
 ## What is Blazor Data Orchestrator?
 
 Blazor Data Orchestrator is an open-source distributed job orchestration platform built on **.NET Aspire** and **Blazor Server**. It lets you write a C# or Python job directly in your browser, hit compile, and have it running on Azure in minutes.
@@ -37,6 +44,8 @@ Go from `git clone` to a fully operational job automation system in minutes:
 3. **Run locally** — `aspire run` — Aspire starts SQL Server, Azurite, and all application services automatically. Complete the Install Wizard on first launch.
 4. **Deploy to Azure** — `azd up` — Provisions Azure SQL, Storage, Container Registry, and Container Apps, then builds and deploys all services in a single command.
 5. **Update a deployed instance** — `azd deploy` — Rebuilds and redeploys all services without re-provisioning infrastructure.
+
+> **Rather skip the tools?** [BlazorData.net](https://deploy.blazordata.net) does steps 4 and 5 for you from your browser: no clone, no `azd`, no Docker. See [Deploy with BlazorData.net](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment#deploy-with-blazordatanet).
 
 See the [Installation](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Installation) guide for detailed local setup and the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for Azure deployment.
 

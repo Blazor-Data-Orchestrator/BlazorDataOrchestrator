@@ -5,6 +5,15 @@
 
 An open-source job orchestration platform built on .NET Aspire and Blazor Server.
 
+> [!TIP]
+> ## 🚀 Deploy to your own Azure subscription in minutes, with nothing to install
+>
+> **[BlazorData.net](https://deploy.blazordata.net)** installs and updates Blazor Data Orchestrator for you. Sign in with Google or Microsoft, connect Azure, pick or create your resources, and click **Deploy**. No `azd`, no Aspire CLI and no Docker on your machine, and every update is one click. Start with a 30-day free trial, no card required.
+>
+> **[Deploy now at deploy.blazordata.net](https://deploy.blazordata.net)** · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc) · [Install and update guide](https://deploy.blazordata.net/guide)
+
+[![Walk-Thru: BlazorData.net, deploy Blazor Data Orchestrator into your own Azure subscription](https://img.youtube.com/vi/ul7kECpAOwc/maxresdefault.jpg)](https://www.youtube.com/watch?v=ul7kECpAOwc)
+
 <img width="1182" height="578" alt="image" src="https://github.com/user-attachments/assets/97d7233c-57f2-4498-9e06-fc75c34b05a1" />
 
 <img width="833" height="505" alt="image" src="https://github.com/user-attachments/assets/8cc7af0d-e7a2-45d3-abbb-509a3c8fff75" />

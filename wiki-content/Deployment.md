@@ -2,6 +2,11 @@
 
 This guide covers deploying Blazor Data Orchestrator to production environments. The platform is designed to go from `git clone` to a fully deployed Azure Container Apps environment with a single `azd up` command — including Azure SQL, Storage, and Container Registry provisioning.
 
+> [!TIP]
+> **The easiest way to deploy: [BlazorData.net](https://deploy.blazordata.net).** It installs Blazor Data Orchestrator into your own Azure subscription in minutes, from your browser, with nothing to install on your machine: no clone, no `azd`, no Aspire CLI, no Docker. Pick or create every resource, watch each step live, and update to a newer release with one click. 30-day free trial, no card required.
+>
+> **[Deploy now](https://deploy.blazordata.net)** · [How it works](#deploy-with-blazordatanet) · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc)
+
 ---
 
 ## Deployment Architecture
@@ -50,6 +55,7 @@ graph TB
 
 | Option | Description | Best For |
 |--------|-------------|----------|
+| **[BlazorData.net](https://deploy.blazordata.net)** (easiest) | Install and update Azure Container Apps from your browser, nothing to install | Getting running fast, one-click updates |
 | **Azure Container Apps** (recommended) | Deploy via Azure Developer CLI with Aspire integration | Cloud-native, auto-scaling |
 | **Azure App Service** | Deploy as App Service web apps and WebJobs | Simpler PaaS hosting |
 | **Self-hosted with Docker** | Run containers on your own infrastructure | On-premises or hybrid |
@@ -147,9 +153,9 @@ A resource group parameter can be left empty when the resource is in the resourc
 
 ## Deploy with BlazorData.net
 
-[BlazorData.net](https://blazordata.net) installs and updates Blazor Data Orchestrator in your own Azure subscription without installing any tools on your machine.
+[BlazorData.net](https://deploy.blazordata.net) installs and updates Blazor Data Orchestrator in your own Azure subscription without installing any tools on your machine. It is the easiest way to deploy: a first installation takes about 30 minutes (most of it Azure creating the Container Apps environment), and an update takes about 5. See the [walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc) and the step-by-step [install and update guide](https://deploy.blazordata.net/guide).
 
-1. **Sign in** to BlazorData.net and **connect your Azure subscription** (you approve the BlazorData.net deployment app in your Microsoft Entra tenant and grant it access to the subscription or resource group).
+1. **Sign in** to BlazorData.net with Google or Microsoft and **connect Azure** with the Microsoft account that can reach your subscription. BlazorData.net grants its deployer app access only to the resource groups you choose, never to the whole subscription.
 2. **Choose a release.** Every release on the [Releases page](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/releases) has a `deploy-manifest.json` that lists the pre-built container images (`ghcr.io/blazor-data-orchestrator/bdo-web`, `bdo-scheduler`, `bdo-agent`, pinned by digest), the tool versions it was built and tested with, and the parameters above.
 3. **Choose new or existing resources** (Container Apps environment, registry, SQL server, storage account, managed identity) and the container app names.
 4. **Deploy.** BlazorData.net runs `azd` from the repository root of the release source, with the tool versions from the manifest, and checks the web app's `/alive` endpoint when it is done. `/alive` answers anonymously in every environment, also while the app is waiting for setup or an upgrade.
@@ -157,7 +163,7 @@ A resource group parameter can be left empty when the resource is in the resourc
 
 ### Updates
 
-When you update to a newer release, BlazorData.net deploys the new images but **does not change the database schema**, and Blazor Data Orchestrator does not change an existing schema when it starts. Open Blazor Data Orchestrator after the update: it detects that the recorded schema version (the `SchemaVersion` setting) is older than the application and shows the **Upgrade Wizard**. Sign in as an **Admin** and select **Apply Upgrade** to run the newer `!SQL` scripts. Each script runs in its own transaction together with a record of it in the database (`[dbo].[SchemaScriptHistory]` and `[dbo].[SchemaVersionState]`), so a script that has been applied never runs again, even if the wizard is retried. Only one upgrade can run at a time (other replicas or sessions wait for it). Back up the database first.
+To update, open the installation on BlazorData.net and click **Update**. When you update to a newer release, BlazorData.net deploys the new images but **does not change the database schema**, and Blazor Data Orchestrator does not change an existing schema when it starts. Open Blazor Data Orchestrator after the update: it detects that the recorded schema version (the `SchemaVersion` setting) is older than the application and shows the **Upgrade Wizard**. Sign in as an **Admin** and select **Apply Upgrade** to run the newer `!SQL` scripts. Each script runs in its own transaction together with a record of it in the database (`[dbo].[SchemaScriptHistory]` and `[dbo].[SchemaVersionState]`), so a script that has been applied never runs again, even if the wizard is retried. Only one upgrade can run at a time (other replicas or sessions wait for it). Back up the database first.
 
 If the wizard reports that upgrade scripts are missing, the deployment is incomplete: redeploy the release instead of continuing.
 
@@ -209,6 +215,8 @@ You can scale agents horizontally by deploying multiple replicas or multiple Con
 - **Large job pool**: 1 replica monitoring `jobs-large-container` with more CPU/memory allocated
 
 ### Updating a Deployed Instance
+
+> **Installed with BlazorData.net, or want one-click updates?** Open the installation on [BlazorData.net](https://deploy.blazordata.net) and click **Update**: it deploys the newer release's pre-built images in a few minutes, with nothing to build on your machine. You can also import an instance you deployed yourself with `azd up` and update it from there. See [Deploy with BlazorData.net](#deploy-with-blazordatanet).
 
 After the initial deployment with `azd up`, use `azd deploy` for all subsequent updates. This rebuilds and redeploys all services without re-provisioning infrastructure.
 

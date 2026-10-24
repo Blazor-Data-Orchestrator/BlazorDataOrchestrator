@@ -32,11 +32,15 @@ No. Aspire automatically starts an **Azurite** container (Azure Storage emulator
 
 ### How do I deploy to Azure?
 
-Run `azd up` from the repository root. This single command provisions all required Azure resources (Azure SQL, Storage Account, Container Registry, Container Apps Environment), builds and containerizes all services, and deploys them to Azure Container Apps. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
+The easiest way is [BlazorData.net](https://deploy.blazordata.net): sign in, connect Azure, pick or create your resources and click **Deploy**. It runs in your browser, so you don't need `azd`, the Aspire CLI or Docker, and it installs into your own Azure subscription. See [Deploy with BlazorData.net](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment#deploy-with-blazordatanet) and the [walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc).
 
-### How do I update my deployed instance after making code changes?
+To deploy from your own machine instead, run `azd up` from the repository root. This single command provisions all required Azure resources (Azure SQL, Storage Account, Container Registry, Container Apps Environment), builds and containerizes all services, and deploys them to Azure Container Apps. See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide for details.
 
-Run `azd deploy` from the AppHost directory. This rebuilds all services, pushes updated container images, and deploys them to Azure Container Apps without re-provisioning infrastructure. Use `azd up` only for the initial deployment or when the AppHost topology has changed (e.g., added or removed services/resources in `Program.cs`).
+### How do I update my deployed instance?
+
+To update to a newer release, open the installation on [BlazorData.net](https://deploy.blazordata.net) and click **Update**. It deploys the release's pre-built images in a few minutes; then run the Upgrade Wizard in your site. An instance you deployed yourself with `azd up` can be imported into BlazorData.net first.
+
+After making your own code changes, run `azd deploy` from the AppHost directory. This rebuilds all services, pushes updated container images, and deploys them to Azure Container Apps without re-provisioning infrastructure. Use `azd up` only for the initial deployment or when the AppHost topology has changed (e.g., added or removed services/resources in `Program.cs`).
 
 ### Can I deploy just one service instead of all three?
 
