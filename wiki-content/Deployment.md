@@ -5,7 +5,7 @@ This guide covers deploying Blazor Data Orchestrator to production environments.
 > [!TIP]
 > **The easiest way to deploy: [BlazorData.net](https://deploy.blazordata.net).** It installs Blazor Data Orchestrator into your own Azure subscription in minutes, from your browser, with nothing to install on your machine: no clone, no `azd`, no Aspire CLI, no Docker. Pick or create every resource, watch each step live, and update to a newer release with one click. 30-day free trial, no card required.
 >
-> **[Deploy now](https://deploy.blazordata.net)** · [How it works](#deploy-with-blazordatanet) · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc)
+> **[Deploy now](https://deploy.blazordata.net)** · [How it works](#deploy-with-blazordatanet) · [Watch the walk-thru video](https://www.youtube.com/watch?v=mMcOTeI-p3Q)
 
 ---
 
@@ -153,7 +153,7 @@ A resource group parameter can be left empty when the resource is in the resourc
 
 ## Deploy with BlazorData.net
 
-[BlazorData.net](https://deploy.blazordata.net) installs and updates Blazor Data Orchestrator in your own Azure subscription without installing any tools on your machine. It is the easiest way to deploy: a first installation takes about 30 minutes (most of it Azure creating the Container Apps environment), and an update takes about 5. See the [walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc) and the step-by-step [install and update guide](https://deploy.blazordata.net/guide).
+[BlazorData.net](https://deploy.blazordata.net) installs and updates Blazor Data Orchestrator in your own Azure subscription without installing any tools on your machine. It is the easiest way to deploy: a first installation takes about 30 minutes (most of it Azure creating the Container Apps environment), and an update takes about 5. See the [walk-thru video](https://www.youtube.com/watch?v=mMcOTeI-p3Q) and the step-by-step [install and update guide](https://deploy.blazordata.net/guide).
 
 1. **Sign in** to BlazorData.net with Google or Microsoft and **connect Azure** with the Microsoft account that can reach your subscription. BlazorData.net grants its deployer app access only to the resource groups you choose, never to the whole subscription.
 2. **Choose a release.** Every release on the [Releases page](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/releases) has a `deploy-manifest.json` that lists the pre-built container images (`ghcr.io/blazor-data-orchestrator/bdo-web`, `bdo-scheduler`, `bdo-agent`, pinned by digest), the tool versions it was built and tested with, and the parameters above.

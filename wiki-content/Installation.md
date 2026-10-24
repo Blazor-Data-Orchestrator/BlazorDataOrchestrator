@@ -7,7 +7,7 @@ This guide walks you through setting up Blazor Data Orchestrator from a fresh cl
 > **Deploying to Azure?** See the [Deployment](https://github.com/Blazor-Data-Orchestrator/BlazorDataOrchestrator/wiki/Deployment) guide to go from `git clone` to a fully deployed Azure Container Apps environment with a single `azd up` command.
 
 > [!TIP]
-> **Just want it running in Azure?** [BlazorData.net](https://deploy.blazordata.net) installs Blazor Data Orchestrator into your own Azure subscription in minutes, from your browser, with nothing on this page to install: no .NET SDK, no Docker, no `azd`. Updates are one click. [Deploy now](https://deploy.blazordata.net) · [Watch the walk-thru video](https://www.youtube.com/watch?v=ul7kECpAOwc)
+> **Just want it running in Azure?** [BlazorData.net](https://deploy.blazordata.net) installs Blazor Data Orchestrator into your own Azure subscription in minutes, from your browser, with nothing on this page to install: no .NET SDK, no Docker, no `azd`. Updates are one click. [Deploy now](https://deploy.blazordata.net) · [Watch the walk-thru video](https://www.youtube.com/watch?v=mMcOTeI-p3Q)
 
 ---
 
