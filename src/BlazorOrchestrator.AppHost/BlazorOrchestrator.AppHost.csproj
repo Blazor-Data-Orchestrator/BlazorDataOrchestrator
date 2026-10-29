@@ -16,6 +16,9 @@
     <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.5.4" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.0" />
+    <!-- Override vulnerable transitive versions (GHSA-qhrr-8q5h-9q3h, GHSA-846f-f764-76mx). -->
+    <PackageReference Include="MessagePack" Version="2.5.303" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BlazorOrchestrator.Web\BlazorOrchestrator.Web.csproj" />
