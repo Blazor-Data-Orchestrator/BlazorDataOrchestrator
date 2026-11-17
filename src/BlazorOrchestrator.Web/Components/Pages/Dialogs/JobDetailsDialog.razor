@@ -511,15 +511,16 @@ Content-Type: application/json
                                 }
                             </RadzenStack>
                         }
-
-                        @* AppSettings Editor Info (visible when editing JSON files) *@
-                        @if (codeEditMode == CodeEditMode.Editor && selectedCodeFile?.EndsWith(".json") == true)
-                        {
-                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Size="AlertSize.Small">
-                                Edit the appsettings file to configure your job's runtime settings.
-                            </RadzenAlert>
-                        }
                     </RadzenStack>
+
+                    @* AppSettings Editor Info (visible when editing JSON files). Kept outside the fixed-height
+                       stack so it doesn't shrink the Monaco host and clip the horizontal scrollbar. *@
+                    @if (codeEditMode == CodeEditMode.Editor && selectedCodeFile?.EndsWith(".json") == true)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false" Size="AlertSize.Small">
+                            Edit the appsettings file to configure your job's runtime settings.
+                        </RadzenAlert>
+                    }
                     }
                 </RadzenTabsItem>
             </Tabs>
